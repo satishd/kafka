@@ -671,6 +671,7 @@ class Log(@volatile var dir: File,
                 // we record the original message set size instead of the trimmed size
                 // to be consistent with pre-compression bytesRejectedRate recording
                 brokerTopicStats.topicStats(topicPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
+                brokerTopicStats.topicStats(topicPartition.topic, topicPartition.partition()).bytesRejectedRate.mark(records.sizeInBytes)
                 brokerTopicStats.allTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
                 throw new RecordTooLargeException("Message batch size is %d bytes which exceeds the maximum configured size of %d."
                   .format(batch.sizeInBytes, config.maxMessageSize))
@@ -874,6 +875,7 @@ class Log(@volatile var dir: File,
       val batchSize = batch.sizeInBytes
       if (batchSize > config.maxMessageSize) {
         brokerTopicStats.topicStats(topicPartition.topic).bytesRejectedRate.mark(records.sizeInBytes)
+        brokerTopicStats.topicStats(topicPartition.topic, topicPartition.partition()).bytesRejectedRate.mark(records.sizeInBytes)
         brokerTopicStats.allTopicsStats.bytesRejectedRate.mark(records.sizeInBytes)
         throw new RecordTooLargeException(s"The record batch size is $batchSize bytes which exceeds the maximum configured " +
           s"value of ${config.maxMessageSize}.")

@@ -557,7 +557,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           val response = new FetchResponse(convertedData, bandwidthThrottleTimeMs + requestThrottleTimeMs)
           response.responseData.asScala.foreach { case (topicPartition, data) =>
             // record the bytes out metrics only when the response is being sent
-            brokerTopicStats.updateBytesOut(topicPartition.topic, fetchRequest.isFromFollower, data.records.sizeInBytes)
+            brokerTopicStats.updateBytesOut(topicPartition, fetchRequest.isFromFollower, data.records.sizeInBytes)
           }
           response
         }
@@ -2007,9 +2007,11 @@ class KafkaApis(val requestChannel: RequestChannel,
       request.header.apiKey match {
         case ApiKeys.PRODUCE =>
           brokerTopicStats.topicStats(tp.topic).produceMessageConversionsRate.mark(conversionCount)
+          brokerTopicStats.topicStats(tp.topic, tp.partition()).produceMessageConversionsRate.mark(conversionCount)
           brokerTopicStats.allTopicsStats.produceMessageConversionsRate.mark(conversionCount)
         case ApiKeys.FETCH =>
           brokerTopicStats.topicStats(tp.topic).fetchMessageConversionsRate.mark(conversionCount)
+          brokerTopicStats.topicStats(tp.topic, tp.partition()).fetchMessageConversionsRate.mark(conversionCount)
           brokerTopicStats.allTopicsStats.fetchMessageConversionsRate.mark(conversionCount)
         case _ =>
           throw new IllegalStateException("Message conversion info is recorded only for Produce/Fetch requests")

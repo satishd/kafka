@@ -23,6 +23,7 @@ import kafka.metrics.KafkaMetricsGroup
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 import com.yammer.metrics.core.Meter
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.internals.FatalExitError
 import org.apache.kafka.common.utils.{KafkaThread, Time}
 
@@ -109,10 +110,13 @@ class KafkaRequestHandlerPool(val brokerId: Int,
   }
 }
 
-class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
-  val tags: scala.collection.Map[String, String] = name match {
+class BrokerTopicMetrics(topicName: Option[String], partition: Option[String] = None) extends KafkaMetricsGroup {
+  val tags: scala.collection.Map[String, String] = topicName match {
     case None => Map.empty
-    case Some(topic) => Map("topic" -> topic)
+    case Some(topic) => {
+    if(partition.isEmpty) Map("topic" -> topic)
+    else Map("topic" -> topic, "partition" -> partition.get)
+    }
   }
 
   val messagesInRate = newMeter(BrokerTopicStats.MessagesInPerSec, "messages", TimeUnit.SECONDS, tags)
@@ -120,10 +124,10 @@ class BrokerTopicMetrics(name: Option[String]) extends KafkaMetricsGroup {
   val bytesOutRate = newMeter(BrokerTopicStats.BytesOutPerSec, "bytes", TimeUnit.SECONDS, tags)
   val bytesRejectedRate = newMeter(BrokerTopicStats.BytesRejectedPerSec, "bytes", TimeUnit.SECONDS, tags)
   private[server] val replicationBytesInRate =
-    if (name.isEmpty) Some(newMeter(BrokerTopicStats.ReplicationBytesInPerSec, "bytes", TimeUnit.SECONDS, tags))
+    if (topicName.isEmpty) Some(newMeter(BrokerTopicStats.ReplicationBytesInPerSec, "bytes", TimeUnit.SECONDS, tags))
     else None
   private[server] val replicationBytesOutRate =
-    if (name.isEmpty) Some(newMeter(BrokerTopicStats.ReplicationBytesOutPerSec, "bytes", TimeUnit.SECONDS, tags))
+    if (topicName.isEmpty) Some(newMeter(BrokerTopicStats.ReplicationBytesOutPerSec, "bytes", TimeUnit.SECONDS, tags))
     else None
   val failedProduceRequestRate = newMeter(BrokerTopicStats.FailedProduceRequestsPerSec, "requests", TimeUnit.SECONDS, tags)
   val failedFetchRequestRate = newMeter(BrokerTopicStats.FailedFetchRequestsPerSec, "requests", TimeUnit.SECONDS, tags)
@@ -164,16 +168,22 @@ object BrokerTopicStats {
   val FetchMessageConversionsPerSec = "FetchMessageConversionsPerSec"
   val ProduceMessageConversionsPerSec = "ProduceMessageConversionsPerSec"
   private val valueFactory = (k: String) => new BrokerTopicMetrics(Some(k))
+  private val topicPartitionValueFactory = (k: (String, Integer)) => new BrokerTopicMetrics(Some(k._1), Some(k._2.toString))
 }
 
 class BrokerTopicStats {
   import BrokerTopicStats._
 
-  private val stats = new Pool[String, BrokerTopicMetrics](Some(valueFactory))
+  private val topicStats = new Pool[String, BrokerTopicMetrics](Some(valueFactory))
+  private val topicPartitionStats = new Pool[(String, Integer), BrokerTopicMetrics](Some(topicPartitionValueFactory))
   val allTopicsStats = new BrokerTopicMetrics(None)
 
-  def topicStats(topic: String): BrokerTopicMetrics =
-    stats.getAndMaybePut(topic)
+  def topicStats(topic: String, partition: Integer = null): BrokerTopicMetrics = {
+    if(partition != null)
+      topicPartitionStats.getAndMaybePut((topic, partition))
+    else
+      topicStats.getAndMaybePut(topic)
+  }
 
   def updateReplicationBytesIn(value: Long) {
     allTopicsStats.replicationBytesInRate.foreach { metric =>
@@ -188,16 +198,17 @@ class BrokerTopicStats {
   }
 
   def removeMetrics(topic: String) {
-    val metrics = stats.remove(topic)
+    val metrics = topicStats.remove(topic)
     if (metrics != null)
       metrics.close()
   }
 
-  def updateBytesOut(topic: String, isFollower: Boolean, value: Long) {
+  def updateBytesOut(topicPartition: TopicPartition, isFollower: Boolean, value: Long) {
     if (isFollower) {
       updateReplicationBytesOut(value)
     } else {
-      topicStats(topic).bytesOutRate.mark(value)
+      topicStats(topicPartition.topic()).bytesOutRate.mark(value)
+      topicStats(topicPartition.topic(), topicPartition.partition).bytesOutRate.mark(value)
       allTopicsStats.bytesOutRate.mark(value)
     }
   }
@@ -205,7 +216,7 @@ class BrokerTopicStats {
 
   def close(): Unit = {
     allTopicsStats.close()
-    stats.values.foreach(_.close())
+    topicStats.values.foreach(_.close())
   }
 
 }
