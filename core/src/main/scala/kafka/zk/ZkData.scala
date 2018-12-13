@@ -700,6 +700,7 @@ object DelegationTokenChangeNotificationSequenceZNode {
 
 object DelegationTokensZNode {
   def path = s"${DelegationTokenAuthZNode.path}/tokens"
+  def masterKeyPath = s"${DelegationTokenAuthZNode.path}/master_key"
 }
 
 object DelegationTokenInfoZNode {
@@ -738,7 +739,8 @@ object ZkData {
   val SensitiveRootPaths = Seq(
     ConfigEntityTypeZNode.path(ConfigType.User),
     ConfigEntityTypeZNode.path(ConfigType.Broker),
-    DelegationTokensZNode.path
+    DelegationTokensZNode.path,
+    DelegationTokensZNode.masterKeyPath
   )
 
   def sensitivePath(path: String): Boolean = {

@@ -29,11 +29,11 @@ import kafka.security.auth.{Acl, Resource, ResourceType}
 import kafka.server.ConfigType
 import kafka.utils.Logging
 import kafka.zookeeper._
-import org.apache.kafka.common.{KafkaException, TopicPartition}
-import org.apache.kafka.common.resource.PatternType
 import org.apache.kafka.common.errors.ControllerMovedException
+import org.apache.kafka.common.resource.PatternType
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
 import org.apache.kafka.common.utils.{Time, Utils}
+import org.apache.kafka.common.{KafkaException, TopicPartition}
 import org.apache.zookeeper.KeeperException.{Code, NodeExistsException}
 import org.apache.zookeeper.OpResult.{CreateResult, ErrorResult, SetDataResult}
 import org.apache.zookeeper.data.{ACL, Stat}
@@ -1275,6 +1275,41 @@ class KafkaZkClient private[zk] (zooKeeperClient: ZooKeeperClient, isSecure: Boo
   def createDelegationTokenPaths(): Unit = {
     createRecursive(DelegationTokenChangeNotificationZNode.path, throwIfPathExists = false)
     createRecursive(DelegationTokensZNode.path, throwIfPathExists = false)
+  }
+
+  def createOrGetDelegationTokenMasterKey(masterKey: String) : Array[Byte] = {
+
+    def get() = {
+      val getDataRequest = GetDataRequest(DelegationTokensZNode.masterKeyPath)
+      val getDataResponse = retryRequestUntilConnected(getDataRequest)
+      getDataResponse.resultCode match {
+        case Code.OK => getDataResponse.data
+        case _ => throw getDataResponse.resultException.get
+      }
+    }
+
+    val masterKeyData = masterKey.getBytes("UTF-8")
+    val createRequest = CreateRequest(DelegationTokensZNode.masterKeyPath, masterKeyData, defaultAcls(DelegationTokensZNode.masterKeyPath), CreateMode.PERSISTENT)
+    val createResponse = retryRequestUntilConnected(createRequest)
+
+    createResponse.resultCode match {
+      case Code.OK => masterKeyData
+      case Code.NODEEXISTS => get()
+      case _ => throw createResponse.resultException.get
+    }
+  }
+
+  /**
+   * Returns master key for delegation token mechanism
+   */
+  def getDelegationTokenMasterKey(): Option[Array[Byte]] = {
+    val getDataRequest = GetDataRequest(DelegationTokensZNode.masterKeyPath)
+    val getDataResponse = retryRequestUntilConnected(getDataRequest)
+    getDataResponse.resultCode match {
+      case Code.OK => Some(getDataResponse.data)
+      case Code.NONODE => None
+      case _ => throw getDataResponse.resultException.get
+    }
   }
 
   /**

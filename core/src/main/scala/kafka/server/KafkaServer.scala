@@ -35,6 +35,7 @@ import kafka.metrics.{KafkaMetricsGroup, KafkaMetricsReporter}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
 import kafka.security.auth.Authorizer
+import kafka.security.token.delegation.ZkTokenStorageManager
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
@@ -260,7 +261,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         checkpointBrokerId(config.brokerId)
 
         /* start token manager */
-        tokenManager = new DelegationTokenManager(config, tokenCache, time , zkClient)
+        // todo load from confg with the class name
+        val tokenStorageManager = new ZkTokenStorageManager(zkClient, config.delegationTokenMasterKey.value())
+        tokenManager = new DelegationTokenManager(config, tokenCache, time , tokenStorageManager)
         tokenManager.startup()
 
         /* start kafka controller */

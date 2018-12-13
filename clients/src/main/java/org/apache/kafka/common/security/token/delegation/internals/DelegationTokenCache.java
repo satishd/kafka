@@ -66,7 +66,7 @@ public class DelegationTokenCache {
 
     public void removeCache(String tokenId) {
         removeToken(tokenId);
-        updateCredentials(tokenId, new HashMap<String, ScramCredential>());
+        updateCredentials(tokenId, new HashMap<>());
     }
 
     public TokenInformation tokenForHmac(String base64hmac) {
