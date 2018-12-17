@@ -33,7 +33,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.security.scram.internals.{ScramFormatter, ScramMechanism}
 import org.apache.kafka.common.security.scram.ScramCredential
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
-import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
+import org.apache.kafka.common.security.token.delegation.{DelegationToken, IDelegationTokenManager, TokenInformation}
 import org.apache.kafka.common.utils.{Sanitizer, SecurityUtils, Time}
 
 import scala.collection.JavaConverters._
@@ -235,6 +235,7 @@ class DelegationTokenManager(val config: KafkaConfig,
     val scramCredentialMap =  prepareScramCredentials(hmacString)
     tokenCache.updateCache(token, scramCredentialMap.asJava)
   }
+
   /**
    * @param hmacString
    */
