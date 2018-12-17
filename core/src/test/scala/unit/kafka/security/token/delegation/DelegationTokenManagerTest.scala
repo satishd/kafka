@@ -19,7 +19,7 @@ package kafka.security.token.delegation
 
 import java.net.InetAddress
 import java.nio.ByteBuffer
-import java.util.Properties
+import java.util.{Base64, Properties}
 
 import kafka.network.RequestChannel.Session
 import kafka.security.auth.Acl.WildCardHost
@@ -170,23 +170,49 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
     tokenManager.expireToken(owner, ByteBuffer.wrap("test".getBytes), -1 , renewResponseCallback)
     assertEquals(Errors.DELEGATION_TOKEN_NOT_FOUND, error)
 
+    val passwordBytes = ByteBuffer.wrap(password)
+
     //try expire non-owned tokens
     val unknownOwner = SecurityUtils.parseKafkaPrincipal("User:Unknown")
-    tokenManager.expireToken(unknownOwner, ByteBuffer.wrap(password), -1 , renewResponseCallback)
+    tokenManager.expireToken(unknownOwner, passwordBytes, -1 , renewResponseCallback)
     assertEquals(Errors.DELEGATION_TOKEN_OWNER_MISMATCH, error)
 
     //try expire token at a timestamp
     time.sleep(24 * 60 * 60 * 1000L)
     val expectedExpiryStamp = time.milliseconds + 2 * 60 * 60 * 1000L
-    tokenManager.expireToken(owner, ByteBuffer.wrap(password), 2 * 60 * 60 * 1000L, renewResponseCallback)
+    tokenManager.expireToken(owner, passwordBytes, 2 * 60 * 60 * 1000L, renewResponseCallback)
     assertEquals(expectedExpiryStamp, expiryTimeStamp)
 
     //try expire token immediately
     time.sleep(1 * 60 * 60 * 1000L)
-    tokenManager.expireToken(owner, ByteBuffer.wrap(password), -1, renewResponseCallback)
+    tokenManager.expireToken(owner, passwordBytes, -1, renewResponseCallback)
     assert(tokenManager.getToken(tokenId).isEmpty)
     assertEquals(Errors.NONE, error)
     assertEquals(time.milliseconds, expiryTimeStamp)
+  }
+
+  @Test
+  def testRemoveTokenHmac():Unit = {
+    val config = KafkaConfig.fromProps(props)
+    val tokenManager = createDelegationTokenManager(config, tokenCache, time, zkClient)
+    tokenManager.startup
+
+    tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
+    val issueTime = time.milliseconds
+    val tokenId = createTokenResult.tokenId
+    val password = DelegationTokenManager.createHmac(tokenId, masterKey)
+    assertEquals(CreateTokenResult(issueTime, issueTime + renewTimeMsDefault,  issueTime + maxLifeTimeMsDefault, tokenId, password, Errors.NONE), createTokenResult)
+
+    // expire the token immediately
+    tokenManager.expireToken(owner, ByteBuffer.wrap(password), -1, renewResponseCallback)
+
+    val encodedHmac = Base64.getEncoder.encodeToString(password)
+    // check entry in hmac cache is removed for the expired tokenId.
+    val tokenInformation = tokenManager.tokenCache.tokenIdForHmac(encodedHmac)
+    assertNull(tokenInformation)
+
+    //check that the token is removed
+    assert(tokenManager.getToken(tokenId).isEmpty)
   }
 
   @Test
