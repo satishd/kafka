@@ -45,16 +45,17 @@ import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.security.scram.internals.ScramServerCallbackHandler;
 import org.apache.kafka.common.security.ssl.SslFactory;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
+import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager;
 import org.apache.kafka.common.utils.Java;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.security.auth.Subject;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.io.IOException;
 import java.net.Socket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
@@ -64,8 +65,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-
-import javax.security.auth.Subject;
 
 public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurable {
     private static final Logger log = LoggerFactory.getLogger(SaslChannelBuilder.class);
@@ -78,7 +77,7 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
     private final Map<String, JaasContext> jaasContexts;
     private final boolean handshakeRequestEnable;
     private final CredentialCache credentialCache;
-    private final DelegationTokenCache tokenCache;
+    private final IDelegationTokenManager tokenManager;
     private final Map<String, LoginManager> loginManagers;
     private final Map<String, Subject> subjects;
 
@@ -97,7 +96,7 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
                               String clientSaslMechanism,
                               boolean handshakeRequestEnable,
                               CredentialCache credentialCache,
-                              DelegationTokenCache tokenCache,
+                              IDelegationTokenManager tokenManager,
                               Time time) {
         this.mode = mode;
         this.jaasContexts = jaasContexts;
@@ -109,7 +108,7 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
         this.handshakeRequestEnable = handshakeRequestEnable;
         this.clientSaslMechanism = clientSaslMechanism;
         this.credentialCache = credentialCache;
-        this.tokenCache = tokenCache;
+        this.tokenManager = tokenManager;
         this.saslCallbackHandlers = new HashMap<>();
         this.connectionsMaxReauthMsByMechanism = new HashMap<>();
         this.time = time;
@@ -302,7 +301,7 @@ public class SaslChannelBuilder implements ChannelBuilder, ListenerReconfigurabl
             else if (mechanism.equals(PlainSaslServer.PLAIN_MECHANISM))
                 callbackHandler = new PlainServerCallbackHandler();
             else if (ScramMechanism.isScram(mechanism))
-                callbackHandler = new ScramServerCallbackHandler(credentialCache.cache(mechanism, ScramCredential.class), tokenCache);
+                callbackHandler = new ScramServerCallbackHandler(credentialCache.cache(mechanism, ScramCredential.class), tokenManager);
             else if (mechanism.equals(OAuthBearerLoginModule.OAUTHBEARER_MECHANISM))
                 callbackHandler = new OAuthBearerUnsecuredValidatorCallbackHandler();
             else

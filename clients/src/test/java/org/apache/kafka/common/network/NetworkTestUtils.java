@@ -16,6 +16,16 @@
  */
 package org.apache.kafka.common.network;
 
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.security.token.delegation.DefaultDelegationTokenManager;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
+import org.apache.kafka.common.security.authenticator.CredentialCache;
+import org.apache.kafka.common.utils.LogContext;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.test.TestUtils;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -23,16 +33,6 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-
-import org.apache.kafka.common.config.AbstractConfig;
-import org.apache.kafka.common.metrics.Metrics;
-import org.apache.kafka.common.security.auth.SecurityProtocol;
-import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.security.authenticator.CredentialCache;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
-import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.test.TestUtils;
 
 /**
  * Common utility functions used by transport layer and authenticator tests.
@@ -54,9 +54,9 @@ public class NetworkTestUtils {
 
     public static NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
             AbstractConfig serverConfig, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache) throws Exception {
+            int failedAuthenticationDelayMs, Time time, DefaultDelegationTokenManager tokenManager) throws Exception {
         NioEchoServer server = new NioEchoServer(listenerName, securityProtocol, serverConfig, "localhost",
-                null, credentialCache, failedAuthenticationDelayMs, time, tokenCache);
+                null, credentialCache, failedAuthenticationDelayMs, time, tokenManager);
         server.start();
         return server;
     }

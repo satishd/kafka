@@ -37,14 +37,14 @@ import kafka.security.CredentialProvider
 import kafka.security.auth.Authorizer
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
-import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
+import org.apache.kafka.clients._
 import org.apache.kafka.common.internals.ClusterResourceListeners
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, _}
 import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
+import org.apache.kafka.common.security.token.delegation.{DelegationTokenManagerConfig, IDelegationTokenManager}
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Node}
@@ -126,12 +126,11 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
   var replicaManager: ReplicaManager = null
   var adminManager: AdminManager = null
-  var tokenManager: DelegationTokenManager = null
+  var tokenManager: IDelegationTokenManager = null
 
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
   var dynamicConfigManager: DynamicConfigManager = null
   var credentialProvider: CredentialProvider = null
-  var tokenCache: DelegationTokenCache = null
 
   var groupCoordinator: GroupCoordinator = null
 
@@ -243,13 +242,20 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         metadataCache = new MetadataCache(config.brokerId)
         // Enable delegation token cache for all SCRAM mechanisms to simplify dynamic update.
         // This keeps the cache up-to-date if new SCRAM mechanisms are enabled dynamically.
-        tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
-        credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames, tokenCache)
+
+        credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames)
+
+        /* start token manager */
+        //todo-satish this should have been done by getting config.delegationTokenManagerClass and instantiating that class.
+        tokenManager = new DelegationTokenManager(config, time , zkClient)
+        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
+          config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs,
+          config.tokenAuthEnabled, config.delegationTokenStorageManagerClass, config.delegationTokenManagerClass))
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
-        socketServer = new SocketServer(config, metrics, time, credentialProvider)
+        socketServer = new SocketServer(config, metrics, time, credentialProvider, tokenManager)
         socketServer.startup(startupProcessors = false)
 
         /* start replica manager */
@@ -261,10 +267,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         // Now that the broker id is successfully registered, checkpoint it
         checkpointBrokerId(config.brokerId)
-
-        /* start token manager */
-        tokenManager = new DelegationTokenManager(config, tokenCache, time , zkClient)
-        tokenManager.startup()
 
         /* start kafka controller */
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, threadNamePrefix)

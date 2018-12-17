@@ -17,16 +17,15 @@
 package org.apache.kafka.common.security.scram.internals;
 
 
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-
 import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
-
 import org.junit.Before;
 import org.junit.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+
 import static org.junit.Assert.assertTrue;
 
 public class ScramSaslServerTest {
@@ -45,7 +44,8 @@ public class ScramSaslServerTest {
         CredentialCache.Cache<ScramCredential> credentialCache = new CredentialCache().createCache(mechanism.mechanismName(), ScramCredential.class);
         credentialCache.put(USER_A, formatter.generateCredential("passwordA", 4096));
         credentialCache.put(USER_B, formatter.generateCredential("passwordB", 4096));
-        ScramServerCallbackHandler callbackHandler = new ScramServerCallbackHandler(credentialCache, new DelegationTokenCache(ScramMechanism.mechanismNames()));
+        //todo replace cache with mock delegationTokenManager
+        ScramServerCallbackHandler callbackHandler = new ScramServerCallbackHandler(credentialCache, null);
         saslServer = new ScramSaslServer(mechanism, new HashMap<String, Object>(), callbackHandler);
     }
 

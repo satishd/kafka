@@ -20,7 +20,9 @@ package kafka.server
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.InvalidKeyException
-import java.util.Base64
+import java.util.function.Predicate
+import java.util.{Base64, Optional}
+import java.{lang, util}
 
 import javax.crypto.spec.SecretKeySpec
 import javax.crypto.{Mac, SecretKey}
@@ -30,10 +32,11 @@ import kafka.utils.{CoreUtils, Json, Logging}
 import kafka.zk.{DelegationTokenChangeNotificationSequenceZNode, DelegationTokenChangeNotificationZNode, DelegationTokensZNode, KafkaZkClient}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.security.auth.KafkaPrincipal
-import org.apache.kafka.common.security.scram.internals.{ScramFormatter, ScramMechanism}
 import org.apache.kafka.common.security.scram.ScramCredential
+import org.apache.kafka.common.security.scram.internals.{ScramFormatter, ScramMechanism}
+import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager.TokenOperationResult
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
-import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
+import org.apache.kafka.common.security.token.delegation._
 import org.apache.kafka.common.utils.{Sanitizer, SecurityUtils, Time}
 
 import scala.collection.JavaConverters._
@@ -158,9 +161,8 @@ object DelegationTokenManager {
 }
 
 class DelegationTokenManager(val config: KafkaConfig,
-                             val tokenCache: DelegationTokenCache,
                              val time: Time,
-                             val zkClient: KafkaZkClient) extends Logging with KafkaMetricsGroup {
+                             val zkClient: KafkaZkClient) extends Logging with KafkaMetricsGroup with IDelegationTokenManager {
   this.logIdent = s"[Token Manager on Broker ${config.brokerId}]: "
 
   import DelegationTokenManager._
@@ -169,6 +171,8 @@ class DelegationTokenManager(val config: KafkaConfig,
   type RenewResponseCallback = (Errors, Long) => Unit
   type ExpireResponseCallback = (Errors, Long) => Unit
   type DescribeResponseCallback = (Errors, List[DelegationToken]) => Unit
+
+  val tokenCache:DelegationTokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
 
   val secretKey = {
     val keyBytes =  if (config.tokenAuthEnabled) config.delegationTokenMasterKey.value.getBytes(StandardCharsets.UTF_8) else null
@@ -183,7 +187,7 @@ class DelegationTokenManager(val config: KafkaConfig,
   private val lock = new Object()
   private var tokenChangeListener: ZkNodeChangeNotificationListener = null
 
-  def startup() = {
+  def init(config: DelegationTokenManagerConfig): Unit = {
     if (config.tokenAuthEnabled) {
       zkClient.createDelegationTokenPaths
       loadCache
@@ -231,10 +235,9 @@ class DelegationTokenManager(val config: KafkaConfig,
    * @param token
    */
   private def updateCache(token: DelegationToken): Unit = {
-    val hmacString = token.hmacAsBase64String
-    val scramCredentialMap =  prepareScramCredentials(hmacString)
-    tokenCache.updateCache(token, scramCredentialMap.asJava)
+    tokenCache.updateCache(token)
   }
+
   /**
    * @param hmacString
    */
@@ -487,6 +490,80 @@ class DelegationTokenManager(val config: KafkaConfig,
         }
       }
     }
+  }
+
+  /**
+    * @param owner
+    * @param renewers
+    * @param maxLifeTimeMs
+    * @return
+    */
+  override def createDelegationToken(owner: KafkaPrincipal, renewers: util.List[KafkaPrincipal], maxLifeTimeMs: lang.Long): CreateDelegationTokenResult = {
+    var result:CreateDelegationTokenResult = null
+    def sendResponseCallback(createResult: CreateTokenResult): Unit = {
+      result = new CreateDelegationTokenResult(createResult.issueTimestamp, createResult.expiryTimestamp,
+        createResult.maxTimestamp, createResult.tokenId, createResult.hmac, createResult.error)
+    }
+
+    createToken(owner, renewers.asScala.toList, maxLifeTimeMs, sendResponseCallback)
+
+    result
+  }
+
+  /**
+    * @param principal
+    * @param hmac
+    * @param renewLifeTimeMs
+    * @return
+    */
+  override def renewDelegationToken(principal: KafkaPrincipal, hmac: ByteBuffer, renewLifeTimeMs: lang.Long): IDelegationTokenManager.TokenOperationResult = {
+    var result:TokenOperationResult = null
+    def renewCallback(error:Errors, timestamp:Long): Unit = {
+      result = new TokenOperationResult(error, timestamp)
+    }
+
+    renewToken(principal, hmac, renewLifeTimeMs, renewCallback)
+    result
+  }
+
+  /**
+    * Expire the token associated with given hmac.
+    *
+    * @param principal
+    * @param hmac
+    * @param expireLifeTimeMs
+    * @return
+    */
+  override def expireDelegationToken(principal: KafkaPrincipal, hmac: ByteBuffer, expireLifeTimeMs: lang.Long): IDelegationTokenManager.TokenOperationResult = {
+    var result:TokenOperationResult = null
+    def renewCallback(error:Errors, timestamp:Long): Unit = {
+      result = new TokenOperationResult(error, timestamp)
+    }
+
+    expireToken(principal, hmac, expireLifeTimeMs, renewCallback)
+    result
+
+  }
+
+  /**
+    * @param predicate
+    * @return
+    */
+  override def getDelegationTokens(predicate: Predicate[TokenInformation]): util.List[DelegationToken] = {
+    getTokens(token => predicate.test(token)).asJava
+  }
+
+  /**
+    * @param mechanism
+    * @param tokenId
+    * @return
+    */
+  override def credential(mechanism: String, tokenId: String): Optional[ScramCredential] = {
+    Optional.ofNullable(tokenCache.credential(mechanism, tokenId))
+  }
+
+  def getDelegationToken(tokenId: String): Optional[DelegationToken] = {
+    Optional.ofNullable(getToken(tokenId).orNull)
   }
 
 }
