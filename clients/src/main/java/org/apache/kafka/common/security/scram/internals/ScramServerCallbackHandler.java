@@ -16,32 +16,31 @@
  */
 package org.apache.kafka.common.security.scram.internals;
 
-import java.util.List;
-import java.util.Map;
+import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
+import org.apache.kafka.common.security.authenticator.CredentialCache;
+import org.apache.kafka.common.security.scram.ScramCredential;
+import org.apache.kafka.common.security.scram.ScramCredentialCallback;
+import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager;
+import org.apache.kafka.common.security.token.delegation.TokenInformation;
+import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCredentialCallback;
 
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.NameCallback;
 import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.AppConfigurationEntry;
-
-import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
-import org.apache.kafka.common.security.authenticator.CredentialCache;
-import org.apache.kafka.common.security.scram.ScramCredential;
-import org.apache.kafka.common.security.scram.ScramCredentialCallback;
-import org.apache.kafka.common.security.token.delegation.TokenInformation;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCredentialCallback;
+import java.util.List;
+import java.util.Map;
 
 public class ScramServerCallbackHandler implements AuthenticateCallbackHandler {
 
     private final CredentialCache.Cache<ScramCredential> credentialCache;
-    private final DelegationTokenCache tokenCache;
+    private final IDelegationTokenManager tokenManager;
     private String saslMechanism;
 
     public ScramServerCallbackHandler(CredentialCache.Cache<ScramCredential> credentialCache,
-                                      DelegationTokenCache tokenCache) {
+                                      IDelegationTokenManager tokenManager) {
         this.credentialCache = credentialCache;
-        this.tokenCache = tokenCache;
+        this.tokenManager = tokenManager;
     }
 
     @Override
@@ -57,11 +56,16 @@ public class ScramServerCallbackHandler implements AuthenticateCallbackHandler {
                 username = ((NameCallback) callback).getDefaultName();
             else if (callback instanceof DelegationTokenCredentialCallback) {
                 DelegationTokenCredentialCallback tokenCallback = (DelegationTokenCredentialCallback) callback;
-                tokenCallback.scramCredential(tokenCache.credential(saslMechanism, username));
-                tokenCallback.tokenOwner(tokenCache.owner(username));
-                TokenInformation tokenInfo = tokenCache.token(username);
-                if (tokenInfo != null)
-                    tokenCallback.tokenExpiryTimestamp(tokenInfo.expiryTimestamp());
+
+                tokenManager.credential(saslMechanism, username)
+                            .ifPresent(scramCredential -> tokenCallback.scramCredential(scramCredential));
+
+                tokenManager.getDelegationToken(username)
+                            .ifPresent(delegationToken -> {
+                                TokenInformation tokenInformation = delegationToken.tokenInfo();
+                                tokenCallback.tokenOwner(tokenInformation.owner().getName());
+                                tokenCallback.tokenExpiryTimestamp(tokenInformation.expiryTimestamp());
+                            });
             } else if (callback instanceof ScramCredentialCallback) {
                 ScramCredentialCallback sc = (ScramCredentialCallback) callback;
                 sc.scramCredential(credentialCache.get(username));

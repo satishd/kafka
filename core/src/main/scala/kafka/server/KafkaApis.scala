@@ -60,7 +60,7 @@ import org.apache.kafka.common.requests._
 import org.apache.kafka.common.resource.PatternType.LITERAL
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
-import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
+import org.apache.kafka.common.security.token.delegation.{CreateDelegationTokenResult, DelegationToken, IDelegationTokenManager, TokenInformation}
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.common.{Node, TopicPartition}
 
@@ -89,7 +89,7 @@ class KafkaApis(val requestChannel: RequestChannel,
                 brokerTopicStats: BrokerTopicStats,
                 val clusterId: String,
                 time: Time,
-                val tokenManager: DelegationTokenManager) extends Logging {
+                val tokenManager: IDelegationTokenManager) extends Logging {
 
   type FetchResponseStats = Map[TopicPartition, RecordConversionStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
@@ -2123,7 +2123,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val createTokenRequest = request.body[CreateDelegationTokenRequest]
 
     // the callback for sending a create token response
-    def sendResponseCallback(createResult: CreateTokenResult) {
+    def sendResponseCallback(createResult: CreateDelegationTokenResult) {
       trace("Sending create token response for correlation id %d to client %s."
         .format(request.header.correlationId, request.header.clientId))
       sendResponseMaybeThrottle(request, requestThrottleMs =>
@@ -2142,12 +2142,12 @@ class KafkaApis(val requestChannel: RequestChannel,
           new CreateDelegationTokenResponse(requestThrottleMs, Errors.INVALID_PRINCIPAL_TYPE, request.session.principal))
       }
       else {
-        tokenManager.createToken(
+        val result = tokenManager.createDelegationToken(
           request.session.principal,
-          createTokenRequest.renewers().asScala.toList,
-          createTokenRequest.maxLifeTime(),
-          sendResponseCallback
+          createTokenRequest.renewers(),
+          createTokenRequest.maxLifeTime()
         )
+        sendResponseCallback(result)
       }
     }
   }
@@ -2166,12 +2166,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (!allowTokenRequests(request))
       sendResponseCallback(Errors.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED, DelegationTokenManager.ErrorTimestamp)
     else {
-      tokenManager.renewToken(
+      val result = tokenManager.renewDelegationToken(
         request.session.principal,
         renewTokenRequest.hmac,
-        renewTokenRequest.renewTimePeriod(),
-        sendResponseCallback
+        renewTokenRequest.renewTimePeriod()
       )
+      sendResponseCallback(result.getError, result.getTimestamp)
     }
   }
 
@@ -2189,12 +2189,12 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (!allowTokenRequests(request))
       sendResponseCallback(Errors.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED, DelegationTokenManager.ErrorTimestamp)
     else {
-      tokenManager.expireToken(
+      val result = tokenManager.expireDelegationToken(
         request.session.principal,
         expireTokenRequest.hmac(),
         expireTokenRequest.expiryTimePeriod(),
-        sendResponseCallback
       )
+      sendResponseCallback(result.getError, result.getTimestamp)
     }
   }
 
@@ -2202,28 +2202,28 @@ class KafkaApis(val requestChannel: RequestChannel,
     val describeTokenRequest = request.body[DescribeDelegationTokenRequest]
 
     // the callback for sending a describe token response
-    def sendResponseCallback(error: Errors, tokenDetails: List[DelegationToken]) {
+    def sendResponseCallback(error: Errors, tokenDetails: util.List[DelegationToken]) {
       sendResponseMaybeThrottle(request, requestThrottleMs =>
-        new DescribeDelegationTokenResponse(requestThrottleMs, error, tokenDetails.asJava))
+        new DescribeDelegationTokenResponse(requestThrottleMs, error, tokenDetails))
       trace("Sending describe token response for correlation id %d to client %s."
         .format(request.header.correlationId, request.header.clientId))
     }
 
     if (!allowTokenRequests(request))
-      sendResponseCallback(Errors.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED, List.empty)
+      sendResponseCallback(Errors.DELEGATION_TOKEN_REQUEST_NOT_ALLOWED, Collections.emptyList())
     else if (!config.tokenAuthEnabled)
-      sendResponseCallback(Errors.DELEGATION_TOKEN_AUTH_DISABLED, List.empty)
+      sendResponseCallback(Errors.DELEGATION_TOKEN_AUTH_DISABLED, Collections.emptyList())
     else {
       val requestPrincipal = request.session.principal
 
       if (describeTokenRequest.ownersListEmpty()) {
-        sendResponseCallback(Errors.NONE, List())
+        sendResponseCallback(Errors.NONE, Collections.emptyList())
       }
       else {
         val owners = if (describeTokenRequest.owners == null) None else Some(describeTokenRequest.owners.asScala.toList)
         def authorizeToken(tokenId: String) = authorize(request.session, Describe, Resource(kafka.security.auth.DelegationToken, tokenId, LITERAL))
         def eligible(token: TokenInformation) = DelegationTokenManager.filterToken(requestPrincipal, owners, token, authorizeToken)
-        val tokens =  tokenManager.getTokens(eligible)
+        val tokens =  tokenManager.getDelegationTokens(eligible)
         sendResponseCallback(Errors.NONE, tokens)
       }
     }

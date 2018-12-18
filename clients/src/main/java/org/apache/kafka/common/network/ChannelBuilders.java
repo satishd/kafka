@@ -20,14 +20,14 @@ import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
-import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.JaasContext;
-import org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder;
 import org.apache.kafka.common.security.auth.KafkaPrincipalBuilder;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
+import org.apache.kafka.common.security.authenticator.DefaultKafkaPrincipalBuilder;
 import org.apache.kafka.common.security.kerberos.KerberosShortNamer;
 import org.apache.kafka.common.security.ssl.SslPrincipalMapper;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
+import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 
@@ -80,10 +80,10 @@ public class ChannelBuilders {
                                                       SecurityProtocol securityProtocol,
                                                       AbstractConfig config,
                                                       CredentialCache credentialCache,
-                                                      DelegationTokenCache tokenCache,
+                                                      IDelegationTokenManager tokenManager,
                                                       Time time) {
         return create(securityProtocol, Mode.SERVER, JaasContext.Type.SERVER, config, listenerName,
-                isInterBrokerListener, null, true, credentialCache, tokenCache, time);
+                isInterBrokerListener, null, true, credentialCache, tokenManager, time);
     }
 
     private static ChannelBuilder create(SecurityProtocol securityProtocol,
@@ -95,7 +95,7 @@ public class ChannelBuilders {
                                          String clientSaslMechanism,
                                          boolean saslHandshakeRequestEnable,
                                          CredentialCache credentialCache,
-                                         DelegationTokenCache tokenCache,
+                                         IDelegationTokenManager tokenManager,
                                          Time time) {
         Map<String, ?> configs;
         if (listenerName == null)
@@ -133,7 +133,7 @@ public class ChannelBuilders {
                         clientSaslMechanism,
                         saslHandshakeRequestEnable,
                         credentialCache,
-                        tokenCache,
+                        tokenManager,
                         time);
                 break;
             case PLAINTEXT:

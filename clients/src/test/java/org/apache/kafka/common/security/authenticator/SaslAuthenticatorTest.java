@@ -2213,7 +2213,7 @@ public class SaslAuthenticatorTest {
                 String clientSaslMechanism, boolean handshakeRequestEnable, CredentialCache credentialCache,
                 DelegationTokenCache tokenCache, Time time) {
             super(mode, jaasContexts, securityProtocol, listenerName, isInterBrokerListener, clientSaslMechanism,
-                    handshakeRequestEnable, credentialCache, tokenCache, time);
+                    handshakeRequestEnable, credentialCache, null, time);
         }
 
         @Override

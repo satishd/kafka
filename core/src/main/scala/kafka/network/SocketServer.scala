@@ -19,8 +19,7 @@ package kafka.network
 
 import java.io.IOException
 import java.net._
-import java.nio.channels._
-import java.nio.channels.{Selector => NSelector}
+import java.nio.channels.{Selector => NSelector, _}
 import java.util.concurrent._
 import java.util.concurrent.atomic._
 import java.util.function.Supplier
@@ -28,27 +27,27 @@ import java.util.function.Supplier
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.{BrokerEndPoint, EndPoint}
 import kafka.metrics.KafkaMetricsGroup
-import kafka.network.RequestChannel.{CloseConnectionResponse, EndThrottlingResponse, NoOpResponse, SendResponse, StartThrottlingResponse}
 import kafka.network.Processor._
+import kafka.network.RequestChannel.{CloseConnectionResponse, EndThrottlingResponse, NoOpResponse, SendResponse, StartThrottlingResponse, Metrics => _}
 import kafka.network.SocketServer._
 import kafka.security.CredentialProvider
 import kafka.server.KafkaConfig
 import kafka.utils._
-import org.apache.kafka.common.{KafkaException, Reconfigurable}
 import org.apache.kafka.common.memory.{MemoryPool, SimpleMemoryPool}
 import org.apache.kafka.common.metrics._
-import org.apache.kafka.common.metrics.stats.Meter
-import org.apache.kafka.common.metrics.stats.Total
+import org.apache.kafka.common.metrics.stats.{Meter, Total}
 import org.apache.kafka.common.network.KafkaChannel.ChannelMuteEvent
 import org.apache.kafka.common.network.{ChannelBuilder, ChannelBuilders, KafkaChannel, ListenerName, Selectable, Send, Selector => KSelector}
 import org.apache.kafka.common.protocol.ApiKeys
 import org.apache.kafka.common.requests.{RequestContext, RequestHeader}
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager
 import org.apache.kafka.common.utils.{KafkaThread, LogContext, Time}
+import org.apache.kafka.common.{KafkaException, Reconfigurable}
 import org.slf4j.event.Level
 
+import scala.collection.JavaConverters._
 import scala.collection._
-import JavaConverters._
 import scala.collection.mutable.{ArrayBuffer, Buffer}
 import scala.util.control.ControlThrowable
 
@@ -70,7 +69,7 @@ import scala.util.control.ControlThrowable
  *      Acceptor has 1 Processor thread that has its own selector and read requests from the socket.
  *      1 Handler thread that handles requests and produce responses back to the processor thread for writing.
  */
-class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time, val credentialProvider: CredentialProvider) extends Logging with KafkaMetricsGroup {
+class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time, val credentialProvider: CredentialProvider, tokenManager: IDelegationTokenManager) extends Logging with KafkaMetricsGroup {
 
   private val maxQueuedRequests = config.queuedMaxRequests
 
@@ -353,6 +352,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
       config,
       metrics,
       credentialProvider,
+      tokenManager,
       memoryPool,
       logContext
     )
@@ -640,6 +640,7 @@ private[kafka] class Processor(val id: Int,
                                config: KafkaConfig,
                                metrics: Metrics,
                                credentialProvider: CredentialProvider,
+                               tokenManager: IDelegationTokenManager,
                                memoryPool: MemoryPool,
                                logContext: LogContext,
                                connectionQueueSize: Int = ConnectionQueueSize) extends AbstractServerThread(connectionQuotas) with KafkaMetricsGroup {
@@ -690,7 +691,7 @@ private[kafka] class Processor(val id: Int,
       securityProtocol,
       config,
       credentialProvider.credentialCache,
-      credentialProvider.tokenCache,
+      tokenManager,
       time))
   // Visible to override for testing
   protected[network] def createSelector(channelBuilder: ChannelBuilder): KSelector = {

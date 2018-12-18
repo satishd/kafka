@@ -16,8 +16,6 @@
  */
 package org.apache.kafka.common.network;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.kafka.common.MetricName;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.metrics.KafkaMetric;
@@ -27,6 +25,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
@@ -47,7 +46,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
+import static org.junit.Assert.assertEquals;
 
 /**
  * Non-blocking EchoServer implementation that uses ChannelBuilder to create channels
@@ -116,8 +115,9 @@ public class NioEchoServer extends Thread {
                     credentialCache.createCache(mechanism, ScramCredential.class);
             }
         }
+        //todo replace tokencache with tokenManager
         if (channelBuilder == null)
-            channelBuilder = ChannelBuilders.serverChannelBuilder(listenerName, false, securityProtocol, config, credentialCache, tokenCache, time);
+            channelBuilder = ChannelBuilders.serverChannelBuilder(listenerName, false, securityProtocol, config, credentialCache, null, time);
         this.metrics = new Metrics();
         this.selector = new Selector(10000, failedAuthenticationDelayMs, metrics, time, "MetricGroup", channelBuilder, new LogContext());
         acceptorThread = new AcceptorThread();

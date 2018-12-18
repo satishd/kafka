@@ -87,7 +87,7 @@ class DelegationTokenEndToEndAuthorizationTest extends EndToEndAuthorizationTest
     try {
       val token = adminClient.createDelegationToken().delegationToken().get()
       //wait for token to reach all the brokers
-      TestUtils.waitUntilTrue(() => servers.forall(server => !server.tokenCache.tokens().isEmpty),
+      TestUtils.waitUntilTrue(() => servers.forall(server => !server.tokenManager.getDelegationTokens(x => true).isEmpty),
         "Timed out waiting for token to propagate to all servers")
       token
     } finally {

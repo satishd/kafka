@@ -21,46 +21,86 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.scram.ScramCredential;
 
 import java.nio.ByteBuffer;
-import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 public interface IDelegationTokenManager {
 
+    /**
+     * Initialize any resources that are required for this instance.
+     */
     void startup();
 
-    void createToken(KafkaPrincipal owner,
-                     List<KafkaPrincipal> renewers,
-                     Long maxLifeTimeMs,
-                     Consumer<DelegationToken> responseCallback);
+    /**
+     * @param owner
+     * @param renewers
+     * @param maxLifeTimeMs
+     * @return
+     */
+    CreateDelegationTokenResult createDelegationToken(KafkaPrincipal owner,
+                                                      List<KafkaPrincipal> renewers,
+                                                      Long maxLifeTimeMs);
 
-    void renewToken(KafkaPrincipal principal,
-                    ByteBuffer hmac,
-                    Long renewLifeTimeMs,
-                    Consumer<TokenManagerResponse> renewCallback);
+    /**
+     * @param principal
+     * @param hmac
+     * @param renewLifeTimeMs
+     * @return
+     */
+    TokenOperationResult renewDelegationToken(KafkaPrincipal principal,
+                                              ByteBuffer hmac,
+                                              Long renewLifeTimeMs);
 
-    void expireToken(KafkaPrincipal principal,
-                ByteBuffer hmac,
-                Long expireLifeTimeMs,
-                Consumer<TokenManagerResponse> renewCallback);
+    /**
+     * Expire the token associated with given hmac.
+     *
+     * @param principal
+     * @param hmac
+     * @param expireLifeTimeMs
+     * @return
+     */
+    TokenOperationResult expireDelegationToken(KafkaPrincipal principal,
+                                               ByteBuffer hmac,
+                                               Long expireLifeTimeMs);
 
+    /**
+     * Expire all available tokens
+     */
     void expireTokens();
 
-    DelegationToken getToken(String tokenId);
+    /**
+     * Returns None if TokenInfo or DelegationToken does not exist for the given tokenId.
+     *
+     * @param tokenId
+     * @return
+     */
+    Optional<DelegationToken> getDelegationToken(String tokenId);
 
-    Collection<DelegationToken> getTokens(Predicate<String> predicate);
+    /**
+     * @param predicate
+     * @return
+     */
+    List<DelegationToken> getDelegationTokens(Predicate<TokenInformation> predicate);
 
-    ScramCredential credential(String mechanism, String tokenId);
+    /**
+     * @param mechanism
+     * @param tokenId
+     * @return
+     */
+    Optional<ScramCredential> credential(String mechanism, String tokenId);
 
+    /**
+     * Release any system resources associated with this instance.
+     */
     void shutdown();
 
-    class TokenManagerResponse {
+    class TokenOperationResult {
         private Errors error;
         private Long timestamp;
 
-        public TokenManagerResponse(Errors error, Long timestamp) {
+        public TokenOperationResult(Errors error, Long timestamp) {
             this.error = error;
             this.timestamp = timestamp;
         }
@@ -81,7 +121,7 @@ public interface IDelegationTokenManager {
             if (o == null || getClass() != o.getClass()) {
                 return false;
             }
-            TokenManagerResponse that = (TokenManagerResponse) o;
+            TokenOperationResult that = (TokenOperationResult) o;
             return error == that.error &&
                    Objects.equals(timestamp, that.timestamp);
         }
