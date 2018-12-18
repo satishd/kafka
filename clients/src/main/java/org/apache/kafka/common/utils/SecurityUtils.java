@@ -18,7 +18,10 @@ package org.apache.kafka.common.utils;
 
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
-public class SecurityUtils {
+public final class SecurityUtils {
+
+    private SecurityUtils() {
+    }
 
     public static KafkaPrincipal parseKafkaPrincipal(String str) {
         if (str == null || str.isEmpty()) {
