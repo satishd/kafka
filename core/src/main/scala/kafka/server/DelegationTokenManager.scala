@@ -36,7 +36,7 @@ import org.apache.kafka.common.security.scram.ScramCredential
 import org.apache.kafka.common.security.scram.internals.{ScramFormatter, ScramMechanism}
 import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager.TokenOperationResult
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
-import org.apache.kafka.common.security.token.delegation.{CreateDelegationTokenResult, DelegationToken, IDelegationTokenManager, TokenInformation}
+import org.apache.kafka.common.security.token.delegation._
 import org.apache.kafka.common.utils.{Sanitizer, SecurityUtils, Time}
 
 import scala.collection.JavaConverters._
@@ -187,7 +187,7 @@ class DelegationTokenManager(val config: KafkaConfig,
   private val lock = new Object()
   private var tokenChangeListener: ZkNodeChangeNotificationListener = null
 
-  def startup() = {
+  def startup(config: DelegationTokenConfig): Unit = {
     if (config.tokenAuthEnabled) {
       zkClient.createDelegationTokenPaths
       loadCache
@@ -235,9 +235,7 @@ class DelegationTokenManager(val config: KafkaConfig,
    * @param token
    */
   private def updateCache(token: DelegationToken): Unit = {
-    val hmacString = token.hmacAsBase64String
-    val scramCredentialMap =  prepareScramCredentials(hmacString)
-    tokenCache.updateCache(token, scramCredentialMap.asJava)
+    tokenCache.updateCache(token)
   }
 
   /**
@@ -565,7 +563,7 @@ class DelegationTokenManager(val config: KafkaConfig,
   }
 
   def getDelegationToken(tokenId: String): Optional[DelegationToken] = {
-    Optional.ofNullable(getToken(tokenId).get)
+    Optional.ofNullable(getToken(tokenId).orNull)
   }
 
 }

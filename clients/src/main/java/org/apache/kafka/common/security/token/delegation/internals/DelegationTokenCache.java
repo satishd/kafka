@@ -20,10 +20,12 @@ package org.apache.kafka.common.security.token.delegation.internals;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramCredentialUtils;
+import org.apache.kafka.common.security.scram.internals.ScramFormatter;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.security.token.delegation.DelegationToken;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
 
+import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -57,7 +59,25 @@ public class DelegationTokenCache {
         return tokenInfo == null ? null : tokenInfo.owner().getName();
     }
 
-    public void updateCache(DelegationToken token, Map<String, ScramCredential> scramCredentialMap) {
+    private Map<String, ScramCredential> prepareScramCredentials(String hmacString)
+    {
+        Map<String, ScramCredential> scramCredentialMap = new HashMap<>();
+
+        for (ScramMechanism mechanism : ScramMechanism.values()) {
+            try {
+                scramCredentialMap.put(mechanism.mechanismName(),
+                                       new ScramFormatter(mechanism).generateCredential(hmacString, mechanism.minIterations()));
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        return scramCredentialMap;
+    }
+
+    public void updateCache(DelegationToken token) {
+        Map<String, ScramCredential> scramCredentialMap = prepareScramCredentials(token.hmacAsBase64String());
+
         //Update TokenCache
         String tokenId =  token.tokenInfo().tokenId();
         addToken(tokenId, token.tokenInfo());
@@ -68,6 +88,7 @@ public class DelegationTokenCache {
         hmacTokenIdCache.put(hmac, tokenId);
         tokenIdHmacCache.put(tokenId, hmac);
     }
+
 
     public void removeCache(String tokenId) {
         removeToken(tokenId);

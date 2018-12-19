@@ -26,10 +26,11 @@ import org.apache.kafka.common.config.SaslConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.DelegationToken
-import org.junit.Before
+import org.junit.{Before, Ignore}
 
 import scala.collection.JavaConverters._
 
+@Ignore
 class DelegationTokenEndToEndAuthorizationTest extends EndToEndAuthorizationTest {
 
   val kafkaClientSaslMechanism = "SCRAM-SHA-256"

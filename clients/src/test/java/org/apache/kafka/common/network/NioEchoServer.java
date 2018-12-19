@@ -21,11 +21,11 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.ApiKeys;
+import org.apache.kafka.common.security.MockDelegationTokenManager;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.test.TestUtils;
@@ -81,7 +81,7 @@ public class NioEchoServer extends Thread {
     private final Metrics metrics;
     private volatile int numSent = 0;
     private volatile boolean closeKafkaChannels;
-    private final DelegationTokenCache tokenCache;
+    private final MockDelegationTokenManager tokenManager;
     private final Time time;
     
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
@@ -93,12 +93,12 @@ public class NioEchoServer extends Thread {
                          String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
                          int failedAuthenticationDelayMs, Time time) throws Exception {
         this(listenerName, securityProtocol, config, serverHost, channelBuilder, credentialCache, 100, time,
-                new DelegationTokenCache(ScramMechanism.mechanismNames()));
+                new MockDelegationTokenManager(time));
     }
 
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
             String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache) throws Exception {
+            int failedAuthenticationDelayMs, Time time, MockDelegationTokenManager tokenCache) throws Exception {
         super("echoserver");
         setDaemon(true);
         serverSocketChannel = ServerSocketChannel.open();
@@ -108,7 +108,7 @@ public class NioEchoServer extends Thread {
         this.socketChannels = Collections.synchronizedList(new ArrayList<SocketChannel>());
         this.newChannels = Collections.synchronizedList(new ArrayList<SocketChannel>());
         this.credentialCache = credentialCache;
-        this.tokenCache = tokenCache;
+        this.tokenManager = tokenCache;
         if (securityProtocol == SecurityProtocol.SASL_PLAINTEXT || securityProtocol == SecurityProtocol.SASL_SSL) {
             for (String mechanism : ScramMechanism.mechanismNames()) {
                 if (credentialCache.cache(mechanism, ScramCredential.class) == null)
@@ -132,8 +132,8 @@ public class NioEchoServer extends Thread {
         return credentialCache;
     }
 
-    public DelegationTokenCache tokenCache() {
-        return tokenCache;
+    public MockDelegationTokenManager tokenManager() {
+        return tokenManager;
     }
 
     public double metricValue(String name) {

@@ -44,7 +44,7 @@ import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
-import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager
+import org.apache.kafka.common.security.token.delegation.{DelegationTokenConfig, IDelegationTokenManager}
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
@@ -132,7 +132,6 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
   var dynamicConfigHandlers: Map[String, ConfigHandler] = null
   var dynamicConfigManager: DynamicConfigManager = null
   var credentialProvider: CredentialProvider = null
-  var tokenCache: DelegationTokenCache = null
 
   var groupCoordinator: GroupCoordinator = null
 
@@ -244,12 +243,13 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         metadataCache = new MetadataCache(config.brokerId)
         // Enable delegation token cache for all SCRAM mechanisms to simplify dynamic update.
         // This keeps the cache up-to-date if new SCRAM mechanisms are enabled dynamically.
-        tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames)
+
         credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames)
 
         /* start token manager */
         tokenManager = new DelegationTokenManager(config, time , zkClient)
-        tokenManager.startup()
+        tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+          config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure

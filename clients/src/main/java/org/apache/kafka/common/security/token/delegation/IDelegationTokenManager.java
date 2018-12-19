@@ -30,8 +30,9 @@ public interface IDelegationTokenManager {
 
     /**
      * Initialize any resources that are required for this instance.
+     * @param config
      */
-    void startup();
+    void startup(DelegationTokenConfig config);
 
     /**
      * @param owner

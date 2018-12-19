@@ -26,6 +26,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.security.MockDelegationTokenManager;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
@@ -54,9 +55,9 @@ public class NetworkTestUtils {
 
     public static NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
             AbstractConfig serverConfig, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, DelegationTokenCache tokenCache) throws Exception {
+            int failedAuthenticationDelayMs, Time time, MockDelegationTokenManager tokenManager) throws Exception {
         NioEchoServer server = new NioEchoServer(listenerName, securityProtocol, serverConfig, "localhost",
-                null, credentialCache, failedAuthenticationDelayMs, time, tokenCache);
+                null, credentialCache, failedAuthenticationDelayMs, time, tokenManager);
         server.start();
         return server;
     }
