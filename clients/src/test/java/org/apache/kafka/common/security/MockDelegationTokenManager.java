@@ -1,3 +1,19 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.kafka.common.security;
 
 import org.apache.kafka.common.protocol.Errors;
@@ -6,7 +22,7 @@ import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.security.token.delegation.CreateDelegationTokenResult;
 import org.apache.kafka.common.security.token.delegation.DelegationToken;
-import org.apache.kafka.common.security.token.delegation.DelegationTokenConfig;
+import org.apache.kafka.common.security.token.delegation.DelegationTokenManagerConfig;
 import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager;
 import org.apache.kafka.common.security.token.delegation.TokenInformation;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
@@ -21,28 +37,25 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class MockDelegationTokenManager implements IDelegationTokenManager {
     private static Logger log = LoggerFactory.getLogger(MockDelegationTokenManager.class);
 
-    private static final String masterKey = "masterKey";
-    private static final String DefaultHmacAlgorithm = "HmacSHA512";
+    private static final String MASTER_KEY = "masterKey";
+    private static final String DEFAULT_HMAC_ALGORITHM = "HmacSHA512";
 
-    static SecretKey secretKey = null;
+    private static final SecretKey SECRET_KEY;
 
     static {
-        secretKey = new SecretKeySpec(masterKey.getBytes(StandardCharsets.UTF_8), DefaultHmacAlgorithm);
+        SECRET_KEY = new SecretKeySpec(MASTER_KEY.getBytes(StandardCharsets.UTF_8), DEFAULT_HMAC_ALGORITHM);
     }
 
     private final Time time;
 
-    private Map<String, DelegationToken> tokens = new ConcurrentHashMap<>();
     private DelegationTokenCache tokenCache;
     private long tokenMaxLifeMs;
     private long defaultTokenRenewTime;
@@ -55,8 +68,8 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
     byte[] createHmac(String tokenId) {
         Mac mac = null;
         try {
-            mac = Mac.getInstance(DefaultHmacAlgorithm);
-            mac.init(secretKey);
+            mac = Mac.getInstance(DEFAULT_HMAC_ALGORITHM);
+            mac.init(SECRET_KEY);
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid key to HMAC computation", e);
         }
@@ -73,7 +86,7 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
     }
 
     @Override
-    public void startup(DelegationTokenConfig config) {
+    public void init(DelegationTokenManagerConfig config) {
         tokenMaxLifeMs = config.delegationTokenMaxLifeMs();
         defaultTokenRenewTime = config.delegationTokenExpiryTimeMs();
     }
@@ -91,7 +104,6 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
 
         byte[] hmac = createHmac(tokenId);
         DelegationToken token = new DelegationToken(tokenInfo, hmac);
-        tokens.put(tokenId, token);
         tokenCache.updateCache(token);
 
         return new CreateDelegationTokenResult(issueTimeStamp, expiryTimeStamp, maxLifeTimeStamp, tokenId, hmac, Errors.NONE);
@@ -182,22 +194,18 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
         return result;
     }
 
-    private void updateToken(DelegationToken delegationToken) {
-        //todo
-        tokens.put(delegationToken.tokenInfo().tokenId(), delegationToken);
-//        tokenCache.updateCache(token, );
+    protected void updateToken(DelegationToken delegationToken) {
+        tokenCache.updateCache(delegationToken);
     }
 
-    private void removeToken(String tokenId) {
-        tokens.remove(tokenId);
+    protected void removeToken(String tokenId) {
         tokenCache.removeToken(tokenId);
     }
 
     @Override
     public void expireTokens() {
-        for (DelegationToken value : tokens.values()) {
+        for (TokenInformation tokenInfo : tokenCache.tokens()) {
             long now = time.milliseconds();
-            TokenInformation tokenInfo = value.tokenInfo();
             if (tokenInfo.maxTimestamp() < now || tokenInfo.expiryTimestamp() < now) {
                 log.info("Delegation token expired for token: [{}] for owner: [{}]", tokenInfo.tokenId(), tokenInfo.owner());
                 removeToken(tokenInfo.tokenId());
@@ -207,12 +215,25 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
 
     @Override
     public Optional<DelegationToken> getDelegationToken(String tokenId) {
-        return Optional.ofNullable(tokens.get(tokenId));
+        DelegationToken delegationToken = null;
+        TokenInformation tokenInformation = tokenCache.token(tokenId);
+        if (tokenInformation != null) {
+            delegationToken = buildDelegationToken(tokenInformation);
+        }
+        return Optional.ofNullable(delegationToken);
+    }
+
+    private DelegationToken buildDelegationToken(TokenInformation tokenInformation) {
+        byte[] hmac = createHmac(tokenInformation.tokenId());
+        return new DelegationToken(tokenInformation, hmac);
     }
 
     @Override
     public List<DelegationToken> getDelegationTokens(Predicate<TokenInformation> predicate) {
-        return tokens.values().stream().filter(x -> predicate.test(x.tokenInfo())).collect(Collectors.toList());
+        return tokenCache.tokens().stream()
+                         .map(this::buildDelegationToken)
+                         .filter(x -> predicate.test(x.tokenInfo()))
+                         .collect(Collectors.toList());
     }
 
     @Override

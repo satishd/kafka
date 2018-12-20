@@ -21,7 +21,6 @@ import org.apache.kafka.common.errors.SaslAuthenticationException;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -29,7 +28,6 @@ import java.util.HashMap;
 
 import static org.junit.Assert.assertTrue;
 
-@Ignore
 public class ScramSaslServerTest {
 
     private static final String USER_A = "userA";

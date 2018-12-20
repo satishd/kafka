@@ -59,8 +59,7 @@ public class DelegationTokenCache {
         return tokenInfo == null ? null : tokenInfo.owner().getName();
     }
 
-    private Map<String, ScramCredential> prepareScramCredentials(String hmacString)
-    {
+    private Map<String, ScramCredential> prepareScramCredentials(String hmacString) {
         Map<String, ScramCredential> scramCredentialMap = new HashMap<>();
 
         for (ScramMechanism mechanism : ScramMechanism.values()) {

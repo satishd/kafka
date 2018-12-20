@@ -187,7 +187,7 @@ class DelegationTokenManager(val config: KafkaConfig,
   private val lock = new Object()
   private var tokenChangeListener: ZkNodeChangeNotificationListener = null
 
-  def startup(config: DelegationTokenConfig): Unit = {
+  def init(config: DelegationTokenManagerConfig): Unit = {
     if (config.tokenAuthEnabled) {
       zkClient.createDelegationTokenPaths
       loadCache

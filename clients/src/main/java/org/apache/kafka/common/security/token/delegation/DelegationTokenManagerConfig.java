@@ -1,10 +1,10 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
+ * contributor license agreements. See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
  * The ASF licenses this file to You under the Apache License, Version 2.0
  * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+ * the License. You may obtain a copy of the License at
  *
  *    http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -18,14 +18,17 @@ package org.apache.kafka.common.security.token.delegation;
 
 import java.util.Objects;
 
-public final class DelegationTokenConfig {
+public final class DelegationTokenManagerConfig {
     private final long delegationTokenMaxLifeMs;
     private final long delegationTokenExpiryTimeMs;
     private final long delegationTokenExpiryCheckIntervalMs;
     private final boolean tokenAuthEnabled;
+    private String storageManagerClassName;
+//    private String masterKeyManagerClassName;
+    private String delegationTokenManagerClassName;
 
-    public DelegationTokenConfig(long delegationTokenMaxLifeMs, long delegationTokenExpiryTimeMs, long delegationTokenExpiryCheckIntervalMs,
-                                 boolean tokenAuthEnabled) {
+    public DelegationTokenManagerConfig(long delegationTokenMaxLifeMs, long delegationTokenExpiryTimeMs, long delegationTokenExpiryCheckIntervalMs,
+                                        boolean tokenAuthEnabled) {
         this.delegationTokenMaxLifeMs = delegationTokenMaxLifeMs;
         this.delegationTokenExpiryTimeMs = delegationTokenExpiryTimeMs;
         this.delegationTokenExpiryCheckIntervalMs = delegationTokenExpiryCheckIntervalMs;
@@ -56,7 +59,7 @@ public final class DelegationTokenConfig {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        DelegationTokenConfig that = (DelegationTokenConfig) o;
+        DelegationTokenManagerConfig that = (DelegationTokenManagerConfig) o;
         return delegationTokenMaxLifeMs == that.delegationTokenMaxLifeMs &&
                delegationTokenExpiryTimeMs == that.delegationTokenExpiryTimeMs &&
                delegationTokenExpiryCheckIntervalMs == that.delegationTokenExpiryCheckIntervalMs;

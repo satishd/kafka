@@ -30,7 +30,6 @@ import org.junit.{Before, Ignore}
 
 import scala.collection.JavaConverters._
 
-@Ignore
 class DelegationTokenEndToEndAuthorizationTest extends EndToEndAuthorizationTest {
 
   val kafkaClientSaslMechanism = "SCRAM-SHA-256"

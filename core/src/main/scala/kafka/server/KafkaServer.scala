@@ -44,7 +44,7 @@ import org.apache.kafka.common.network._
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
-import org.apache.kafka.common.security.token.delegation.{DelegationTokenConfig, IDelegationTokenManager}
+import org.apache.kafka.common.security.token.delegation.{DelegationTokenManagerConfig, IDelegationTokenManager}
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
@@ -248,7 +248,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start token manager */
         tokenManager = new DelegationTokenManager(config, time , zkClient)
-        tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
           config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
         // Create and start the socket server acceptor threads so that the bound port is known.

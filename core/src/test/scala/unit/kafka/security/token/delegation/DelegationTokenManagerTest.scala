@@ -31,7 +31,7 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.resource.PatternType.LITERAL
 import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
-import org.apache.kafka.common.security.token.delegation.{DelegationToken, DelegationTokenConfig, TokenInformation}
+import org.apache.kafka.common.security.token.delegation.{DelegationToken, DelegationTokenManagerConfig, TokenInformation}
 import org.apache.kafka.common.utils.{MockTime, SecurityUtils, Time}
 import org.junit.Assert._
 import org.junit.{After, Before, Test}
@@ -90,7 +90,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testCreateToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
       config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
@@ -108,7 +108,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testRenewToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
       config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
@@ -157,7 +157,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testExpireToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
       config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
@@ -234,7 +234,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
     var hostSession = new Session(owner1, InetAddress.getByName("192.168.1.1"))
 
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
       config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
     //create tokens
@@ -315,7 +315,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testPeriodicTokenExpiry(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(new DelegationTokenConfig(config.delegationTokenMaxLifeMs,
+    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
       config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
 
     //create tokens
