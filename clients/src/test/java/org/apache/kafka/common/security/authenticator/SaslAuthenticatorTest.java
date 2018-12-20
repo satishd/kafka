@@ -49,7 +49,7 @@ import org.apache.kafka.common.requests.SaslAuthenticateRequest;
 import org.apache.kafka.common.requests.SaslHandshakeRequest;
 import org.apache.kafka.common.requests.SaslHandshakeResponse;
 import org.apache.kafka.common.security.JaasContext;
-import org.apache.kafka.common.security.MockDelegationTokenManager;
+import org.apache.kafka.common.security.token.delegation.DefaultDelegationTokenManager;
 import org.apache.kafka.common.security.TestSecurityConfig;
 import org.apache.kafka.common.security.auth.AuthenticateCallbackHandler;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
@@ -588,8 +588,8 @@ public class SaslAuthenticatorTest {
                 return retvalTokenInfo;
             }
         };
-        MockDelegationTokenManager mockDelegationTokenManager = new MockDelegationTokenManager(time, tokenCache);
-        server = createEchoServer(ListenerName.forSecurityProtocol(securityProtocol), securityProtocol, mockDelegationTokenManager);
+        DefaultDelegationTokenManager defaultDelegationTokenManager = new DefaultDelegationTokenManager(time, tokenCache);
+        server = createEchoServer(ListenerName.forSecurityProtocol(securityProtocol), securityProtocol, defaultDelegationTokenManager);
 
         KafkaPrincipal owner = SecurityUtils.parseKafkaPrincipal("User:Owner");
         KafkaPrincipal renewer = SecurityUtils.parseKafkaPrincipal("User:Renewer1");
@@ -1844,7 +1844,7 @@ public class SaslAuthenticatorTest {
     }
 
     private NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
-                                           MockDelegationTokenManager tokenManager) throws Exception {
+                                           DefaultDelegationTokenManager tokenManager) throws Exception {
         return NetworkTestUtils.createEchoServer(listenerName, securityProtocol,
                 new TestSecurityConfig(saslServerConfigs), credentialCache, 100, time, tokenManager);
     }

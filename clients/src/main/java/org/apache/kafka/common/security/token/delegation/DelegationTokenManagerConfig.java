@@ -28,11 +28,13 @@ public final class DelegationTokenManagerConfig {
     private String delegationTokenManagerClassName;
 
     public DelegationTokenManagerConfig(long delegationTokenMaxLifeMs, long delegationTokenExpiryTimeMs, long delegationTokenExpiryCheckIntervalMs,
-                                        boolean tokenAuthEnabled) {
+                                        boolean tokenAuthEnabled, String storageManagerClassName, String delegationTokenManagerClassName) {
         this.delegationTokenMaxLifeMs = delegationTokenMaxLifeMs;
         this.delegationTokenExpiryTimeMs = delegationTokenExpiryTimeMs;
         this.delegationTokenExpiryCheckIntervalMs = delegationTokenExpiryCheckIntervalMs;
         this.tokenAuthEnabled = tokenAuthEnabled;
+        this.storageManagerClassName = storageManagerClassName;
+        this.delegationTokenManagerClassName = delegationTokenManagerClassName;
     }
 
     public boolean tokenAuthEnabled() {
@@ -51,6 +53,14 @@ public final class DelegationTokenManagerConfig {
         return delegationTokenExpiryCheckIntervalMs;
     }
 
+    public String storageManagerClassName() {
+        return storageManagerClassName;
+    }
+
+    public String delegationTokenManagerClassName() {
+        return delegationTokenManagerClassName;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -62,20 +72,27 @@ public final class DelegationTokenManagerConfig {
         DelegationTokenManagerConfig that = (DelegationTokenManagerConfig) o;
         return delegationTokenMaxLifeMs == that.delegationTokenMaxLifeMs &&
                delegationTokenExpiryTimeMs == that.delegationTokenExpiryTimeMs &&
-               delegationTokenExpiryCheckIntervalMs == that.delegationTokenExpiryCheckIntervalMs;
+               delegationTokenExpiryCheckIntervalMs == that.delegationTokenExpiryCheckIntervalMs &&
+               tokenAuthEnabled == that.tokenAuthEnabled &&
+               Objects.equals(storageManagerClassName, that.storageManagerClassName) &&
+               Objects.equals(delegationTokenManagerClassName, that.delegationTokenManagerClassName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(delegationTokenMaxLifeMs, delegationTokenExpiryTimeMs, delegationTokenExpiryCheckIntervalMs);
+        return Objects.hash(delegationTokenMaxLifeMs, delegationTokenExpiryTimeMs, delegationTokenExpiryCheckIntervalMs, tokenAuthEnabled,
+                            storageManagerClassName, delegationTokenManagerClassName);
     }
 
     @Override
     public String toString() {
-        return "DelegationTokenConfig{" +
+        return "DelegationTokenManagerConfig{" +
                "delegationTokenMaxLifeMs=" + delegationTokenMaxLifeMs +
                ", delegationTokenExpiryTimeMs=" + delegationTokenExpiryTimeMs +
                ", delegationTokenExpiryCheckIntervalMs=" + delegationTokenExpiryCheckIntervalMs +
+               ", tokenAuthEnabled=" + tokenAuthEnabled +
+               ", storageManagerClassName='" + storageManagerClassName + '\'' +
+               ", delegationTokenManagerClassName='" + delegationTokenManagerClassName + '\'' +
                '}';
     }
 }

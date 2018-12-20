@@ -14,19 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.common.security;
+package org.apache.kafka.common.security.token.delegation;
 
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.security.scram.ScramCredential;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
-import org.apache.kafka.common.security.token.delegation.CreateDelegationTokenResult;
-import org.apache.kafka.common.security.token.delegation.DelegationToken;
-import org.apache.kafka.common.security.token.delegation.DelegationTokenManagerConfig;
-import org.apache.kafka.common.security.token.delegation.IDelegationTokenManager;
-import org.apache.kafka.common.security.token.delegation.TokenInformation;
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,8 +38,8 @@ import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class MockDelegationTokenManager implements IDelegationTokenManager {
-    private static Logger log = LoggerFactory.getLogger(MockDelegationTokenManager.class);
+public class DefaultDelegationTokenManager implements IDelegationTokenManager {
+    private static Logger log = LoggerFactory.getLogger(DefaultDelegationTokenManager.class);
 
     private static final String MASTER_KEY = "masterKey";
     private static final String DEFAULT_HMAC_ALGORITHM = "HmacSHA512";
@@ -59,8 +55,9 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
     private DelegationTokenCache tokenCache;
     private long tokenMaxLifeMs;
     private long defaultTokenRenewTime;
+    private DelegationTokenStorageManager delegationTokenStorageManager;
 
-    public MockDelegationTokenManager(Time time, DelegationTokenCache tokenCache) {
+    public DefaultDelegationTokenManager(Time time, DelegationTokenCache tokenCache) {
         this.time = time;
         this.tokenCache = tokenCache;
     }
@@ -81,7 +78,7 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
         return Base64.getEncoder().encodeToString(hmac);
     }
 
-    public MockDelegationTokenManager(Time time) {
+    public DefaultDelegationTokenManager(Time time) {
         this(time, new DelegationTokenCache(ScramMechanism.mechanismNames()));
     }
 
@@ -89,6 +86,18 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
     public void init(DelegationTokenManagerConfig config) {
         tokenMaxLifeMs = config.delegationTokenMaxLifeMs();
         defaultTokenRenewTime = config.delegationTokenExpiryTimeMs();
+        try {
+            Class<DelegationTokenStorageManager> klass =
+                    (Class<DelegationTokenStorageManager>) Class.forName(config.storageManagerClassName(),
+                                                                         true,
+                                                                         Utils.getContextOrKafkaClassLoader());
+            delegationTokenStorageManager = klass.getConstructor().newInstance();
+            delegationTokenStorageManager.init();
+
+            tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -103,8 +112,9 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
         TokenInformation tokenInfo = new TokenInformation(tokenId, owner, renewers, issueTimeStamp, maxLifeTimeStamp, expiryTimeStamp);
 
         byte[] hmac = createHmac(tokenId);
-        DelegationToken token = new DelegationToken(tokenInfo, hmac);
-        tokenCache.updateCache(token);
+        DelegationToken delegationToken = new DelegationToken(tokenInfo, hmac);
+        delegationTokenStorageManager.create(delegationToken);
+        tokenCache.updateCache(delegationToken);
 
         return new CreateDelegationTokenResult(issueTimeStamp, expiryTimeStamp, maxLifeTimeStamp, tokenId, hmac, Errors.NONE);
     }
@@ -195,10 +205,12 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
     }
 
     protected void updateToken(DelegationToken delegationToken) {
+        delegationTokenStorageManager.update(delegationToken);
         tokenCache.updateCache(delegationToken);
     }
 
     protected void removeToken(String tokenId) {
+        delegationTokenStorageManager.remove(tokenId);
         tokenCache.removeToken(tokenId);
     }
 
@@ -243,7 +255,7 @@ public class MockDelegationTokenManager implements IDelegationTokenManager {
 
     @Override
     public void shutdown() {
-
+        Utils.closeQuietly(delegationTokenStorageManager, delegationTokenStorageManager.getClass().getName());
     }
 
     public void addToken(String tokenId, TokenInformation tokenInfo) {

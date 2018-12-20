@@ -21,7 +21,7 @@ import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.common.security.MockDelegationTokenManager;
+import org.apache.kafka.common.security.token.delegation.DefaultDelegationTokenManager;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.security.scram.ScramCredential;
@@ -81,7 +81,7 @@ public class NioEchoServer extends Thread {
     private final Metrics metrics;
     private volatile int numSent = 0;
     private volatile boolean closeKafkaChannels;
-    private final MockDelegationTokenManager tokenManager;
+    private final DefaultDelegationTokenManager tokenManager;
     private final Time time;
     
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
@@ -93,12 +93,12 @@ public class NioEchoServer extends Thread {
                          String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
                          int failedAuthenticationDelayMs, Time time) throws Exception {
         this(listenerName, securityProtocol, config, serverHost, channelBuilder, credentialCache, 100, time,
-                new MockDelegationTokenManager(time));
+                new DefaultDelegationTokenManager(time));
     }
 
     public NioEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol, AbstractConfig config,
             String serverHost, ChannelBuilder channelBuilder, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, MockDelegationTokenManager tokenCache) throws Exception {
+            int failedAuthenticationDelayMs, Time time, DefaultDelegationTokenManager tokenCache) throws Exception {
         super("echoserver");
         setDaemon(true);
         serverSocketChannel = ServerSocketChannel.open();
@@ -132,7 +132,7 @@ public class NioEchoServer extends Thread {
         return credentialCache;
     }
 
-    public MockDelegationTokenManager tokenManager() {
+    public DefaultDelegationTokenManager tokenManager() {
         return tokenManager;
     }
 

@@ -18,7 +18,7 @@ package org.apache.kafka.common.network;
 
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.metrics.Metrics;
-import org.apache.kafka.common.security.MockDelegationTokenManager;
+import org.apache.kafka.common.security.token.delegation.DefaultDelegationTokenManager;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.security.authenticator.CredentialCache;
 import org.apache.kafka.common.utils.LogContext;
@@ -54,7 +54,7 @@ public class NetworkTestUtils {
 
     public static NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
             AbstractConfig serverConfig, CredentialCache credentialCache,
-            int failedAuthenticationDelayMs, Time time, MockDelegationTokenManager tokenManager) throws Exception {
+            int failedAuthenticationDelayMs, Time time, DefaultDelegationTokenManager tokenManager) throws Exception {
         NioEchoServer server = new NioEchoServer(listenerName, securityProtocol, serverConfig, "localhost",
                 null, credentialCache, failedAuthenticationDelayMs, time, tokenManager);
         server.start();

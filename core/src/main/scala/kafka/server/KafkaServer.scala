@@ -248,8 +248,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start token manager */
         tokenManager = new DelegationTokenManager(config, time , zkClient)
-        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
-          config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled))
+        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure

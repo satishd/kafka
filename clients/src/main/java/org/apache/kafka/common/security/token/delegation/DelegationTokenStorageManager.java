@@ -17,7 +17,7 @@
 
 package org.apache.kafka.common.security.token.delegation;
 
-public interface DelegationTokenStorageManager {
+public interface DelegationTokenStorageManager extends AutoCloseable {
 
     void init();
 
@@ -28,6 +28,4 @@ public interface DelegationTokenStorageManager {
     DelegationToken fetch(String tokenId);
 
     boolean remove(String tokenId);
-
-    void close();
 }
