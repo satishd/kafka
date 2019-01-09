@@ -45,7 +45,6 @@ import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{ControlledShutdownRequest, ControlledShutdownResponse}
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.{DelegationTokenManagerConfig, IDelegationTokenManager}
-import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.security.{JaasContext, JaasUtils}
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.common.{ClusterResource, Node}
@@ -248,7 +247,9 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start token manager */
         tokenManager = new DelegationTokenManager(config, time , zkClient)
-        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+        tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
+          config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs,
+          config.tokenAuthEnabled, config.delegationTokenStorageManagerClass, config.delegationTokenManagerClass))
 
         // Create and start the socket server acceptor threads so that the bound port is known.
         // Delay starting processors until the end of the initialization sequence to ensure

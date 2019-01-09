@@ -26,7 +26,7 @@ import org.apache.kafka.common.config.SaslConfigs
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.DelegationToken
-import org.junit.{Before, Ignore}
+import org.junit.Before
 
 import scala.collection.JavaConverters._
 

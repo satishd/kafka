@@ -87,11 +87,10 @@ public class DefaultDelegationTokenManager implements IDelegationTokenManager {
         tokenMaxLifeMs = config.delegationTokenMaxLifeMs();
         defaultTokenRenewTime = config.delegationTokenExpiryTimeMs();
         try {
-            Class<DelegationTokenStorageManager> klass =
-                    (Class<DelegationTokenStorageManager>) Class.forName(config.storageManagerClassName(),
-                                                                         true,
-                                                                         Utils.getContextOrKafkaClassLoader());
-            delegationTokenStorageManager = klass.getConstructor().newInstance();
+            Class<?> klass = Class.forName(config.storageManagerClassName(),
+                                           true,
+                                           Utils.getContextOrKafkaClassLoader());
+            delegationTokenStorageManager = (DelegationTokenStorageManager) klass.getConstructor().newInstance();
             delegationTokenStorageManager.init();
 
             tokenCache = new DelegationTokenCache(ScramMechanism.mechanismNames());

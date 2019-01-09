@@ -90,7 +90,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testCreateToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
     val issueTime = time.milliseconds
@@ -103,11 +103,15 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
     assertTrue(password sameElements token.get.hmac)
   }
 
+  private def buildDelegationTokenConfig(config: KafkaConfig) = {
+    new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, config.delegationTokenStorageManagerClass, config.delegationTokenManagerClass)
+  }
+
   @Test
   def testRenewToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
     val issueTime = time.milliseconds
@@ -155,7 +159,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testExpireToken(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
     val issueTime = time.milliseconds
@@ -190,7 +194,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testRemoveTokenHmac():Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.startup(null)
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     tokenManager.createToken(owner, renewer, -1 , createTokenResultCallBack)
     val issueTime = time.milliseconds
@@ -231,7 +235,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
     var hostSession = new Session(owner1, InetAddress.getByName("192.168.1.1"))
 
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     //create tokens
     tokenManager.createToken(owner1, List(renewer1, renewer2), 1 * 60 * 60 * 1000L, createTokenResultCallBack)
@@ -311,7 +315,7 @@ class DelegationTokenManagerTest extends ZooKeeperTestHarness  {
   def testPeriodicTokenExpiry(): Unit = {
     val config = KafkaConfig.fromProps(props)
     val tokenManager = createDelegationTokenManager(config, time, zkClient)
-    tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs, config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs, config.tokenAuthEnabled, storageManagerClassName, delegationTokenManagerClassName))
+    tokenManager.init(buildDelegationTokenConfig(config))
 
     //create tokens
     tokenManager.createToken(owner, renewer, 1 * 60 * 60 * 1000L, createTokenResultCallBack)
