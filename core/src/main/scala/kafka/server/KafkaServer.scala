@@ -246,6 +246,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         credentialProvider = new CredentialProvider(ScramMechanism.mechanismNames)
 
         /* start token manager */
+        //todo-satish this should have been done by getting config.delegationTokenManagerClass and instantiating that class.
         tokenManager = new DelegationTokenManager(config, time , zkClient)
         tokenManager.init(new DelegationTokenManagerConfig(config.delegationTokenMaxLifeMs,
           config.delegationTokenExpiryTimeMs, config.delegationTokenExpiryCheckIntervalMs,

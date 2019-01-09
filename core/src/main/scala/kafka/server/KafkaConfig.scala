@@ -1062,8 +1062,8 @@ object KafkaConfig {
       .define(DelegationTokenMaxLifeTimeProp, LONG, Defaults.DelegationTokenMaxLifeTimeMsDefault, atLeast(1), MEDIUM, DelegationTokenMaxLifeTimeDoc)
       .define(DelegationTokenExpiryTimeMsProp, LONG, Defaults.DelegationTokenExpiryTimeMsDefault, atLeast(1), MEDIUM, DelegationTokenExpiryTimeMsDoc)
       .define(DelegationTokenExpiryCheckIntervalMsProp, LONG, Defaults.DelegationTokenExpiryCheckIntervalMsDefault, atLeast(1), LOW, DelegationTokenExpiryCheckIntervalDoc)
-      .define(DelegationTokenManagerClassProp, STRING, Defaults.DelegationTokenManagerClassDefault, atLeast(1), LOW, DelegationTokenManagerClassDoc)
-      .define(DelegationTokenStorageManagerClassProp, STRING, Defaults.DelegationTokenStorageManagerClassDefault, atLeast(1), LOW, DelegationTokenStorageManagerClassDoc)
+      .define(DelegationTokenManagerClassProp, STRING, Defaults.DelegationTokenManagerClassDefault, LOW, DelegationTokenManagerClassDoc)
+      .define(DelegationTokenStorageManagerClassProp, STRING, Defaults.DelegationTokenStorageManagerClassDefault, LOW, DelegationTokenStorageManagerClassDoc)
 
       /** ********* Password encryption configuration for dynamic configs *********/
       .define(PasswordEncoderSecretProp, PASSWORD, null, MEDIUM, PasswordEncoderSecretDoc)

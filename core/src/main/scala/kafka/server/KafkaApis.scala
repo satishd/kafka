@@ -2192,8 +2192,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       val result = tokenManager.expireDelegationToken(
         request.session.principal,
         expireTokenRequest.hmac(),
-        expireTokenRequest.expiryTimePeriod(),
-      )
+        expireTokenRequest.expiryTimePeriod())
       sendResponseCallback(result.getError, result.getTimestamp)
     }
   }
@@ -2223,7 +2222,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         val owners = if (describeTokenRequest.owners == null) None else Some(describeTokenRequest.owners.asScala.toList)
         def authorizeToken(tokenId: String) = authorize(request.session, Describe, Resource(kafka.security.auth.DelegationToken, tokenId, LITERAL))
         def eligible(token: TokenInformation) = DelegationTokenManager.filterToken(requestPrincipal, owners, token, authorizeToken)
-        val tokens =  tokenManager.getDelegationTokens(eligible)
+        val tokens =  tokenManager.getDelegationTokens(eligible(_))
         sendResponseCallback(Errors.NONE, tokens)
       }
     }
