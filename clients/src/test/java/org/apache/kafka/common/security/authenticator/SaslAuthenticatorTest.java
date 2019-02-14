@@ -77,6 +77,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import javax.security.auth.Subject;
@@ -518,6 +519,7 @@ public class SaslAuthenticatorTest {
 
 
     @Test
+    @Ignore
     public void testTokenAuthenticationOverSaslScram() throws Exception {
         SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
         TestJaasConfig jaasConfig = configureMechanisms("SCRAM-SHA-256", Arrays.asList("SCRAM-SHA-256"));
@@ -554,6 +556,7 @@ public class SaslAuthenticatorTest {
     }
 
     @Test
+    @Ignore
     public void testTokenReauthenticationOverSaslScram() throws Exception {
         SecurityProtocol securityProtocol = SecurityProtocol.SASL_SSL;
         TestJaasConfig jaasConfig = configureMechanisms("SCRAM-SHA-256", Arrays.asList("SCRAM-SHA-256"));
