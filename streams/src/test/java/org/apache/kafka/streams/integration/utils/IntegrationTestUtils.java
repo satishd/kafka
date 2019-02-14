@@ -66,10 +66,13 @@ import java.util.stream.Collectors;
 /**
  * Utility functions to make integration testing more convenient.
  */
-public class IntegrationTestUtils {
+public final class IntegrationTestUtils {
 
     public static final long DEFAULT_TIMEOUT = 60 * 1000L;
     public static final String INTERNAL_LEAVE_GROUP_ON_CLOSE = "internal.leave.group.on.close";
+
+    private IntegrationTestUtils() {
+    }
 
     /*
      * Records state transition for StreamThread

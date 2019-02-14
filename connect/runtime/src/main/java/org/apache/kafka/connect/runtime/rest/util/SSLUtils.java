@@ -30,9 +30,12 @@ import java.util.regex.Pattern;
 /**
  * Helper class for setting up SSL for RestServer and RestClient
  */
-public class SSLUtils {
+public final class SSLUtils {
 
     private static final Pattern COMMA_WITH_WHITESPACE = Pattern.compile("\\s*,\\s*");
+
+    private SSLUtils() {
+    }
 
     /**
      * Configures SSL/TLS for HTTPS Jetty Server / Client

@@ -30,6 +30,9 @@ import java.util.concurrent.ExecutionException;
 public final class ConnectUtils {
     private static final Logger log = LoggerFactory.getLogger(ConnectUtils.class);
 
+    private ConnectUtils() {
+    }
+
     public static Long checkAndConvertTimestamp(Long timestamp) {
         if (timestamp == null || timestamp >= 0)
             return timestamp;

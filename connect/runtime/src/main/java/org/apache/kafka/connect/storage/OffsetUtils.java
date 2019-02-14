@@ -22,7 +22,11 @@ import org.apache.kafka.connect.errors.DataException;
 
 import java.util.Map;
 
-public class OffsetUtils {
+public final class OffsetUtils {
+
+    private OffsetUtils() {
+    }
+
     @SuppressWarnings("unchecked")
     public static void validateFormat(Object offsetData) {
         if (offsetData == null)

@@ -51,6 +51,10 @@ import java.util.regex.Pattern;
  * Utilities for Trogdor TaskWorkers.
  */
 public final class WorkerUtils {
+
+    private WorkerUtils() {
+    }
+
     /**
      * Handle an exception in a TaskWorker.
      *

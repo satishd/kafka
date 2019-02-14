@@ -22,7 +22,10 @@ import org.apache.kafka.common.MetricName;
 import java.util.Map;
 import java.util.TreeMap;
 
-public class ToolsUtils {
+public final class ToolsUtils {
+
+    private ToolsUtils() {
+    }
 
     /**
      * print out the metrics in alphabetical order

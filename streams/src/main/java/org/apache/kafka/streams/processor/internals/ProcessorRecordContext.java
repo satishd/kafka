@@ -24,11 +24,11 @@ import java.util.Objects;
 
 public class ProcessorRecordContext implements RecordContext {
 
-    long timestamp;
-    final long offset;
-    final String topic;
-    final int partition;
-    final Headers headers;
+    private long timestamp;
+    private final long offset;
+    private final String topic;
+    private final int partition;
+    private final Headers headers;
 
     public ProcessorRecordContext(final long timestamp,
                                   final long offset,

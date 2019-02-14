@@ -65,7 +65,7 @@ import static org.junit.Assert.fail;
 /**
  * Helper functions for writing unit tests
  */
-public class TestUtils {
+public final class TestUtils {
     private static final Logger log = LoggerFactory.getLogger(TestUtils.class);
 
     public static final File IO_TMP_DIR = new File(System.getProperty("java.io.tmpdir"));
@@ -78,6 +78,9 @@ public class TestUtils {
     public static final Random SEEDED_RANDOM = new Random(192348092834L);
     public static final Random RANDOM = new Random();
     public static final long DEFAULT_MAX_WAIT_MS = 15000;
+
+    private TestUtils() {
+    }
 
     public static Cluster singletonCluster() {
         return clusterWith(1);

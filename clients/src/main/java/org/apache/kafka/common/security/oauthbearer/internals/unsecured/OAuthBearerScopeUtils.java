@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * <a href="https://tools.ietf.org/html/rfc6749#section-3.3">Access Token
  * Scopes</a>
  */
-public class OAuthBearerScopeUtils {
+public final class OAuthBearerScopeUtils {
     private static final Pattern INDIVIDUAL_SCOPE_ITEM_PATTERN = Pattern.compile("[\\x23-\\x5B\\x5D-\\x7E\\x21]+");
 
     /**

@@ -23,7 +23,11 @@ import java.util.List;
  * Utilities that connector implementations might find useful. Contains common building blocks
  * for writing connectors.
  */
-public class ConnectorUtils {
+public final class ConnectorUtils {
+
+    private ConnectorUtils() {
+    }
+
     /**
      * Given a list of elements and a target number of groups, generates list of groups of
      * elements to match the target number of groups, spreading them evenly among the groups.

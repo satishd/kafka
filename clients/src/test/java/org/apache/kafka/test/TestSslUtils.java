@@ -68,7 +68,10 @@ import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
 
-public class TestSslUtils {
+public final class TestSslUtils {
+
+    private TestSslUtils() {
+    }
 
     /**
      * Create a self-signed X.509 Certificate.

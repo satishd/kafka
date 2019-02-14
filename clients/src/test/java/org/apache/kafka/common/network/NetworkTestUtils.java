@@ -37,7 +37,11 @@ import org.apache.kafka.test.TestUtils;
 /**
  * Common utility functions used by transport layer and authenticator tests.
  */
-public class NetworkTestUtils {
+public final class NetworkTestUtils {
+
+    private NetworkTestUtils() {
+    }
+
     public static NioEchoServer createEchoServer(ListenerName listenerName, SecurityProtocol securityProtocol,
                                                  AbstractConfig serverConfig, CredentialCache credentialCache, Time time) throws Exception {
         return createEchoServer(listenerName, securityProtocol, serverConfig, credentialCache, 100, time);
