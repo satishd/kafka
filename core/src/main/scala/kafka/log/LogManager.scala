@@ -22,6 +22,8 @@ import java.nio.file.Files
 import java.util.concurrent._
 
 import com.yammer.metrics.core.Gauge
+import kafka.cluster.Partition
+import kafka.log.remote.{RemoteLogManager, RemoteLogManagerConfig}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.OffsetCheckpointFile
 import kafka.server.{BrokerState, RecoveringFromUncleanShutdown, _}
@@ -61,7 +63,9 @@ class LogManager(logDirs: Seq[File],
                  val brokerState: BrokerState,
                  brokerTopicStats: BrokerTopicStats,
                  logDirFailureChannel: LogDirFailureChannel,
-                 time: Time) extends Logging with KafkaMetricsGroup {
+                 time: Time,
+                 remoteLogManagerConfig:RemoteLogManagerConfig = RemoteLogManagerConfig(remoteLogStorageEnable = false, null, 0L, 0L))
+  extends Logging with KafkaMetricsGroup {
 
   import LogManager._
 
@@ -80,6 +84,19 @@ class LogManager(logDirs: Seq[File],
   private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs)
   @volatile private var _currentDefaultConfig = initialDefaultConfig
   @volatile private var numRecoveryThreadsPerDataDir = recoveryThreadsPerDataDir
+
+  def createRemoteLogManager(remoteLogManagerConfig: RemoteLogManagerConfig): Option[RemoteLogManager] = {
+    if(remoteLogManagerConfig.remoteLogStorageEnable) {
+      val remoteLogManager: RemoteLogManager = new RemoteLogManager()
+      //todo:satish pass configs
+      remoteLogManager.configure(null)
+      Option(remoteLogManager)
+    } else {
+      None
+    }
+  }
+
+  private val remoteLogManager: Option[RemoteLogManager] = createRemoteLogManager(remoteLogManagerConfig)
 
   def reconfigureDefaultLogConfig(logConfig: LogConfig): Unit = {
     this._currentDefaultConfig = logConfig
@@ -132,6 +149,17 @@ class LogManager(logDirs: Seq[File],
       },
       Map("logDirectory" -> dir.getAbsolutePath)
     )
+  }
+
+  def onLeadershipChange(partitionsBecomeLeader: Set[Partition], partitionsBecomeFollower: Set[Partition]) = {
+    // todo:satish make respective changes in remote log tasks
+    remoteLogManager.foreach((rlm: RemoteLogManager) => {
+      rlm.removePartitions(partitionsBecomeFollower.map( x=> x.topicPartition))
+    })
+
+    remoteLogManager.foreach((rlm: RemoteLogManager) => {
+      rlm.addPartitions(partitionsBecomeLeader.map( x=> x.topicPartition))
+    })
   }
 
   /**
@@ -486,6 +514,8 @@ class LogManager(logDirs: Seq[File],
       // regardless of whether the close succeeded, we need to unlock the data directories
       dirLocks.foreach(_.destroy())
     }
+
+    remoteLogManager.foreach(_.shutdown())
 
     info("Shutdown complete.")
   }
@@ -1017,6 +1047,9 @@ object LogManager {
       brokerState = brokerState,
       brokerTopicStats = brokerTopicStats,
       logDirFailureChannel = logDirFailureChannel,
-      time = time)
+      time = time,
+      RemoteLogManagerConfig(config.remoteLogStorageEnable, config.remoteLogStorageManager,
+        config.remoteLogRetentionBytes, config.remoteLogRetentionMillis)
+    )
   }
 }

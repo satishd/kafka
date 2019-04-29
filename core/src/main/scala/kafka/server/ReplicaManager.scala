@@ -1150,6 +1150,9 @@ class ReplicaManager(val config: KafkaConfig,
 
         replicaFetcherManager.shutdownIdleFetcherThreads()
         replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
+
+        logManager.onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
+
         onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
         new LeaderAndIsrResponse(Errors.NONE, responseMap.asJava)
       }
