@@ -19,6 +19,7 @@ package kafka.log
 
 import java.io._
 import java.nio.file.Files
+import java.util.Collections
 import java.util.concurrent._
 
 import com.yammer.metrics.core.Gauge
@@ -89,7 +90,7 @@ class LogManager(logDirs: Seq[File],
     if(remoteLogManagerConfig.remoteLogStorageEnable) {
       val remoteLogManager: RemoteLogManager = new RemoteLogManager(this)
       //todo:satish pass configs
-      remoteLogManager.configure(null)
+      remoteLogManager.configure(Collections.emptyMap())
       Option(remoteLogManager)
     } else {
       None
