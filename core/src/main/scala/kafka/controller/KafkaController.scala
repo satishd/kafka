@@ -16,7 +16,10 @@
  */
 package kafka.controller
 
+import java.util
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import java.util.function.BiFunction
 
 import com.yammer.metrics.core.Gauge
 import kafka.admin.AdminOperationException
@@ -29,14 +32,12 @@ import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
 import kafka.zk._
 import kafka.zookeeper.{StateChangeHandler, ZNodeChangeHandler, ZNodeChildChangeHandler}
-import org.apache.kafka.common.ElectionType
-import org.apache.kafka.common.KafkaException
-import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.{BrokerNotAvailableException, ControllerMovedException, StaleBrokerEpochException}
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{AbstractControlRequest, AbstractResponse, ApiError, LeaderAndIsrResponse}
 import org.apache.kafka.common.utils.Time
+import org.apache.kafka.common.{ElectionType, KafkaException, TopicPartition}
 import org.apache.zookeeper.KeeperException
 import org.apache.zookeeper.KeeperException.Code
 
@@ -54,6 +55,67 @@ object KafkaController extends Logging {
   val InitialControllerEpochZkVersion = 0
 
   type ElectLeadersCallback = Map[TopicPartition, Either[ApiError, Int]] => Unit
+}
+
+class HostedUrpStats extends Logging with KafkaMetricsGroup {
+  private val lock: ReentrantLock = new ReentrantLock()
+
+  class HostedUrpMetrics(brokerId: Option[Long]) extends KafkaMetricsGroup {
+    val tags: scala.collection.Map[String, String] = brokerId match {
+      case None => Map.empty
+      case Some(brokerId) => Map("broker_id" -> brokerId.toString)
+    }
+
+    val hostedUrlCount = newGauge("HostedUnderReplicatedPartitions", new Gauge[Long] {
+      override def value(): Long = {
+        brokerIdWithUrps.getOrDefault(brokerId, 0L)
+      }
+    }, tags)
+
+    def removeMetric() = {
+      super.removeMetric("HostedUnderReplicatedPartitions", tags)
+    }
+  }
+
+  private val brokerIdWithUrps: java.util.concurrent.ConcurrentMap[Long, Long] = new util.concurrent.ConcurrentHashMap[Long, Long]()
+  private val hostedUrpMetrics = new Pool[Long, HostedUrpMetrics](Some((k: Long) => new HostedUrpMetrics(Some(k))))
+
+  def addUrpsForBroker(brokerId: Long, count: Int): Unit = {
+    CoreUtils.inLock(lock) {
+      brokerIdWithUrps.compute(brokerId, new BiFunction[Long, Long, Long] {
+        override def apply(k: Long, v: Long): Long = count.toLong + v
+      })
+    }
+  }
+
+  def removeUrpsForBroker(brokerId: Long, count: Int): Unit = {
+    CoreUtils.inLock(lock) {
+      val urps = brokerIdWithUrps.get(brokerId)
+      val updatedUrps = urps - count
+      if (updatedUrps > 0) brokerIdWithUrps.put(brokerId, updatedUrps)
+      else {
+        warn(s"Removing broker $brokerId as it has urps $updatedUrps")
+        brokerIdWithUrps.remove(brokerId)
+        val metrics = hostedUrpMetrics.remove(brokerId)
+        //remove the metric
+        if(metrics != null) metrics.removeMetric()
+      }
+    }
+  }
+
+  def setUrpsForBroker(brokerId: Long, count: Int): Unit = {
+    CoreUtils.inLock(lock) {
+      brokerIdWithUrps.put(brokerId, count)
+    }
+  }
+
+  def clear():Unit = {
+    brokerIdWithUrps.keySet().asScala.foreach(brokerId => {
+      val metrics = hostedUrpMetrics.remove(brokerId)
+      if(metrics != null) metrics.removeMetric()
+    })
+    brokerIdWithUrps.clear()
+  }
 }
 
 class KafkaController(val config: KafkaConfig,
@@ -112,6 +174,8 @@ class KafkaController(val config: KafkaConfig,
 
   /* single-thread scheduler to clean expired tokens */
   private val tokenCleanScheduler = new KafkaScheduler(threads = 1, threadNamePrefix = "delegation-token-cleaner")
+
+  val hostedUrpStats: HostedUrpStats = new HostedUrpStats
 
   newGauge(
     "ActiveControllerCount",
@@ -281,6 +345,9 @@ class KafkaController(val config: KafkaConfig,
       scheduleAutoLeaderRebalanceTask(delay = 5, unit = TimeUnit.SECONDS)
     }
 
+    // clear urp metrics state before this controller is re/started.
+    hostedUrpStats.clear()
+
     if (config.tokenAuthEnabled) {
       info("starting the token expiry check scheduler")
       tokenCleanScheduler.startup()
@@ -330,6 +397,9 @@ class KafkaController(val config: KafkaConfig,
     // shutdown replica state machine
     replicaStateMachine.shutdown()
     zkClient.unregisterZNodeChildChangeHandler(brokerChangeHandler.path)
+
+    // clear urp metrics state before this controller is shutdown so that it will not emit broker URP metrics.
+    hostedUrpStats.clear()
 
     controllerChannelManager.shutdown()
     controllerContext.resetContext()
@@ -1306,8 +1376,29 @@ class KafkaController(val config: KafkaConfig,
       onBrokerFailure(deadBrokerIdsSorted)
     }
 
+    // update URPs on each broker when their state is changed
+    Array(newBrokerIds, bouncedBrokerIds).foreach {
+      brokerIds => updateBrokerUrps(brokerIds)
+    }
+    // considering all dead brokers topic partitions as URP
+    deadBrokerIds.foreach { id =>
+      hostedUrpStats.setUrpsForBroker(id, controllerContext.partitionsOnBroker(id).size)
+    }
+
     if (newBrokerIds.nonEmpty || deadBrokerIds.nonEmpty || bouncedBrokerIds.nonEmpty) {
       info(s"Updated broker epochs cache: ${controllerContext.liveBrokerIdAndEpochs}")
+    }
+  }
+
+  private def updateBrokerUrps(newBrokerIds: Set[Int]) = {
+    newBrokerIds.foreach { id =>
+      val partitions = controllerContext.partitionsOnBroker(id)
+      var urpCt: Int = 0
+      partitions.foreach { tp =>
+        val inIsr = controllerContext.partitionLeadershipInfo(tp).leaderAndIsr.isr.contains(id)
+        if (!inIsr) urpCt += 1
+      }
+      hostedUrpStats.setUrpsForBroker(id, urpCt)
     }
   }
 
@@ -1470,6 +1561,14 @@ class KafkaController(val config: KafkaConfig,
     }
   }
 
+  def processPartitionStateUpdates(prevPartitionState: Map[TopicPartition, Seq[Int]], partitions: Seq[TopicPartition]) = {
+      partitions.foreach { tp =>
+      val urpBrokers = controllerContext.partitionReplicaAssignment(tp).diff(controllerContext.partitionLeadershipInfo(tp).leaderAndIsr.isr)
+        prevPartitionState(tp)
+      urpBrokers.foreach { id => hostedUrpStats.addUrpsForBroker(id, 1)}
+    }
+  }
+
   private def processIsrChangeNotification(): Unit = {
     def processUpdateNotifications(partitions: Seq[TopicPartition]) {
       val liveBrokers: Seq[Int] = controllerContext.liveOrShuttingDownBrokerIds.toSeq
@@ -1479,10 +1578,23 @@ class KafkaController(val config: KafkaConfig,
 
     if (!isActive) return
     val sequenceNumbers = zkClient.getAllIsrChangeNotifications
+
+    def previousPartitionState(partitions: Seq[TopicPartition]): mutable.Map[TopicPartition, Seq[Int]] = {
+      val prevPartitionState = mutable.Map.empty[TopicPartition, Seq[Int]]
+      partitions.foreach { tp =>
+        prevPartitionState.put(tp, controllerContext.partitionLeadershipInfo(tp).leaderAndIsr.isr)
+      }
+      prevPartitionState
+    }
+
     try {
       val partitions = zkClient.getPartitionsFromIsrChangeNotifications(sequenceNumbers)
       if (partitions.nonEmpty) {
+        // take a snapshot of partition state before updating cache
+        val prevPartitionState = previousPartitionState(partitions)
+
         updateLeaderAndIsrCache(partitions)
+        processPartitionStateUpdates(prevPartitionState, partitions)
         processUpdateNotifications(partitions)
       }
     } finally {
