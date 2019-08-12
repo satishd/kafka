@@ -17,26 +17,22 @@
 package kafka.controller
 
 import com.yammer.metrics.core.{Meter, Timer}
-
-import java.util.concurrent.TimeUnit
 import kafka.api._
-import kafka.common._
 import kafka.cluster.Broker
+import kafka.common._
 import kafka.controller.KafkaController.{ActiveBrokerCountMetricName, ActiveControllerCountMetricName, AlterReassignmentsCallback, ControllerStateMetricName, ElectLeadersCallback, FencedBrokerCountMetricName, GlobalPartitionCountMetricName, GlobalTopicCountMetricName, ListReassignmentsCallback, OfflinePartitionsCountMetricName, PreferredReplicaImbalanceCountMetricName, ReplicasIneligibleToDeleteCountMetricName, ReplicasToDeleteCountMetricName, TopicsIneligibleToDeleteCountMetricName, TopicsToDeleteCountMetricName, UpdateFeaturesCallback, ZkMigrationStateMetricName}
+import kafka.controller.UnderReplicatedPartitionMetrics.{TAG_BROKER_ID, URPS_CAUSED_BY_BROKER}
 import kafka.coordinator.transaction.ZkProducerIdManager
 import kafka.server._
 import kafka.server.metadata.ZkFinalizedFeatureCache
-import kafka.utils._
 import kafka.utils.Implicits._
+import kafka.utils._
 import kafka.zk.KafkaZkClient.UpdateLeaderAndIsrResult
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
-import kafka.zk.{FeatureZNodeStatus, _}
+import kafka.zk._
 import kafka.zookeeper.{StateChangeHandler, ZNodeChangeHandler, ZNodeChildChangeHandler}
 import org.apache.kafka.clients.admin.FeatureUpdate.UpgradeType
-import org.apache.kafka.common.ElectionType
-import org.apache.kafka.common.KafkaException
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.Uuid
+import org.apache.kafka.common.{ElectionType, KafkaException, TopicPartition, Uuid}
 import org.apache.kafka.common.errors.{BrokerNotAvailableException, ControllerMovedException, StaleBrokerEpochException}
 import org.apache.kafka.common.message.{AllocateProducerIdsRequestData, AllocateProducerIdsResponseData, AlterPartitionRequestData, AlterPartitionResponseData}
 import org.apache.kafka.common.metrics.Metrics
@@ -51,8 +47,10 @@ import org.apache.kafka.server.util.KafkaScheduler
 import org.apache.zookeeper.KeeperException
 import org.apache.zookeeper.KeeperException.Code
 
-import scala.collection.{Map, Seq, Set, immutable, mutable}
+import java.util.Collections
+import java.util.concurrent.TimeUnit
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
@@ -102,6 +100,55 @@ object KafkaController extends Logging {
   )
 }
 
+object UnderReplicatedPartitionMetrics {
+  val URPS_CAUSED_BY_BROKER = "UrpsCausedByBroker"
+  val TAG_BROKER_ID = "broker_id"
+}
+
+class UnderReplicatedPartitionMetrics(metricsGroup: KafkaMetricsGroup, brokerId: Long) {
+
+  @volatile var count: Int = 0
+
+  val tags: java.util.Map[String, String] = Collections.singletonMap(TAG_BROKER_ID, brokerId.toString())
+
+  metricsGroup.newGauge(URPS_CAUSED_BY_BROKER, () => count, tags)
+
+  def removeMetric(): Unit = {
+    metricsGroup.removeMetric(URPS_CAUSED_BY_BROKER, tags)
+  }
+
+  def setCount(newCount: Int): Unit = {
+    count = newCount
+  }
+}
+
+class UnderReplicatedPartitionsStats(metricsGroup: KafkaMetricsGroup) extends Logging {
+
+  private val hostedUrpMetrics = new Pool[Long, UnderReplicatedPartitionMetrics](Some((k: Long) => new UnderReplicatedPartitionMetrics(metricsGroup, k)))
+
+  def removeUrpMetricsForBroker(brokerId: Long): Unit = {
+    val metric = hostedUrpMetrics.remove(brokerId)
+    if (metric != null) {
+      metric.removeMetric()
+    }
+  }
+
+  def setUrpsForBroker(brokerId: Long, count: Int): Unit = {
+    hostedUrpMetrics.getAndMaybePut(brokerId).setCount(count)
+  }
+
+  def brokerIds: Iterable[Long] = {
+    hostedUrpMetrics.keys
+  }
+
+  def clear(): Unit = {
+    hostedUrpMetrics.foreach { case (_, metrics) =>
+      metrics.removeMetric()
+    }
+    hostedUrpMetrics.clear()
+  }
+}
+
 class KafkaController(val config: KafkaConfig,
                       zkClient: KafkaZkClient,
                       time: Time,
@@ -111,7 +158,8 @@ class KafkaController(val config: KafkaConfig,
                       tokenManager: DelegationTokenManager,
                       brokerFeatures: BrokerFeatures,
                       featureCache: ZkFinalizedFeatureCache,
-                      threadNamePrefix: Option[String] = None)
+                      threadNamePrefix: Option[String] = None,
+                      isrBlackList: () => Set[Int] = () => Set.empty[Int])
   extends ControllerEventProcessor with Logging {
 
   private val metricsGroup = new KafkaMetricsGroup(this.getClass)
@@ -189,6 +237,8 @@ class KafkaController(val config: KafkaConfig,
   metricsGroup.newGauge(ActiveBrokerCountMetricName, () => activeBrokerCount)
   // FencedBrokerCount metric is always 0 in the ZK controller.
   metricsGroup.newGauge(FencedBrokerCountMetricName, () => 0)
+
+  private val hostedUrpStats = new UnderReplicatedPartitionsStats(metricsGroup)
 
   /**
    * Returns true if this broker is the current controller.
@@ -534,6 +584,9 @@ class KafkaController(val config: KafkaConfig,
 
     controllerChannelManager.shutdown()
     controllerContext.resetContext()
+
+    // clear urp metrics state before this controller is shutdown so that it will not emit broker URP metrics.
+    hostedUrpStats.clear()
 
     info("Resigned")
   }
@@ -1495,7 +1548,9 @@ class KafkaController(val config: KafkaConfig,
           controllerContext.replicaState(replica) == ReplicaDeletionIneligible
         }
       }.sum
-      activeBrokerCount = controllerContext.liveOrShuttingDownBrokerIds.size
+      val liveOrShuttingDownBrokerIds = controllerContext.liveOrShuttingDownBrokerIds
+      activeBrokerCount = liveOrShuttingDownBrokerIds.size
+      updateHostedUrpMetrics(liveOrShuttingDownBrokerIds)
     } else {
       offlinePartitionCount = 0
       preferredReplicaImbalanceCount = 0
@@ -1506,6 +1561,33 @@ class KafkaController(val config: KafkaConfig,
       ineligibleTopicsToDeleteCount = 0
       ineligibleReplicasToDeleteCount = 0
       activeBrokerCount = 0
+    }
+  }
+
+  private def updateHostedUrpMetrics(liveOrShuttingDownBrokerIds: Set[Int]): Unit = {
+    val urpBrokers = mutable.Map.empty[Long, Int].withDefault(k => 0)
+    liveOrShuttingDownBrokerIds
+      .filter(id => !isrBlackList().contains(id) && controllerContext.isLiveBroker(id))
+      .foreach(id => urpBrokers(id) = 0)
+    controllerContext.partitionAssignments.forKeyValue {
+      case (topic, partitionReplicas) =>
+        partitionReplicas.forKeyValue {
+          case (partition, replicaAssignment) =>
+            val topicPartition = new TopicPartition(topic, partition)
+            val replicas = replicaAssignment.replicas
+            controllerContext.partitionLeadershipInfo(topicPartition).foreach(leadershipInfo => {
+              // count URPs only for online brokers
+              if (controllerContext.partitionState(topicPartition) == OnlinePartition) {
+                replicas.filter(id => !leadershipInfo.leaderAndIsr.isr.contains(id))
+                  .foreach(id => urpBrokers(id) += 1)
+              }
+            })
+        }
+    }
+    urpBrokers.foreach { case (id: Long, ct: Int) => hostedUrpStats.setUrpsForBroker(id, ct) }
+    val metricsTobeRemoved = hostedUrpStats.brokerIds.filter(id => !urpBrokers.contains(id))
+    metricsTobeRemoved.foreach { id =>
+      hostedUrpStats.removeUrpMetricsForBroker(id)
     }
   }
 
