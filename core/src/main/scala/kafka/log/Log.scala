@@ -344,6 +344,12 @@ class Log(@volatile var dir: File,
     newHighWatermark
   }
 
+  def updateRemoteIndexHighestOffset(offset: Long): Unit = {
+    if (!remoteLogEnabled)
+      warn(s"Received update for highest offset with remote index as: $offset, the existing value: $highestOffsetWithRemoteIndex and remoteLogEnabled: $remoteLogEnabled")
+    else if(offset > highestOffsetWithRemoteIndex) highestOffsetWithRemoteIndex = offset
+  }
+
   /**
    * Update the high watermark to a new value if and only if it is larger than the old value. It is
    * an error to update to a value which is larger than the log end offset.
@@ -1739,7 +1745,12 @@ class Log(@volatile var dir: File,
         else
           (null, logEndOffset, segment.size == 0)
 
-        if (highWatermark >= upperBoundOffset && predicate(segment, Option(nextSegment)) && !isLastSegmentAndEmpty) {
+        // check not to delete segments which do not have remote indexes locally.
+        val deleteOnlyWhenRemoteIndexExistsLocally =
+          if(remoteLogEnabled) upperBoundOffset > 0 && upperBoundOffset-1 <= highestOffsetWithRemoteIndex else true
+
+        if (deleteOnlyWhenRemoteIndexExistsLocally && highWatermark >= upperBoundOffset
+          && predicate(segment, Option(nextSegment)) && !isLastSegmentAndEmpty) {
           deletable += segment
           segmentEntry = nextSegmentEntry
         } else {
@@ -2462,11 +2473,12 @@ object Log {
             time: Time = Time.SYSTEM,
             maxProducerIdExpirationMs: Int,
             producerIdExpirationCheckIntervalMs: Int,
-            logDirFailureChannel: LogDirFailureChannel): Log = {
+            logDirFailureChannel: LogDirFailureChannel,
+            remoteLogEnable:Boolean = false): Log = {
     val topicPartition = Log.parseTopicPartitionName(dir)
     val producerStateManager = new ProducerStateManager(topicPartition, dir, maxProducerIdExpirationMs)
     new Log(dir, config, logStartOffset, recoveryPoint, scheduler, brokerTopicStats, time, maxProducerIdExpirationMs,
-      producerIdExpirationCheckIntervalMs, topicPartition, producerStateManager, logDirFailureChannel)
+      producerIdExpirationCheckIntervalMs, topicPartition, producerStateManager, logDirFailureChannel, remoteLogEnable)
   }
 
   /**
