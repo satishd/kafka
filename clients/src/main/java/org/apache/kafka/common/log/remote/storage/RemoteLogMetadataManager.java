@@ -19,7 +19,6 @@ package org.apache.kafka.common.log.remote.storage;
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
-import org.apache.kafka.common.record.FileRecords;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -28,7 +27,6 @@ import java.util.Optional;
 
 /**
  * This interface provides storing and fetching remote log segment metadata with strongly consistent semantics.
- *
  */
 @InterfaceStability.Unstable
 public interface RemoteLogMetadataManager extends Configurable, Closeable {
@@ -71,6 +69,22 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     Optional<Long> earliestLogOffset(TopicPartition tp) throws IOException;
 
     /**
+     * Sets the earliest offset for the given topic partition.
+     *
+     * @param tp
+     * @throws IOException
+     */
+    void setEarliestLogOffset(TopicPartition tp, long offset) throws IOException;
+
+    /**
+     * Deletes the log segment metadata for the given remoteLogSegmentId.
+     *
+     * @param remoteLogSegmentId
+     * @throws IOException
+     */
+    void deleteRemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId) throws IOException;
+
+    /**
      * List the remote log segment files of the given topicPartition.
      * The RemoteLogManager of a follower uses this method to find out the remote data for the given topic partition.
      *
@@ -81,11 +95,27 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     }
 
     /**
-     *
      * @param topicPartition
      * @param minOffset
      * @return
      */
     List<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicPartition topicPartition, long minOffset);
+
+    /**
+     * This method is invoked only when there are changes in leadership of the topic partitions that this broker is
+     * responsible for.
+     *
+     * @param leaderPartitions   partitions that have become leaders on this broker.
+     * @param followerPartitions partitions that have become followers on this broker.
+     */
+    void onPartitionLeadershipChanges(List<TopicPartition> leaderPartitions, List<TopicPartition> followerPartitions);
+
+    /**
+     * This method is invoked only when the given topic partitions are stopped on this broker. This can happen when a
+     * partition is emigrated to other broker or a partition is deleted.
+     *
+     * @param partitions
+     */
+    void onStopPartitions(List<TopicPartition> partitions);
 
 }

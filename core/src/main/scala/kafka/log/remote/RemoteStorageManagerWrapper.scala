@@ -16,20 +16,17 @@
  */
 package kafka.log.remote
 
-import java.io.IOException
-import java.util
+import java.io.InputStream
+import java.util.Optional
+import java.{lang, util}
 
-import kafka.log.LogSegment
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.log.remote.storage.{RemoteLogIndexEntry, RemoteLogSegmentInfo}
-import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
-import org.apache.kafka.common.record.Records
+import org.apache.kafka.common.log.remote.storage.{LogSegmentData, RemoteLogSegmentContext, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogStorageManager}
 
 /**
  * A wrapper class of RemoteStorageManager that sets the context class loader when calling RSM methods
  */
-class RemoteStorageManagerWrapper(val rsm: RemoteStorageManager,
-                                  val rsmClassLoader: ClassLoader) extends RemoteStorageManager {
+class RemoteStorageManagerWrapper(val rsm: RemoteLogStorageManager,
+                                  val rsmClassLoader: ClassLoader) extends RemoteLogStorageManager {
 
   def withClassLoader[T](fun: => T): T = {
     val originalClassLoader = Thread.currentThread.getContextClassLoader
@@ -41,79 +38,6 @@ class RemoteStorageManagerWrapper(val rsm: RemoteStorageManager,
     }
   }
 
-  @throws(classOf[IOException])
-  override def earliestLogOffset(tp: TopicPartition): Long = {
-    withClassLoader {
-      rsm.earliestLogOffset(tp)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def copyLogSegment(topicPartition: TopicPartition, logSegment: LogSegment,
-                              leaderEpoch: Int): util.List[RemoteLogIndexEntry] = {
-    withClassLoader {
-      rsm.copyLogSegment(topicPartition, logSegment, leaderEpoch)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def listRemoteSegments(topicPartition: TopicPartition): util.List[RemoteLogSegmentInfo] = {
-    withClassLoader {
-      rsm.listRemoteSegments(topicPartition)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def listRemoteSegments(topicPartition: TopicPartition, minOffset: Long): util.List[RemoteLogSegmentInfo] = {
-    withClassLoader {
-      rsm.listRemoteSegments(topicPartition, minOffset)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def getRemoteLogIndexEntries(remoteLogSegment: RemoteLogSegmentInfo): util.List[RemoteLogIndexEntry] = {
-    withClassLoader {
-      rsm.getRemoteLogIndexEntries(remoteLogSegment)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def deleteLogSegment(remoteLogSegmentInfo: RemoteLogSegmentInfo): Boolean = {
-    withClassLoader {
-      rsm.deleteLogSegment(remoteLogSegmentInfo)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def deleteTopicPartition(topicPartition: TopicPartition): Boolean = {
-    withClassLoader {
-      rsm.deleteTopicPartition(topicPartition)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def cleanupLogUntil(topicPartition: TopicPartition, cleanUpTillMs: Long): Long = {
-    withClassLoader {
-      rsm.cleanupLogUntil(topicPartition, cleanUpTillMs)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def read(remoteLogIndexEntry: RemoteLogIndexEntry, maxBytes: Int, startOffset: Long,
-                    minOneMessage: Boolean): Records = {
-    withClassLoader {
-      rsm.read(remoteLogIndexEntry, maxBytes, startOffset, minOneMessage)
-    }
-  }
-
-  @throws(classOf[IOException])
-  override def findOffsetByTimestamp(remoteLogIndexEntry: RemoteLogIndexEntry,
-                                     targetTimestamp: Long,
-                                     startingOffset: Long): TimestampAndOffset = {
-    withClassLoader {
-      rsm.findOffsetByTimestamp(remoteLogIndexEntry, targetTimestamp, startingOffset)
-    }
-  }
 
   override def close(): Unit = {
     withClassLoader {
@@ -126,4 +50,39 @@ class RemoteStorageManagerWrapper(val rsm: RemoteStorageManager,
       rsm.configure(configs)
     }
   }
+
+  override def copyLogSegment(remoteLogSegmentId: RemoteLogSegmentId,
+                              logSegmentData: LogSegmentData): RemoteLogSegmentContext = {
+    withClassLoader {
+      rsm.copyLogSegment(remoteLogSegmentId, logSegmentData)
+    }
+  }
+
+  override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                                   startPosition: lang.Long,
+                                   endPosition: Optional[lang.Long]): InputStream = {
+    withClassLoader {
+      rsm.fetchLogSegmentData(remoteLogSegmentMetadata, startPosition, endPosition)
+    }
+  }
+
+  override def fetchOffsetIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
+    withClassLoader {
+      rsm.fetchOffsetIndex(remoteLogSegmentMetadata)
+    }
+
+  }
+
+  override def fetchTimestampIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
+    withClassLoader {
+      rsm.fetchTimestampIndex(remoteLogSegmentMetadata)
+    }
+  }
+
+  override def deleteLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Boolean = {
+    withClassLoader {
+      rsm.deleteLogSegment(remoteLogSegmentMetadata)
+    }
+  }
+
 }

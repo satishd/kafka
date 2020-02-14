@@ -16,19 +16,85 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.TopicPartition;
-
-import java.util.UUID;
-
 /**
  * Metadata about the log segment stored in remote tier storage.
  */
 public class RemoteLogSegmentMetadata {
 
-    private TopicPartition topicPartition;
-    private UUID segmentId;
-    private long startOffset;
-    private long endOffset;
-    private int leaderEpoch;
-    private byte[] remoteLogSegmentContext;
+    /**
+     * Universally unique remote log segment id.
+     */
+    private final RemoteLogSegmentId remoteLogSegmentId;
+
+    /**
+     * Start offset of this segment.
+     */
+    private final long startOffset;
+
+    /**
+     * End offset of this segment.
+     */
+    private final long endOffset;
+
+    /**
+     * leader epoch of the broker.
+     */
+    private final int leaderEpoch;
+
+    /**
+     * epoch time at which the remote log segment is copied to the remote tier storage.
+     */
+    private long createdTimestamp;
+
+    /**
+     * Any context returned by {@link RemoteLogStorageManager#copyLogSegment(RemoteLogSegmentId, LogSegmentData)} for
+     * the given remoteLogSegmentId
+     */
+    private final byte[] remoteLogSegmentContext;
+
+    public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset, int leaderEpoch,  byte[] remoteLogSegmentContext) {
+        this(remoteLogSegmentId,
+        startOffset,
+        endOffset,
+        leaderEpoch,
+        0,
+        remoteLogSegmentContext);
+    }
+
+    public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset, int leaderEpoch, long created, byte[] remoteLogSegmentContext) {
+        this.remoteLogSegmentId = remoteLogSegmentId;
+        this.startOffset = startOffset;
+        this.endOffset = endOffset;
+        this.leaderEpoch = leaderEpoch;
+        this.createdTimestamp = created;
+        this.remoteLogSegmentContext = remoteLogSegmentContext;
+    }
+
+    public RemoteLogSegmentId remoteLogSegmentId() {
+        return remoteLogSegmentId;
+    }
+
+    public long startOffset() {
+        return startOffset;
+    }
+
+    public long endOffset() {
+        return endOffset;
+    }
+
+    public int leaderEpoch() {
+        return leaderEpoch;
+    }
+
+    public long createdTimestamp() {
+        return createdTimestamp;
+    }
+
+    public boolean isCreated() {
+        return createdTimestamp > 0;
+    }
+
+    public byte[] remoteLogSegmentContext() {
+        return remoteLogSegmentContext;
+    }
 }

@@ -22,8 +22,14 @@ import java.io.File;
 
 public class LogSegmentData {
 
-    private FileRecords logSegment;
+    private File logSegment;
     private File offsetIndex;
     private File timeIndex;
     //todo add other required indexes like txnIndex
+
+    public LogSegmentData(File logSegment, File offsetIndex, File timeIndex) {
+        this.logSegment = logSegment;
+        this.offsetIndex = offsetIndex;
+        this.timeIndex = timeIndex;
+    }
 }
