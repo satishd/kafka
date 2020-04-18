@@ -217,7 +217,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     val leaderPartitions = filterPartitions(partitionsBecomeLeader)
     val leaderTopicPartitions = leaderPartitions.map(p => p.topicPartition)
 
-    info(s"Effective topic partitions after filtering compact and internal topics, leaders: $leaderTopicPartitions " +
+    debug(s"Effective topic partitions after filtering compact and internal topics, leaders: $leaderTopicPartitions " +
       s"and followers: $followerTopicPartitions")
 
     remoteLogMetadataManager.onPartitionLeadershipChanges(leaderTopicPartitions.asJava, followerTopicPartitions.asJava)

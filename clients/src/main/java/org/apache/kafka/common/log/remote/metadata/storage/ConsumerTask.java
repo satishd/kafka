@@ -149,7 +149,7 @@ class ConsumerTask implements Runnable, Closeable {
                                 break;
                             } catch (Exception e) {
                                 // ignore exception
-                                log.info("Error encountered in fetching end offsets");
+                                log.debug("Error encountered in fetching end offsets");
                             }
                         }
                         log.info("Fetched end offsets to consumer task [{}]", endOffsets);
