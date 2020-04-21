@@ -32,5 +32,7 @@ abstract class CleanableIndex(@volatile var _file: File) extends Closeable {
     finally _file = toBeRenamedFile
   }
 
+  def file: File = _file
+
   def deleteIfExists(): Boolean
 }
