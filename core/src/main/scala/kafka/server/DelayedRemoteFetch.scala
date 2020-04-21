@@ -23,7 +23,6 @@ import kafka.log.remote.{RemoteLogManager, RemoteLogReadResult}
 import kafka.metrics.KafkaMetricsGroup
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors._
-import org.apache.kafka.common.record.Records
 
 import scala.collection._
 

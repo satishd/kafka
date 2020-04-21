@@ -17,7 +17,7 @@
 
 package kafka.log
 
-import java.io.{Closeable, File, RandomAccessFile}
+import java.io.{File, RandomAccessFile}
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.{ByteBuffer, MappedByteBuffer}
@@ -27,7 +27,7 @@ import kafka.common.IndexOffsetOverflowException
 import kafka.log.IndexSearchType.IndexSearchEntity
 import kafka.utils.CoreUtils.inLock
 import kafka.utils.{CoreUtils, Logging}
-import org.apache.kafka.common.utils.{MappedByteBuffers, OperatingSystem, Utils}
+import org.apache.kafka.common.utils.{MappedByteBuffers, OperatingSystem}
 
 import scala.math.ceil
 

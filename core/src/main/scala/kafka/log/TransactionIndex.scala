@@ -42,7 +42,7 @@ private[log] case class TxnIndexSearchResult(abortedTransactions: List[AbortedTx
  * order to find the start of the transactions.
  */
 @nonthreadsafe
-class TransactionIndex(val startOffset: Long, @volatile var file: File) extends Logging {
+class TransactionIndex(val startOffset: Long, _file: File) extends CleanableIndex(_file) with Logging {
   // note that the file is not created until we need it
   @volatile private var maybeChannel: Option[FileChannel] = None
   private var lastOffset: Option[Long] = None
@@ -100,13 +100,6 @@ class TransactionIndex(val startOffset: Long, @volatile var file: File) extends 
   def close(): Unit = {
     maybeChannel.foreach(_.close())
     maybeChannel = None
-  }
-
-  def renameTo(f: File): Unit = {
-    try {
-      if (file.exists)
-        Utils.atomicMoveWithFallback(file.toPath, f.toPath)
-    } finally file = f
   }
 
   def truncateTo(offset: Long): Unit = {
