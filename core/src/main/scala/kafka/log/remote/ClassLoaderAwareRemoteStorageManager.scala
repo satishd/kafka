@@ -88,4 +88,9 @@ class ClassLoaderAwareRemoteStorageManager(val rsm: RemoteStorageManager,
     }
   }
 
+  override def fetchTransactionIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
+    withClassLoader {
+      rsm.fetchTransactionIndex(remoteLogSegmentMetadata)
+    }
+  }
 }
