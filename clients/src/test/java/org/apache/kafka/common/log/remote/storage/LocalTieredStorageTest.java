@@ -506,7 +506,7 @@ public final class LocalTieredStorageTest {
 
                 baseOffset += data.length;
 
-                return new LogSegmentData(segment, offsetIndex, timeIndex);
+                return new LogSegmentData(segment, offsetIndex, timeIndex, txnIndex, producerIdSnapshotIndex);
 
             } catch (IOException e) {
                 throw new AssertionError(e);
