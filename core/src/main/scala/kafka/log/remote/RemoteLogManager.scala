@@ -356,12 +356,12 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset, segment.maxTimestampSoFar,
                                     leaderEpochVal, null))
 
+                // todo-tier get producerIdSnapshotIndex if ti matches with the current segments file
+                val producerIdSnapshotFile =  log.producerStateManager.fetchSnapshot(endOffset + 1).orNull
                 val segmentData = new LogSegmentData(file, segment.lazyOffsetIndex.get.file,
-                  segment.lazyTimeIndex.get.file)
+                  segment.lazyTimeIndex.get.file, segment.txnIndex.file, producerIdSnapshotFile)
                 val remoteLogContext = remoteLogStorageManager.copyLogSegment(id, segmentData)
-
                 remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset, segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), false, remoteLogContext.asBytes()))
-
                 readOffset = endOffset
                 log.updateRemoteIndexHighestOffset(readOffset)
               }
