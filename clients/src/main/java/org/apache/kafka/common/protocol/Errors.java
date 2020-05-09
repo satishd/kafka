@@ -231,7 +231,7 @@ public enum Errors {
         GroupSubscribedToTopicException::new),
     INVALID_RECORD(87, "This record has failed the validation on broker and hence will be rejected.", InvalidRecordException::new),
     UNSTABLE_OFFSET_COMMIT(88, "There are unstable offsets that need to be cleared.", UnstableOffsetCommitException::new),
-    OFFSET_MOVED_TO_TIERED_STORAGE(1, "The requested offset is moved to tiered storage.",
+    OFFSET_MOVED_TO_TIERED_STORAGE(89, "The requested offset is moved to tiered storage.",
                         OffsetMovedToTieredStorageException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);

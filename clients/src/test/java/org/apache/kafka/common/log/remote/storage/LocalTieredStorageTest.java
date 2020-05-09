@@ -500,6 +500,8 @@ public final class LocalTieredStorageTest {
                 final File segment = new File(segmentDir, offset + ".log");
                 final File offsetIndex = new File(segmentDir, offset + ".index");
                 final File timeIndex = new File(segmentDir, offset + ".time");
+                final File txnIndex = new File(segmentDir, offset + ".txn");
+                final File producerIdSnapshotIndex = new File(segmentDir, offset + ".pid");
 
                 Files.write(offsetIndex.toPath(), OFFSET_FILE_BYTES);
                 Files.write(timeIndex.toPath(), TIME_FILE_BYTES);
