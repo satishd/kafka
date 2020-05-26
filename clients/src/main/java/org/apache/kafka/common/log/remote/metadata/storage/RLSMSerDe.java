@@ -61,6 +61,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
     private static final String REMOTE_LOG_SEGMENT_CONTEXT_NAME = "remote-log-segment-context";
     private static final Field REMOTE_LOG_CONTEXT_FIELD = new Field(REMOTE_LOG_SEGMENT_CONTEXT_NAME, Type.NULLABLE_BYTES,
             "Remote log segment context of the segment");
+    private static final Field.Int64 SEGMENT_SIZE_FIELD = new Field.Int64("segment-size",
+            "Size of the remote log segment");
 
     private static final Schema SCHEMA_V0 = new Schema(
             REMOTE_LOG_SEGMENT_ID_FIELD,
@@ -70,7 +72,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             MAX_TIMESTAMP_FIELD,
             CREATED_TIMESTAMP_FIELD,
             MARKED_FOR_DELETION_FIELD,
-            REMOTE_LOG_CONTEXT_FIELD);
+            REMOTE_LOG_CONTEXT_FIELD,
+            SEGMENT_SIZE_FIELD);
 
     private static final Schema[] SCHEMAS = {SCHEMA_V0};
 
@@ -104,6 +107,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             rlsmStruct.set(MARKED_FOR_DELETION_FIELD, data.markedForDeletion());
             final byte[] value = data.remoteLogSegmentContext();
             rlsmStruct.set(REMOTE_LOG_SEGMENT_CONTEXT_NAME, value != null ? ByteBuffer.wrap(value) : null);
+            rlsmStruct.set(SEGMENT_SIZE_FIELD, data.segmentSizeInBytes());
 
             final int size = SCHEMA_V0.sizeOf(rlsmStruct);
             ByteBuffer byteBuffer;
@@ -152,7 +156,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
                     struct.get(LEADER_EPOCH_FIELD),
                     struct.get(CREATED_TIMESTAMP_FIELD),
                     struct.get(MARKED_FOR_DELETION_FIELD),
-                    contextBytes);
+                    contextBytes,
+                    struct.get(SEGMENT_SIZE_FIELD));
         }
     }
 }

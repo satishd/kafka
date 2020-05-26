@@ -1206,7 +1206,7 @@ class ReplicaManager(val config: KafkaConfig,
           // If it is from a follower then send the offset metadata but not the records data as that can be fetched
           // from the remote store.
           if (remoteLogManager.isDefined && log != null && !log.config.compact) {
-            // for follower fetch requests, throw an error saying that this offset is moved to tiered storage.
+            // For follower fetch requests, throw an error saying that this offset is moved to tiered storage.
             if(Request.isValidBrokerId(replicaId)) {
               createLogReadResult(new OffsetMovedToTieredStorageException("Given offset is moved to tiered storage"))
             } else {
