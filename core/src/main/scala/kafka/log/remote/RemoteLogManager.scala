@@ -16,7 +16,7 @@
  */
 package kafka.log.remote
 
-import java.io.{Closeable, InputStream}
+import java.io.{Closeable, File, InputStream}
 import java.nio.ByteBuffer
 import java.util
 import java.util.Optional
@@ -354,14 +354,20 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 //todo-tier double check on this
                 val endOffset = segment.readNextOffset - 1
                 remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset, segment.maxTimestampSoFar,
-                                    leaderEpochVal, null))
+                                    leaderEpochVal, segment.log.sizeInBytes()))
 
                 // todo-tier get producerIdSnapshotIndex if it matches with the current segments file
                 val producerIdSnapshotFile =  log.producerStateManager.fetchSnapshot(endOffset + 1).orNull
+                // create a tmp file of cache till this offset by taking readlock
+                //val leaderEpochs = log.leaderEpochCache.map( x => x.epochEntries)
+                val leaderEpochs:File = null
                 val segmentData = new LogSegmentData(file, segment.lazyOffsetIndex.get.file,
-                  segment.lazyTimeIndex.get.file, segment.txnIndex.file, producerIdSnapshotFile)
-                val remoteLogContext = remoteLogStorageManager.copyLogSegment(id, segmentData)
-                remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset, segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), false, remoteLogContext.asBytes(), ))
+                  segment.lazyTimeIndex.get.file, segment.txnIndex.file, producerIdSnapshotFile, leaderEpochs)
+                remoteLogStorageManager.copyLogSegment(id, segmentData)
+                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
+                  segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), false,
+                  segment.log.sizeInBytes())
+                remoteLogMetadataManager.putRemoteLogSegmentData(remoteLogSegmentMetadata)
                 readOffset = endOffset
                 log.updateRemoteIndexHighestOffset(readOffset)
               }
@@ -515,12 +521,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   }
 
   private def getRemoteLogSegmentMetadata(tp: TopicPartition, offset: Long): RemoteLogSegmentMetadata = {
-    val remoteLogSegmentId = remoteLogMetadataManager.getRemoteLogSegmentId(tp, offset)
-
-    if (remoteLogSegmentId == null) throw new OffsetOutOfRangeException(
-      s"Received request for offset $offset for partition $tp, which does not exist in remote tier")
-
-    val remoteLogSegmentMetadata = remoteLogMetadataManager.getRemoteLogSegmentMetadata(remoteLogSegmentId)
+    val remoteLogSegmentMetadata = remoteLogMetadataManager.remoteLogSegmentMetadata(tp, offset)
     if (remoteLogSegmentMetadata == null) throw new OffsetOutOfRangeException(
       s"Received request for offset $offset for partition $tp, which does not exist in remote tier")
 

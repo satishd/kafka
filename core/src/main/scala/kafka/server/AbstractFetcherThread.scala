@@ -113,6 +113,8 @@ abstract class AbstractFetcherThread(name: String,
   override def doWork(): Unit = {
     maybeTruncate()
     maybeFetch()
+    //todo-tier implement RLSM Fetch
+//    mayBeRLSMFetch()
   }
 
   private def maybeFetch(): Unit = {

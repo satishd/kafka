@@ -267,8 +267,7 @@ public final class LocalTieredStorageTest {
     }
 
     private RemoteLogSegmentMetadata newRemoteLogSegmentMetadata(final RemoteLogSegmentId id) {
-        final byte[] context = ByteBuffer.allocate(4).putInt(tieredStorage.getBrokerId()).array();
-        return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, context);
+        return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000);
     }
 
     private RemoteLogSegmentId newRemoteLogSegmentId() {
@@ -403,8 +402,7 @@ public final class LocalTieredStorageTest {
         }
 
         private RemoteLogSegmentMetadata newMetadata(final RemoteLogSegmentId id) {
-            final byte[] context = ByteBuffer.allocate(4).putInt(remoteStorage.getBrokerId()).array();
-            return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, context);
+            return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000);
         }
 
         private String getStorageRootDirectory() {
@@ -507,8 +505,8 @@ public final class LocalTieredStorageTest {
                 Files.write(timeIndex.toPath(), TIME_FILE_BYTES);
 
                 baseOffset += data.length;
-
-                return new LogSegmentData(segment, offsetIndex, timeIndex, txnIndex, producerIdSnapshotIndex);
+                //todo-tier pass leaderepoch state
+                return new LogSegmentData(segment, offsetIndex, timeIndex, txnIndex, producerIdSnapshotIndex, producerIdSnapshotIndex);
 
             } catch (IOException e) {
                 throw new AssertionError(e);

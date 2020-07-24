@@ -16,6 +16,10 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+/**
+ * This is the contextual information about a specific remote log segment like protocol version of segment location
+ * computation. This allows RemoteStorageManager to evolve the protocol as this object is received the context as part of {@link RemoteLogSegmentMetadata}.
+ */
 public interface RemoteLogSegmentContext {
     byte[] asBytes();
 

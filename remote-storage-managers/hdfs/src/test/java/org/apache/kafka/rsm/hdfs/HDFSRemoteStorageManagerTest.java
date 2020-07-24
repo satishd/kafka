@@ -124,7 +124,7 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     private LogSegmentData getLogSegmentData(LogSegment seg) {
-        return new LogSegmentData(seg.log().file(), seg.offsetIndex().file(), seg.timeIndex().file(), , );
+        return new LogSegmentData(seg.log().file(), seg.offsetIndex().file(), seg.timeIndex().file(), , , leaderEpochCache);
     }
 
     private void assertFileEquals(InputStream is, File f) throws Exception {

@@ -49,10 +49,9 @@ public interface RemoteStorageManager extends Configurable, Closeable {
      *
      * @param remoteLogSegmentId
      * @param logSegmentData
-     * @return
      * @throws IOException
      */
-    RemoteLogSegmentContext copyLogSegment(RemoteLogSegmentId remoteLogSegmentId, LogSegmentData logSegmentData)
+    void copyLogSegment(RemoteLogSegmentId remoteLogSegmentId, LogSegmentData logSegmentData)
             throws RemoteStorageException;
 
     /**
@@ -88,6 +87,7 @@ public interface RemoteStorageManager extends Configurable, Closeable {
     InputStream fetchTimestampIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
 
     /**
+     * Returns the transaction index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
      *
      * @param remoteLogSegmentMetadata
      * @return
@@ -98,12 +98,24 @@ public interface RemoteStorageManager extends Configurable, Closeable {
     }
 
     /**
+     * Returns the producer snapshot index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
      *
      * @param remoteLogSegmentMetadata
      * @return
      * @throws RemoteStorageException
      */
     default InputStream fetchProducerSnapshotIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns the leader epoch index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
+     *
+     * @param remoteLogSegmentMetadata
+     * @return
+     * @throws RemoteStorageException
+     */
+    default InputStream fetchLeaderEpochIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
         throw new UnsupportedOperationException();
     }
 
