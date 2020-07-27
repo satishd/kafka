@@ -333,6 +333,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
             log.info("configure is already invoked earlier.");
             return;
         }
+        log.info("RLMMWithTopicStorage is initializing with configs: {}", configs);
 
         this.configs = Collections.unmodifiableMap(configs);
 

@@ -690,6 +690,6 @@ object RemoteLogManager {
       config.remoteLogRetentionBytes, config.remoteLogRetentionMillis,
       config.remoteLogReaderThreads, config.remoteLogReaderMaxPendingTasks, rsmProps.toMap,
       config.remoteLogManagerThreadPoolSize, config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager,
-      config.remoteLogMetadataManagerClassPath)
+      config.remoteLogMetadataManagerClassPath, Option(config.remoteLogMetadataManagerListenerName))
   }
 }
