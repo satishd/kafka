@@ -61,7 +61,7 @@ import static org.apache.kafka.common.log.remote.storage.RemoteTopicPartitionDir
  * The local tiered storage keeps a simple structure of directories mimicking that of Apache Kafka.
  * <p>
  * The name of each of the files under the scope of a log segment (the log file, its indexes, etc.)
- * follows the structure UUID-BrokerId-FileType.
+ * follows the structure UUID-FileType.
  * <p>
  * Given the root directory of the storage, segments and associated files are organized as represented below.
  * </p>
@@ -241,7 +241,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             }
         }
 
-        logger.info("Created local tiered storage manager [{}]", brokerId, storageDirectory.getName());
+        logger.info("Created local tiered storage manager [{}]:[{}]", brokerId, storageDirectory.getName());
     }
 
     @Override
@@ -474,20 +474,4 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         }
     }
 
-    public static final class LocalTieredStorageLogSegmentContext implements RemoteLogSegmentContext {
-        private final int brokerId;
-
-        LocalTieredStorageLogSegmentContext(final int brokerId) {
-            this.brokerId = brokerId;
-        }
-
-        @Override
-        public byte[] asBytes() {
-            return ByteBuffer.allocate(4).putInt(brokerId).array();
-        }
-
-        static LocalTieredStorageLogSegmentContext fromBytes(final byte[] bytes) {
-            return new LocalTieredStorageLogSegmentContext(ByteBuffer.wrap(bytes).getInt());
-        }
-    }
 }

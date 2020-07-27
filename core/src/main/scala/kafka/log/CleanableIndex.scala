@@ -28,7 +28,8 @@ abstract class CleanableIndex(@volatile var _file: File) extends Closeable {
    * @throws IOException if rename fails
    */
   def renameTo(toBeRenamedFile: File): Unit = {
-    try Utils.atomicMoveWithFallback(_file.toPath, toBeRenamedFile.toPath)
+    try
+      if (_file.exists) Utils.atomicMoveWithFallback(_file.toPath, toBeRenamedFile.toPath)
     finally _file = toBeRenamedFile
   }
 
