@@ -271,25 +271,13 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public void onServerStarted(final String endpoint) {
-        initialize(endpoint);
+    public void onServerStarted() {
+        initialize(null);
     }
 
     private synchronized void initialize(final String endpoint) {
         if (!initialized) {
             log.info("Initializing all the clients and resources.");
-
-            if (endpoint != null) {
-                final String configuredEndpoint = String.valueOf(configs.get(BOOTSTRAP_SERVERS_CONFIG));
-
-                if (!endpoint.equals(configuredEndpoint)) {
-                    final Map<String, Object> newConfigs = new HashMap<>(configs);
-                    newConfigs.put(BOOTSTRAP_SERVERS_CONFIG, endpoint);
-                    configs = Collections.unmodifiableMap(newConfigs);
-
-                    log.info("Replaced endpoint {} with the override {}", configuredEndpoint, endpoint);
-                }
-            }
 
             if (configs.get(BOOTSTRAP_SERVERS_CONFIG) == null) {
                 throw new InvalidConfigurationException("Broker endpoint must be configured for the remote log " +

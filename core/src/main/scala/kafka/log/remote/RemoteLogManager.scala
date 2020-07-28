@@ -27,6 +27,7 @@ import java.util.function.{BiConsumer, Consumer, Function}
 import kafka.cluster.Partition
 import kafka.common.KafkaException
 import kafka.log.Log
+import kafka.log.remote.RemoteLogManager.CLUSTER_ID
 import kafka.server.{Defaults, FetchDataInfo, FetchTxnCommitted, KafkaConfig, LogOffsetMetadata, RemoteStorageFetchInfo}
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
@@ -133,10 +134,11 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     val rsmWrapper = new ClassLoaderAwareRemoteStorageManager(rsm, rsmClassLoader)
 
     val rsmProps = new util.HashMap[String, Any]()
-    rlmConfig.remoteStorageConfig.foreach { case (k, v) => rsmProps.put(k, v) }
+    rlmConfig.rsmProps.foreach { case (k, v) => rsmProps.put(k, v) }
     rsmProps.put(KafkaConfig.RemoteLogRetentionMillisProp, rlmConfig.remoteLogRetentionMillis)
     rsmProps.put(KafkaConfig.RemoteLogRetentionBytesProp, rlmConfig.remoteLogRetentionBytes)
     rsmProps.put(KafkaConfig.BrokerIdProp, brokerId)
+    rsmProps.put(CLUSTER_ID, clusterId)
     rsmWrapper.configure(rsmProps)
     rsmWrapper
   }
@@ -155,10 +157,10 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
 
     val rlmmProps = new util.HashMap[String, Any]()
-    rlmConfig.remoteStorageConfig.foreach { case (k, v) => rlmmProps.put(k, v) }
-    rlmmProps.put("log.dir", logDir)
-    rlmmProps.put(RemoteLogMetadataManager.BROKER_ID, brokerId)
-    rlmmProps.put(RemoteLogMetadataManager.CLUSTER_ID, clusterId)
+    rlmConfig.rsmProps.foreach { case (k, v) => rlmmProps.put(k, v) }
+    rlmmProps.put(KafkaConfig.LogDirProp, logDir)
+    rlmmProps.put(KafkaConfig.BrokerIdProp, brokerId)
+    rlmmProps.put(CLUSTER_ID, clusterId)
     rlmmProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, localBootStrapServers)
     rlmm.configure(rlmmProps)
     rlmm
@@ -190,7 +192,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   }
 
   def onServerStarted(serverEndpoint: String): Unit = {
-    remoteLogMetadataManager.onServerStarted(serverEndpoint)
+    remoteLogMetadataManager.onServerStarted()
   }
 
   def storageManager(): RemoteStorageManager = {
@@ -653,43 +655,51 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
 }
 
-case class RemoteLogManagerConfig(remoteLogStorageEnable: Boolean, remoteLogStorageManagerClass: String,
-                                  remoteLogStorageManagerClassPath: String, remoteLogRetentionBytes: Long,
-                                  remoteLogRetentionMillis: Long, remoteLogReaderThreads: Int,
-                                  remoteLogReaderMaxPendingTasks: Int, remoteStorageConfig: Map[String, Any],
-                                  remoteLogManagerThreadPoolSize: Int, remoteLogManagerTaskIntervalMs: Long,
+case class RemoteLogManagerConfig(remoteLogStorageEnable: Boolean,
+                                  remoteLogStorageManagerClass: String,
+                                  remoteLogStorageManagerClassPath: String,
+                                  rsmProps: Map[String, Any] = Map.empty,
+                                  remoteLogRetentionBytes: Long,
+                                  remoteLogRetentionMillis: Long,
+                                  remoteLogReaderThreads: Int,
+                                  remoteLogReaderMaxPendingTasks: Int,
+                                  remoteLogManagerThreadPoolSize: Int,
+                                  remoteLogManagerTaskIntervalMs: Long,
                                   remoteLogMetadataManagerClass: String = "",
                                   remoteLogMetadataManagerClassPath: String = "",
+                                  rlmmProps: Map[String, Any] = Map.empty,
                                   listenerName: Option[String] = None)
 
 object RemoteLogManager {
   def REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "remote.log.storage."
   def REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX = "remote.log.metadata."
 
-  def DefaultConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable, null, null,
-    Defaults.RemoteLogRetentionBytes, TimeUnit.MINUTES.toMillis(Defaults.RemoteLogRetentionMinutes),
-    Defaults.RemoteLogReaderThreads, Defaults.RemoteLogReaderMaxPendingTasks, Map.empty,
-    Defaults.RemoteLogManagerThreadPoolSize, Defaults.RemoteLogManagerTaskIntervalMs, Defaults.RemoteLogMetadataManager,
-    Defaults.RemoteLogMetadataManagerClassPath)
+  /**
+   * Property name for cluster id.
+   */
+  val CLUSTER_ID = "cluster.id"
+
+  def DefaultConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable, null, null, Map.empty, Defaults.RemoteLogRetentionBytes, TimeUnit.MINUTES.toMillis(Defaults.RemoteLogRetentionMinutes), Defaults.RemoteLogReaderThreads, Defaults.RemoteLogReaderMaxPendingTasks, Defaults.RemoteLogManagerThreadPoolSize, Defaults.RemoteLogManagerTaskIntervalMs, Defaults.RemoteLogMetadataManager, Defaults.RemoteLogMetadataManagerClassPath, rlmmProps = Map.empty)
 
   def createRemoteLogManagerConfig(config: KafkaConfig): RemoteLogManagerConfig = {
     var rsmProps = Map[String, Any]()
+    var rlmmProps = Map[String, Any]()
     config.props.forEach(new BiConsumer[Any, Any] {
       override def accept(key: Any, value: Any): Unit = {
         key match {
-          case key: String if key.startsWith(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX)
-            || key.startsWith(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX) =>
+          case key: String if key.startsWith(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX) =>
             rsmProps += (key.toString -> value)
+          case key: String if key.startsWith(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX) =>
+            rlmmProps += (key.toString -> value)
           case _ =>
         }
       }
     })
 
     RemoteLogManagerConfig(config.remoteLogStorageEnable, config.remoteLogStorageManager,
-      config.remoteLogStorageManagerClassPath,
-      config.remoteLogRetentionBytes, config.remoteLogRetentionMillis,
-      config.remoteLogReaderThreads, config.remoteLogReaderMaxPendingTasks, rsmProps.toMap,
-      config.remoteLogManagerThreadPoolSize, config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager,
-      config.remoteLogMetadataManagerClassPath, Option(config.remoteLogMetadataManagerListenerName))
+      config.remoteLogStorageManagerClassPath, rsmProps.toMap, config.remoteLogRetentionBytes, config.remoteLogRetentionMillis, config.remoteLogReaderThreads,
+      config.remoteLogReaderMaxPendingTasks, config.remoteLogManagerThreadPoolSize,
+      config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager, config.remoteLogMetadataManagerClassPath,
+      rlmmProps.toMap, Option(config.remoteLogMetadataManagerListenerName))
   }
 }

@@ -204,7 +204,7 @@ class RLMMWithTopicStorageTest extends IntegrationTestHarness {
     configs.put(RemoteLogMetadataManager.BROKER_ID, brokerId)
     configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     rlmmWithTopicStorage.configure(configs)
-    rlmmWithTopicStorage.onServerStarted(null)
+    rlmmWithTopicStorage.onServerStarted()
   }
 
   def waitTillReceiveExpected(fn: () => RemoteLogSegmentId, expected: RemoteLogSegmentId, waitTimeInMillis: Long = 30000): Boolean = {
