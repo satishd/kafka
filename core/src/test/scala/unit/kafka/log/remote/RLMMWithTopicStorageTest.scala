@@ -22,11 +22,12 @@ import java.util
 import java.util.{Collections, UUID}
 
 import kafka.api.IntegrationTestHarness
+import kafka.server.KafkaConfig
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata.remoteLogSegmentId
-import org.apache.kafka.common.log.remote.storage.{RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata}
+import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata}
 import org.junit.{Assert, Before, Test}
 
 import scala.jdk.CollectionConverters._
@@ -201,7 +202,7 @@ class RLMMWithTopicStorageTest extends IntegrationTestHarness {
     val logDir = new File(tmpLogDirPath, 1.toString)
     logDir.mkdirs()
     configs.put("log.dir", logDir.toString)
-    configs.put(RemoteLogMetadataManager.BROKER_ID, brokerId)
+    configs.put(KafkaConfig.BrokerIdProp, brokerId)
     configs.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, brokerList)
     rlmmWithTopicStorage.configure(configs)
     rlmmWithTopicStorage.onServerStarted()

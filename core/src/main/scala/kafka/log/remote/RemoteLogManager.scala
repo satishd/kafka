@@ -191,7 +191,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     convertToLeaderOrFollower(rlmTaskWithFuture.rlmTask)
   }
 
-  def onServerStarted(serverEndpoint: String): Unit = {
+  def onServerStarted(): Unit = {
     remoteLogMetadataManager.onServerStarted()
   }
 
