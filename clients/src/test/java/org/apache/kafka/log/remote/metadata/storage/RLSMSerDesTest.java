@@ -42,7 +42,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                false,
+                Collections.emptyMap(), false,
                 1000);
         doTestSerDes(topic, rlsmWithNoContext);
 
@@ -54,7 +54,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                false,
+                Collections.emptyMap(), false,
                 1000);
         doTestSerDes(topic, rlsmWithContext);
 
@@ -66,7 +66,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                true,
+                Collections.emptyMap(), true,
                 1000);
         doTestSerDes(topic, rlsmMarkedDelete);
 

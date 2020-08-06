@@ -51,28 +51,28 @@ class RLMMWithTopicStorageTest extends IntegrationTestHarness {
   val segSize: Long = 1024 * 1024
 
   val rlSegIdTp0_0_100 = new RemoteLogSegmentId(tp0, UUID.randomUUID)
-  val rlSegMetTp0_0_100 = new RemoteLogSegmentMetadata(rlSegIdTp0_0_100, 0L, 100L, -1L, 1, segSize)
+  val rlSegMetTp0_0_100 = new RemoteLogSegmentMetadata(rlSegIdTp0_0_100, 0L, 100L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp0_101_200 = new RemoteLogSegmentId(tp0, UUID.randomUUID)
-  val rlSegMetTp0_101_200 = new RemoteLogSegmentMetadata(rlSegIdTp0_101_200, 101L, 200L, -1L, 1, segSize)
+  val rlSegMetTp0_101_200 = new RemoteLogSegmentMetadata(rlSegIdTp0_101_200, 101L, 200L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp1_101_300 = new RemoteLogSegmentId(tp1, UUID.randomUUID)
-  val rlSegMetTp1_101_300 = new RemoteLogSegmentMetadata(rlSegIdTp1_101_300, 101L, 300L, -1L, 1, segSize)
+  val rlSegMetTp1_101_300 = new RemoteLogSegmentMetadata(rlSegIdTp1_101_300, 101L, 300L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp2_150_400 = new RemoteLogSegmentId(tp2, UUID.randomUUID)
-  val rlSegMetTp2_150_400 = new RemoteLogSegmentMetadata(rlSegIdTp2_150_400, 150L, 400L, -1L, 1, segSize)
+  val rlSegMetTp2_150_400 = new RemoteLogSegmentMetadata(rlSegIdTp2_150_400, 150L, 400L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp2_401_700 = new RemoteLogSegmentId(tp2, UUID.randomUUID)
-  val rlSegMetTp2_401_700 = new RemoteLogSegmentMetadata(rlSegIdTp2_401_700, 401L, 700L, -1L, 1, segSize)
+  val rlSegMetTp2_401_700 = new RemoteLogSegmentMetadata(rlSegIdTp2_401_700, 401L, 700L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp2_501_1000 = new RemoteLogSegmentId(tp2, UUID.randomUUID)
-  val rlSegMetTp2_501_1000 = new RemoteLogSegmentMetadata(rlSegIdTp2_501_1000, 501L, 1000L, -1L, 1, segSize)
+  val rlSegMetTp2_501_1000 = new RemoteLogSegmentMetadata(rlSegIdTp2_501_1000, 501L, 1000L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp3_101_700 = new RemoteLogSegmentId(tp3, UUID.randomUUID)
-  val rlSegMetTp3_101 = new RemoteLogSegmentMetadata(rlSegIdTp3_101_700, 101L, 700L, -1L, 1, segSize)
+  val rlSegMetTp3_101 = new RemoteLogSegmentMetadata(rlSegIdTp3_101_700, 101L, 700L, -1L, 1, segSize, Collections.emptyMap())
 
   val rlSegIdTp3_701_1900 = new RemoteLogSegmentId(tp3, UUID.randomUUID)
-  val rlSegMetTp3_701_1900 = new RemoteLogSegmentMetadata(rlSegIdTp3_701_1900, 701L, 1900L, -1L, 1, segSize)
+  val rlSegMetTp3_701_1900 = new RemoteLogSegmentMetadata(rlSegIdTp3_701_1900, 701L, 1900L, -1L, 1, segSize, Collections.emptyMap())
 
   def tmpLogDirPathAsStr: String = tmpLogDirPath.toString
 
@@ -142,7 +142,7 @@ class RLMMWithTopicStorageTest extends IntegrationTestHarness {
   def testNonExistingOffsets(): Unit = {
 
     val rlSegIdTp0_10 = new RemoteLogSegmentId(tp0, UUID.randomUUID)
-    val rlSegMetTp0_10 = new RemoteLogSegmentMetadata(rlSegIdTp0_10, 10L, 100L, -1L, 1, segSize)
+    val rlSegMetTp0_10 = new RemoteLogSegmentMetadata(rlSegIdTp0_10, 10L, 100L, -1L, 1, segSize, Collections.emptyMap())
     var mayBeRlmmWithTopicStorage: Option[RLMMWithTopicStorage] = None
     try {
       val rlmmWithTopicStorage = createRLMMWithTopicStorage(tmpLogDirPathAsStr, 1)

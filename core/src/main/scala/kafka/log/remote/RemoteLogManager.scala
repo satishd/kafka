@@ -19,7 +19,7 @@ package kafka.log.remote
 import java.io.{Closeable, File, InputStream}
 import java.nio.ByteBuffer
 import java.util
-import java.util.Optional
+import java.util.{Collections, Optional}
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.{BiConsumer, Consumer, Function}
@@ -355,20 +355,22 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
                 //todo-tier double check on this
                 val endOffset = segment.readNextOffset - 1
-                remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset, segment.maxTimestampSoFar,
-                                    leaderEpochVal, segment.log.sizeInBytes()))
+
+                remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset,
+                  endOffset, segment.maxTimestampSoFar, leaderEpochVal, segment.log.sizeInBytes(), Collections.emptyMap()))
 
                 // todo-tier get producerIdSnapshotIndex if it matches with the current segments file
                 val producerIdSnapshotFile =  log.producerStateManager.fetchSnapshot(endOffset + 1).orNull
-                // create a tmp file of cache till this offset by taking readlock
+
+                //todo-tier create a tmp file of cache till this offset by taking readlock
                 //val leaderEpochs = log.leaderEpochCache.map( x => x.epochEntries)
                 val leaderEpochs:File = null
                 val segmentData = new LogSegmentData(file, segment.lazyOffsetIndex.get.file,
                   segment.lazyTimeIndex.get.file, segment.txnIndex.file, producerIdSnapshotFile, leaderEpochs)
                 remoteLogStorageManager.copyLogSegment(id, segmentData)
                 val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
-                  segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), false,
-                  segment.log.sizeInBytes())
+                  segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), Collections.emptyMap(),
+                  false, segment.log.sizeInBytes())
                 remoteLogMetadataManager.putRemoteLogSegmentData(remoteLogSegmentMetadata)
                 readOffset = endOffset
                 log.updateRemoteIndexHighestOffset(readOffset)

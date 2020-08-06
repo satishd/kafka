@@ -27,6 +27,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
 
 public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
@@ -141,6 +142,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
                     struct.get(MAX_TIMESTAMP_FIELD),
                     struct.get(LEADER_EPOCH_FIELD),
                     struct.get(CREATED_TIMESTAMP_FIELD),
+                    Collections.emptyMap(),
                     struct.get(MARKED_FOR_DELETION_FIELD),
                     struct.get(SEGMENT_SIZE_FIELD));
         }

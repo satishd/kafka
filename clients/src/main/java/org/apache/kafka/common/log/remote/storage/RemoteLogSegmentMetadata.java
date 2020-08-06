@@ -17,7 +17,8 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import java.io.Serializable;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -58,6 +59,11 @@ public class RemoteLogSegmentMetadata implements Serializable {
     private final long createdTimestamp;
 
     /**
+     * LeaderEpoch vs offset for messages with in this segment.
+     */
+    private Map<Long, Long> segmentLeaderEpochs;
+
+    /**
      * Size of the segment in bytes.
      */
     private final long segmentSizeInBytes;
@@ -74,18 +80,20 @@ public class RemoteLogSegmentMetadata implements Serializable {
      * @param maxTimestamp            maximum timestamp in this segment
      * @param leaderEpoch             Leader epoch of the broker.
      * @param createdTimestamp        Epoch time at which the remote log segment is copied to the remote tier storage.
+     * @param segmentLeaderEpochs
      * @param markedForDeletion       The respective segment of remoteLogSegmentId is marked fro deletion.
      * @param segmentSizeInBytes      size of this segment in bytes.
      */
     public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset,
                                     long maxTimestamp, int leaderEpoch, long createdTimestamp,
-                                    boolean markedForDeletion, long segmentSizeInBytes) {
+                                    Map<Long, Long> segmentLeaderEpochs, boolean markedForDeletion, long segmentSizeInBytes) {
         this.remoteLogSegmentId = remoteLogSegmentId;
         this.startOffset = startOffset;
         this.endOffset = endOffset;
         this.leaderEpoch = leaderEpoch;
         this.maxTimestamp = maxTimestamp;
         this.createdTimestamp = createdTimestamp;
+        this.segmentLeaderEpochs = segmentLeaderEpochs;
         this.markedForDeletion = markedForDeletion;
         this.segmentSizeInBytes = segmentSizeInBytes;
     }
@@ -97,16 +105,17 @@ public class RemoteLogSegmentMetadata implements Serializable {
      * @param maxTimeStampSoFar
      * @param leaderEpoch             Leader epoch of the broker.
      * @param segmentSizeInBytes      size of this segment in bytes.
+     * @param segmentLeaderEpochs
      */
     public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset,
-                                    long maxTimeStampSoFar, int leaderEpoch, long segmentSizeInBytes) {
+                                    long maxTimeStampSoFar, int leaderEpoch, long segmentSizeInBytes, Map<Long, Long> segmentLeaderEpochs) {
         this(remoteLogSegmentId,
                 startOffset,
                 endOffset,
                 maxTimeStampSoFar,
                 leaderEpoch,
                 0,
-                false,
+                segmentLeaderEpochs, false,
                 segmentSizeInBytes);
     }
 
@@ -146,9 +155,13 @@ public class RemoteLogSegmentMetadata implements Serializable {
         return maxTimestamp;
     }
 
+    public Map<Long, Long> segmentLeaderEpochs() {
+        return segmentLeaderEpochs;
+    }
+
     public static RemoteLogSegmentMetadata markForDeletion(RemoteLogSegmentMetadata original) {
         return new RemoteLogSegmentMetadata(original.remoteLogSegmentId, original.startOffset, original.endOffset,
-                original.maxTimestamp, original.leaderEpoch, original.createdTimestamp, true,
+                original.maxTimestamp, original.leaderEpoch, original.createdTimestamp, Collections.emptyMap(), true,
                 original.segmentSizeInBytes);
     }
 

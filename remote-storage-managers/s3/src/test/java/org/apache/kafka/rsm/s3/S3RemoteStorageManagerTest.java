@@ -27,7 +27,6 @@ import kafka.log.LogUtils;
 import kafka.utils.TestUtils;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.LogSegmentData;
-import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentContext;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
@@ -38,6 +37,7 @@ import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.jetbrains.annotations.NotNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -53,6 +53,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -128,12 +129,12 @@ public class S3RemoteStorageManagerTest {
 
         final UUID uuid1 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(TP0, uuid1);
-        final LogSegmentData lsd1 = new LogSegmentData(segment1.log().file(), segment1.offsetIndex().file(), segment1.timeIndex().file(), , , leaderEpochCache);
+        final LogSegmentData lsd1 = createLogSegmentData(segment1);
         remoteStorageManager.copyLogSegment(segmentId1, lsd1);
 
         final UUID uuid2 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId2 = new RemoteLogSegmentId(TP1, uuid2);
-        final LogSegmentData lsd2 = new LogSegmentData(segment2.log().file(), segment2.offsetIndex().file(), segment2.timeIndex().file(), , , leaderEpochCache);
+        final LogSegmentData lsd2 = new LogSegmentData(segment2.log().file(), segment2.offsetIndex().file(), segment2.timeIndex().file(), segment1.txnIndex().file(), null, null);
         remoteStorageManager.copyLogSegment(segmentId2, lsd2);
 
         final List<String> keys = listS3Keys();
@@ -147,6 +148,11 @@ public class S3RemoteStorageManagerTest {
         ));
     }
 
+    @NotNull
+    private LogSegmentData createLogSegmentData(LogSegment segment) {
+        return new LogSegmentData(segment.log().file(), segment.offsetIndex().file(), segment.timeIndex().file(), segment.txnIndex().file(), null, null);
+    }
+
     @Test
     public void testFetchLogSegmentDataComplete() throws RemoteStorageException, IOException {
         remoteStorageManager.configure(basicProps(bucket));
@@ -154,10 +160,10 @@ public class S3RemoteStorageManagerTest {
         final LogSegment segment = createLogSegment(0);
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
-        final LogSegmentData lsd = new LogSegmentData(segment.log().file(), segment.offsetIndex().file(), segment.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext context = remoteStorageManager.copyLogSegment(segmentId, lsd);
+        final LogSegmentData lsd = createLogSegmentData(segment);
+        remoteStorageManager.copyLogSegment(segmentId, lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, context.asBytes());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchLogSegmentData(metadata, 0L, null)) {
             assertStreamContentEqualToFile(segment.log().file(), null, null, remoteInputStream);
         }
@@ -170,10 +176,10 @@ public class S3RemoteStorageManagerTest {
         final LogSegment segment = createLogSegment(0);
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
-        final LogSegmentData lsd = new LogSegmentData(segment.log().file(), segment.offsetIndex().file(), segment.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext context = remoteStorageManager.copyLogSegment(segmentId, lsd);
+        final LogSegmentData lsd = createLogSegmentData(segment);
+        remoteStorageManager.copyLogSegment(segmentId, lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, context.asBytes());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
 
         final long skipBeginning = 23L;
         final long startPosition = skipBeginning;
@@ -191,10 +197,9 @@ public class S3RemoteStorageManagerTest {
         final LogSegment segment = createLogSegment(0);
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
-        final LogSegmentData lsd = new LogSegmentData(segment.log().file(), segment.offsetIndex().file(), segment.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext context = remoteStorageManager.copyLogSegment(segmentId, lsd);
+        final LogSegmentData lsd = createLogSegmentData(segment);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, context.asBytes());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchOffsetIndex(metadata)) {
             assertStreamContentEqualToFile(segment.offsetIndex().file(), null, null, remoteInputStream);
         }
@@ -207,10 +212,10 @@ public class S3RemoteStorageManagerTest {
         final LogSegment segment = createLogSegment(0);
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
-        final LogSegmentData lsd = new LogSegmentData(segment.log().file(), segment.offsetIndex().file(), segment.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext context = remoteStorageManager.copyLogSegment(segmentId, lsd);
+        final LogSegmentData lsd =  createLogSegmentData(segment);
+        remoteStorageManager.copyLogSegment(segmentId, lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, context.asBytes());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchTimestampIndex(metadata)) {
             assertStreamContentEqualToFile(segment.timeIndex().file(), null, null, remoteInputStream);
         }
@@ -224,15 +229,15 @@ public class S3RemoteStorageManagerTest {
         final LogSegment segment2 = createLogSegment(5);
 
         final RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(TP0, UUID.randomUUID());
-        final LogSegmentData lsd1 = new LogSegmentData(segment1.log().file(), segment1.offsetIndex().file(), segment1.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext remoteLogSegmentContext1 = remoteStorageManager.copyLogSegment(segmentId1, lsd1);
+        final LogSegmentData lsd1 =  createLogSegmentData(segment1);
+        remoteStorageManager.copyLogSegment(segmentId1, lsd1);
 
         final UUID uuid2 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId2 = new RemoteLogSegmentId(TP1, uuid2);
-        final LogSegmentData lsd2 = new LogSegmentData(segment2.log().file(), segment2.offsetIndex().file(), segment2.timeIndex().file(), , , leaderEpochCache);
-        final RemoteLogSegmentContext remoteLogSegmentContext2 = remoteStorageManager.copyLogSegment(segmentId2, lsd2);
+        final LogSegmentData lsd2 =  createLogSegmentData(segment2);
+        remoteStorageManager.copyLogSegment(segmentId2, lsd2);
 
-        final RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId1, -1, -1, -1, -1, remoteLogSegmentContext1.asBytes());
+        final RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId1, -1, -1, -1, -1, 1L, Collections.emptyMap());
         remoteStorageManager.deleteLogSegment(metadata1);
 
         final List<String> keys = listS3Keys();
