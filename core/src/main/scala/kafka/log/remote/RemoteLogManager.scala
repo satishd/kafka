@@ -365,13 +365,16 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 //todo-tier create a tmp file of cache till this offset by taking readlock
                 //val leaderEpochs = log.leaderEpochCache.map( x => x.epochEntries)
                 val leaderEpochs:File = null
+                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
+                  segment.maxTimestampSoFar, leaderEpochVal, segment.log.sizeInBytes(), Collections.emptyMap())
                 val segmentData = new LogSegmentData(file, segment.lazyOffsetIndex.get.file,
                   segment.lazyTimeIndex.get.file, segment.txnIndex.file, producerIdSnapshotFile, leaderEpochs)
-                remoteLogStorageManager.copyLogSegment(id, segmentData)
-                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
+                remoteLogStorageManager.copyLogSegment(remoteLogSegmentMetadata, segmentData)
+
+                val rlsmAfterCreate = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
                   segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), Collections.emptyMap(),
                   false, segment.log.sizeInBytes())
-                remoteLogMetadataManager.putRemoteLogSegmentData(remoteLogSegmentMetadata)
+                remoteLogMetadataManager.putRemoteLogSegmentData(rlsmAfterCreate)
                 readOffset = endOffset
                 log.updateRemoteIndexHighestOffset(readOffset)
               }

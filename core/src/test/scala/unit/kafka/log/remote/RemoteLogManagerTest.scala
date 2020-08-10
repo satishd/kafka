@@ -203,8 +203,7 @@ class MockRemoteStorageManager extends RemoteStorageManager {
     MockRemoteStorageManager.configs = configs
   }
 
-  override def copyLogSegment(remoteLogSegmentId: RemoteLogSegmentId,
-                              logSegmentData: LogSegmentData): Unit = {
+  override def copyLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, logSegmentData: LogSegmentData): Unit = {
   }
 
   override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,

@@ -61,6 +61,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import javax.swing.text.Segment;
+
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertArrayEquals;
@@ -129,13 +131,14 @@ public class S3RemoteStorageManagerTest {
 
         final UUID uuid1 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(TP0, uuid1);
+
         final LogSegmentData lsd1 = createLogSegmentData(segment1);
-        remoteStorageManager.copyLogSegment(segmentId1, lsd1);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId1, segment1), lsd1);
 
         final UUID uuid2 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId2 = new RemoteLogSegmentId(TP1, uuid2);
         final LogSegmentData lsd2 = new LogSegmentData(segment2.log().file(), segment2.offsetIndex().file(), segment2.timeIndex().file(), segment1.txnIndex().file(), null, null);
-        remoteStorageManager.copyLogSegment(segmentId2, lsd2);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId2, segment2), lsd2);
 
         final List<String> keys = listS3Keys();
         assertThat(keys, containsInAnyOrder(
@@ -161,7 +164,7 @@ public class S3RemoteStorageManagerTest {
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
         final LogSegmentData lsd = createLogSegmentData(segment);
-        remoteStorageManager.copyLogSegment(segmentId, lsd);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
         final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchLogSegmentData(metadata, 0L, null)) {
@@ -177,7 +180,7 @@ public class S3RemoteStorageManagerTest {
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
         final LogSegmentData lsd = createLogSegmentData(segment);
-        remoteStorageManager.copyLogSegment(segmentId, lsd);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
         final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
 
@@ -213,7 +216,7 @@ public class S3RemoteStorageManagerTest {
 
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
         final LogSegmentData lsd =  createLogSegmentData(segment);
-        remoteStorageManager.copyLogSegment(segmentId, lsd);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
         final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchTimestampIndex(metadata)) {
@@ -230,12 +233,12 @@ public class S3RemoteStorageManagerTest {
 
         final RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(TP0, UUID.randomUUID());
         final LogSegmentData lsd1 =  createLogSegmentData(segment1);
-        remoteStorageManager.copyLogSegment(segmentId1, lsd1);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId1, segment1), lsd1);
 
         final UUID uuid2 = UUID.randomUUID();
         final RemoteLogSegmentId segmentId2 = new RemoteLogSegmentId(TP1, uuid2);
         final LogSegmentData lsd2 =  createLogSegmentData(segment2);
-        remoteStorageManager.copyLogSegment(segmentId2, lsd2);
+        remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId2, segment2), lsd2);
 
         final RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId1, -1, -1, -1, -1, 1L, Collections.emptyMap());
         remoteStorageManager.deleteLogSegment(metadata1);
@@ -279,6 +282,11 @@ public class S3RemoteStorageManagerTest {
         props.put(S3RemoteStorageManagerConfig.S3_CREDENTIALS_PROVIDER_CLASS_CONFIG,
             AnonymousCredentialsProvider.class.getName());
         return props;
+    }
+
+    private RemoteLogSegmentMetadata createLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, LogSegment logSegment) {
+        return new RemoteLogSegmentMetadata(remoteLogSegmentId, logSegment.baseOffset(), logSegment.readNextOffset()-1, logSegment.largestTimestamp(),
+                0, logSegment.size(), Collections.emptyMap() );
     }
 
     private LogSegment createLogSegment(final long offset) {

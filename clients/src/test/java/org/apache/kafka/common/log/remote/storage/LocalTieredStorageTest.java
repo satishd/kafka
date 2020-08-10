@@ -100,8 +100,8 @@ public final class LocalTieredStorageTest {
     public void copyEmptyLogSegment() throws RemoteStorageException {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
-
-        tieredStorage.copyLogSegment(id, segment);
+        final RemoteLogSegmentMetadata metadata = newRemoteLogSegmentMetadata(id);
+        tieredStorage.copyLogSegment(metadata, segment);
 
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
     }
@@ -112,7 +112,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(data);
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
 
         remoteStorageVerifier.verifyRemoteLogSegmentMatchesLocal(id, segment);
     }
@@ -122,7 +122,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(new byte[]{0, 1, 2});
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
 
         remoteStorageVerifier.verifyFetchedLogSegment(id, 0, new byte[]{0, 1, 2});
         //FIXME: Fetch at arbitrary index does not work as proper support for records need to be added.
@@ -133,7 +133,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
 
         remoteStorageVerifier.verifyFetchedOffsetIndex(id, LocalLogSegments.OFFSET_FILE_BYTES);
     }
@@ -143,7 +143,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
 
         remoteStorageVerifier.verifyFetchedTimeIndex(id, LocalLogSegments.TIME_FILE_BYTES);
     }
@@ -153,7 +153,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
 
         tieredStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
@@ -167,7 +167,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
         remoteStorageVerifier.verifyContainsLogSegmentFiles(id, segment);
 
         tieredStorage.deleteLogSegment(newRemoteLogSegmentMetadata(id));
@@ -181,7 +181,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment(bytes);
 
-        tieredStorage.copyLogSegment(id, segment);
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), segment);
 
         tieredStorage.traverse(new LocalTieredStorageTraverser() {
             @Override
@@ -212,7 +212,7 @@ public final class LocalTieredStorageTest {
         final byte[] record2 = new byte[]{3, 4, 5};
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
 
-        tieredStorage.copyLogSegment(id, localLogSegments.nextSegment(record1, record2));
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(id), localLogSegments.nextSegment(record1, record2));
 
         final LocalTieredStorageSnapshot snapshot = takeSnapshot(tieredStorage);
 
@@ -230,8 +230,8 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentId idA = newRemoteLogSegmentId();
         final RemoteLogSegmentId idB = newRemoteLogSegmentId();
 
-        tieredStorage.copyLogSegment(idA, localLogSegments.nextSegment(record1a, record2a));
-        tieredStorage.copyLogSegment(idB, localLogSegments.nextSegment(record1b, record2b));
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(idA), localLogSegments.nextSegment(record1a, record2a));
+        tieredStorage.copyLogSegment(newRemoteLogSegmentMetadata(idB), localLogSegments.nextSegment(record1b, record2b));
 
         final LocalTieredStorageSnapshot snapshot = takeSnapshot(tieredStorage);
 

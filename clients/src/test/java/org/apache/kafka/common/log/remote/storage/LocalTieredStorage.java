@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
@@ -245,9 +244,10 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     }
 
     @Override
-    public void copyLogSegment(final RemoteLogSegmentId id, final LogSegmentData data)
+    public void copyLogSegment(final RemoteLogSegmentMetadata metadata, final LogSegmentData data)
             throws RemoteStorageException {
         Callable<Void> callable = () -> {
+            final RemoteLogSegmentId id = metadata.remoteLogSegmentId();
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(OFFLOAD_SEGMENT, id);
             RemoteLogSegmentFileset fileset = null;
 
