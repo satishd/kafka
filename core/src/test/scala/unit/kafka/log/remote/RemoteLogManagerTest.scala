@@ -120,7 +120,7 @@ class RemoteLogManagerTest {
 
     // this should initialize RSM
     val logsDirTmp = Files.createTempDirectory("kafka-").toString
-    new RemoteLogManager(logFetcher, lsoUpdater, rlmConfig, time, "localhost:9092", 1, "", logsDirTmp)
+    new RemoteLogManager(logFetcher, lsoUpdater, rlmConfig, time, 1, "", logsDirTmp)
 
     assertTrue(rsmConfig.count { case (k, v) => MockRemoteStorageManager.configs.get(k) == v } == rsmConfig.size)
     assertEquals(MockRemoteStorageManager.configs.get(KafkaConfig.RemoteLogRetentionBytesProp),
@@ -243,8 +243,6 @@ class MockRemoteLogMetadataManager extends RemoteLogMetadataManager {
                                             followerPartitions: util.Set[TopicPartition]): Unit = {}
 
   override def onStopPartitions(partitions: util.Set[TopicPartition]): Unit = {}
-
-  override def onServerStarted(): Unit = {}
 
   override def configure(configs: util.Map[String, _]): Unit = {}
 
