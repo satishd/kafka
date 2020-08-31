@@ -17,8 +17,12 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import java.io.Serializable;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * It describes the metadata about the log segment in the remote storage.
@@ -36,28 +40,45 @@ public class RemoteLogSegmentMetadata implements Serializable {
         /**
          * This state indicates that the segment copying to remote storage is started but not yet finished.
          */
-        COPY_STARTED(),
+        COPY_STARTED((byte) 0),
 
         /**
          * This state indicates that the segment copying to remote storage is finished.
          */
-        COPY_FINISHED(),
+        COPY_FINISHED((byte) 1),
 
         /**
          * This segment is marked for delete. That means, it is eligible for deletion. This is used when a topic/partition
          * is deleted so that deletion agents can start deleting them as the leader/follower does not exist.
          */
-        DELETE_MARKED(),
+        DELETE_MARKED((byte) 2),
 
         /**
          * This state indicates that the segment deletion is started but not yet finished.
          */
-        DELETE_STARTED(),
+        DELETE_STARTED((byte) 3),
 
         /**
          * This state indicates that the segment is deleted successfully.
          */
-        DELETE_FINISHED();
+        DELETE_FINISHED((byte) 4);
+
+        private static final Map<Byte, State> STATE_TYPES = Collections.unmodifiableMap(
+                Arrays.stream(values()).collect(Collectors.toMap(State::id, Function.identity())));
+
+        private final byte id;
+
+        State(byte id) {
+            this.id = id;
+        }
+
+        public byte id() {
+            return id;
+        }
+
+        public static State forId(byte id) {
+            return STATE_TYPES.get(id);
+        }
     }
 
     private static final long serialVersionUID = 1L;
