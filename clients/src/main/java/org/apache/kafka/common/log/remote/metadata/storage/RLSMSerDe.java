@@ -33,6 +33,8 @@ import java.util.UUID;
 
 public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
+    public static final Byte CURRENT_SCHEMA_VERSION = 0;
+
     public static final Field.Str TOPIC_FIELD = new Field.Str("topic", "Topic name");
     public static final Field.Int32 PARTITION_FIELD = new Field.Int32("partition", "Partition number");
     public static final Schema TOPIC_PARTITION_SCHEMA = new Schema(TOPIC_FIELD, PARTITION_FIELD);
