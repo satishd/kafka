@@ -41,7 +41,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentMetadata.State.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmWithNoContext);
 
@@ -53,7 +53,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentMetadata.State.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmWithContext);
 
@@ -65,7 +65,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentMetadata.State.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmMarkedDelete);
 

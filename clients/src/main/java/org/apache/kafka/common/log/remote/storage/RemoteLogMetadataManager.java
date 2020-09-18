@@ -70,6 +70,14 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     void putRemoteLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
 
     /**
+     * Explain detail what all states this can be applied with.
+     *
+     * @param remoteLogSegmentMetadataUpdate
+     * @throws RemoteStorageException
+     */
+    void updateRemoteLohSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException;
+
+    /**
      * Fetches RemoteLogSegmentMetadata for the given topic partition containing offset and leader-epoch for the offset.
      * <p>
      *

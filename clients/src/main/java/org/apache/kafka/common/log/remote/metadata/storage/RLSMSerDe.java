@@ -102,7 +102,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             rlsmStruct.set(REMOTE_LOG_SEGMENT_ID_NAME, rlsIdStruct);
             rlsmStruct.set(START_OFFSET_FIELD, data.startOffset());
             rlsmStruct.set(END_OFFSET_FIELD, data.endOffset());
-            rlsmStruct.set(LEADER_EPOCH_FIELD, data.leaderEpoch());
+            rlsmStruct.set(LEADER_EPOCH_FIELD, data.brokerEpoch());
             rlsmStruct.set(MAX_TIMESTAMP_FIELD, data.maxTimestamp());
             rlsmStruct.set(EVENT_TIMESTAMP_FIELD, data.createdTimestamp());
             rlsmStruct.set(STATE_FIELD, (byte) data.state().ordinal());
