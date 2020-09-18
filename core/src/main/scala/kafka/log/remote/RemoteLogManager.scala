@@ -405,7 +405,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
                 val rlsmAfterCreate = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
                   segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), segment.log.sizeInBytes(),
-                  State.COPY_FINISHED, Collections.emptyMap())
+                  State.COPY_SEGMENT_FINISHED, Collections.emptyMap())
 
                 remoteLogMetadataManager.putRemoteLogSegmentData(rlsmAfterCreate)
                 brokerTopicStats.topicStats(tp.topic()).remoteBytesOutRate.mark(rlsmAfterCreate.segmentSizeInBytes())

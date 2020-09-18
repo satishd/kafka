@@ -32,6 +32,7 @@ import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadataUpdate;
 import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.apache.kafka.common.utils.Utils;
@@ -124,6 +125,15 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
 
         // insert remote log metadata into the topic.
         publishMessageToPartition(remoteLogSegmentMetadata);
+    }
+
+    @Override
+    public void updateRemoteLohSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException {
+        ensureInitialized();
+
+        // insert remote log metadata into the topic.
+        //todo-tier
+//        publishMessageToPartition(remoteLogSegmentMetadata);
     }
 
     private void publishMessageToPartition(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
@@ -230,6 +240,11 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
 
         publishMessageToPartition(RemoteLogSegmentMetadata.markForDeletion(remoteLogSegmentMetadata));
+    }
+
+    @Override
+    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicPartition topicPartition) {
+        return null;
     }
 
     @Override

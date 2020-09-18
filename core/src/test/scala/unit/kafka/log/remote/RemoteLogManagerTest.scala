@@ -249,4 +249,13 @@ class MockRemoteLogMetadataManager extends RemoteLogMetadataManager {
   override def configure(configs: util.Map[String, _]): Unit = {}
 
   override def close(): Unit = {}
+
+  /**
+   * Explain detail what all states this can be applied with.
+   *
+   * @param remoteLogSegmentMetadataUpdate
+   * @throws RemoteStorageException
+   */
+  override def updateRemoteLohSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {
+  }
 }

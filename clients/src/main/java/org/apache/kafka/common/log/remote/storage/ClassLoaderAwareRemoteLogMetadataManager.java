@@ -45,6 +45,17 @@ public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetada
     }
 
     @Override
+    public void updateRemoteLohSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(loader);
+        try {
+//            delegate.putRemoteLogSegmentData(remoteLogSegmentMetadata);
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
+    }
+
+    @Override
     public RemoteLogSegmentMetadata remoteLogSegmentMetadata(TopicPartition topicPartition, long offset, int epochForOffset)
             throws RemoteStorageException {
         ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
@@ -87,6 +98,11 @@ public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetada
         } finally {
             Thread.currentThread().setContextClassLoader(originalClassLoader);
         }
+    }
+
+    @Override
+    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicPartition topicPartition) {
+        return null;
     }
 
     @Override
