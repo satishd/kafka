@@ -16,24 +16,28 @@
  */
 package org.apache.kafka.common.log.remote.metadata.storage;
 
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadataUpdate;
+import org.apache.kafka.common.log.remote.storage.RemotePartitionDeleteMetadata;
 
 import java.io.IOException;
 
 /**
- * This is invoked by {@link ConsumerTask} whenever there are updates for a topic partition on
- * RemoteLogSegmentMetadata.
+ * This is invoked by {@link ConsumerTask} whenever there are events received for a topic partition. So that it can
+ * handle them by updating the local state.
  */
-public interface RemoteLogSegmentMetadataUpdater {
+public interface RemotePartitionMetadataEventHandler {
 
     /**
      * Update RemoteLogSegmentMetadata for a topic partition.
-     *
-     * @param tp
      * @param remoteLogSegmentMetadata
      */
-    void updateRemoteLogSegmentMetadata(TopicPartition tp, RemoteLogSegmentMetadata remoteLogSegmentMetadata);
+    void handleRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata);
+
+    void handleRemoteLogSegmentMetadataUpdate(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate);
+
+    void handleRemotePartitionDeleteMetadata(RemotePartitionDeleteMetadata remotePartitionDeleteMetadata);
 
     /**
      * Sync the remote log metadata state maintained for this broker.
@@ -48,5 +52,5 @@ public interface RemoteLogSegmentMetadataUpdater {
      * @param tp
      * @return
      */
-    int metadataPartitionFor(TopicPartition tp);
+    int metadataPartitionFor(TopicIdPartition tp);
 }

@@ -16,9 +16,11 @@
  */
 package org.apache.kafka.common.log.remote.metadata.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.junit.Assert;
@@ -27,52 +29,53 @@ import org.junit.Test;
 import java.util.Collections;
 import java.util.UUID;
 
-public class RLSMSerDesTest {
+public class RLMSerDesTest {
 
     @Test
     public void testSerDes() throws Exception {
         final String topic = "foo";
 
-        // RLSM with context as non-null.
-        RemoteLogSegmentMetadata rlsmWithNoContext = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+        RemoteLogSegmentMetadata rlsm1 = new RemoteLogSegmentMetadata(
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 1000L,
                 2000L,
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap()
         );
-        doTestSerDes(topic, rlsmWithNoContext);
+        doTestSerDes(topic, rlsm1);
 
-        // RLSM with context as non-null.
-        RemoteLogSegmentMetadata rlsmWithContext = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+        RemoteLogSegmentMetadata rlsm2 = new RemoteLogSegmentMetadata(
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 2000L,
                 4000L,
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
-        doTestSerDes(topic, rlsmWithContext);
+        doTestSerDes(topic, rlsm2);
 
         //RLSM marked with deletion
         RemoteLogSegmentMetadata rlsmMarkedDelete = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 2000L,
                 4000L,
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogSegmentMetadata.State.COPY_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.DELETE_SEGMENT_STARTED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmMarkedDelete);
 
     }
 
     private void doTestSerDes(final String topic, final RemoteLogSegmentMetadata rlsm) {
-        try (RLSMSerDe rlsmSerDe = new RLSMSerDe()) {
+        try (RLMSerDe rlsmSerDe = new RLMSerDe()) {
             rlsmSerDe.configure(Collections.emptyMap(), false);
 
             final Serializer<RemoteLogSegmentMetadata> serializer = rlsmSerDe.serializer();

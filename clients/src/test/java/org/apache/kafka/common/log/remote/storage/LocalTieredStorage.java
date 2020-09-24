@@ -23,6 +23,7 @@ import org.apache.kafka.test.TestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.InputStream;
@@ -125,6 +126,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     public static final String BROKER_ID = "broker.id";
 
     private static final String ROOT_STORAGES_DIR_NAME = "kafka-tiered-storage";
+    private static final InputStream EMPTY_INPUT_STREAM = new ByteArrayInputStream(new byte[]{});
 
     private volatile File storageDirectory;
     private volatile boolean deleteOnClose = false;
@@ -272,16 +274,9 @@ public final class LocalTieredStorage implements RemoteStorageManager {
             try {
                 fileset = openFileset(storageDirectory, id);
 
-                logger.info("Offloading log segment for {} from offset={}, isOffsetIdxFileExists: {}, " +
-                        "isTimestampIdxFileExists: {}, isLeaderEpochCheckpointFileExists={}, " +
-                        "isTxnIdxFileExists : {}, isProducerSnapshotFileExists: {}",
-                        id.topicPartition(),
-                        data.logSegment().getName().split("\\.")[0],
-                        data.offsetIndex().exists(),
-                        data.timeIndex().exists(),
-                        data.leaderEpochCheckpoint().exists(),
-                        data.txnIndex().exists(),
-                        data.producerIdSnapshotIndex().exists());
+                logger.info("Offloading log segment for {} from offset={}",
+                        id.topicIdPartition(),
+                        data.logSegment().getName().split("\\.")[0]);
 
                 fileset.copy(transferer, data);
 
@@ -309,14 +304,18 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     }
 
     @Override
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition) throws RemoteStorageException {
+        return null;
+    }
+
+    @Override
     public InputStream fetchLogSegmentData(final RemoteLogSegmentMetadata metadata,
-                                           final Long startPos,
-                                           final Long endPos) throws RemoteStorageException {
+                                           final int startPos,
+                                           final int endPos) throws RemoteStorageException {
         checkArgument(startPos >= 0, "Start position must be positive", startPos);
-        if (endPos != null) {
-            checkArgument(endPos >= startPos,
-                    "End position cannot be less than startPosition", startPos, endPos);
-        }
+        checkArgument(endPos >= 0, "Start position must be positive", startPos);
+        checkArgument(endPos >= startPos,
+                "End position cannot be less than startPosition", startPos, endPos);
         return wrap(() -> {
 
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_SEGMENT, metadata);
@@ -343,26 +342,47 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     }
 
     @Override
+    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
+        InputStream index;
+        switch (indexType) {
+            case Offset:
+                index = fetchOffsetIndex(remoteLogSegmentMetadata);
+                break;
+            case Timestamp:
+                index = fetchTimestampIndex(remoteLogSegmentMetadata);
+                break;
+            case Transaction:
+                index = fetchTransactionIndex(remoteLogSegmentMetadata);
+                break;
+            case LeaderEpoch:
+                index = fetchLeaderEpochIndex(remoteLogSegmentMetadata);
+                break;
+            case ProducerSnapshot:
+                index = fetchProducerSnapshotIndex(remoteLogSegmentMetadata);
+                break;
+            default:
+                throw new IllegalArgumentException("indexType:" + indexType + " is not supported.");
+        }
+
+        return index;
+    }
+
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return fetchFile(metadata, FETCH_OFFSET_INDEX, OFFSET_INDEX);
     }
 
-    @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return fetchFile(metadata, FETCH_TIME_INDEX, TIME_INDEX);
     }
 
-    @Override
     public InputStream fetchLeaderEpochIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return fetchFile(metadata, FETCH_LEADER_EPOCH_CHECKPOINT, LEADER_EPOCH_CHECKPOINT);
     }
 
-    @Override
     public InputStream fetchTransactionIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return fetchFile(metadata, FETCH_TRANSACTION_INDEX, TRANSACTION_INDEX);
     }
 
-    @Override
     public InputStream fetchProducerSnapshotIndex(RemoteLogSegmentMetadata metadata)
             throws RemoteStorageException {
         return fetchFile(metadata, FETCH_PRODUCER_SNAPSHOT, PRODUCER_SNAPSHOT);

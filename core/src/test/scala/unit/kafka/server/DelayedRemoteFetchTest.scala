@@ -17,13 +17,12 @@
 
 package kafka.server
 
-import java.util.Optional
+import java.util.{Optional, UUID}
 import java.util.concurrent.CompletableFuture
-
 import kafka.cluster.Partition
 import kafka.log.remote.{MockRemoteLogManager, RemoteLogManager, RemoteLogReadResult}
 import kafka.server.QuotaFactory.UnboundedQuota
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.easymock.{EasyMock, EasyMockSupport}
@@ -35,7 +34,9 @@ import scala.jdk.CollectionConverters._
 
 class DelayedRemoteFetchTest extends EasyMockSupport {
   val tp = new TopicPartition("test", 0)
+  val tpId = new TopicIdPartition(UUID.randomUUID() , tp)
   val tp1 = new TopicPartition("t1", 0)
+  val tp1Id = new TopicIdPartition(UUID.randomUUID() , tp1)
   var isRemoteFetchExecuted = false
 
   @Test
@@ -80,7 +81,7 @@ class DelayedRemoteFetchTest extends EasyMockSupport {
   def RemoteFetch(timeout: Boolean, responseCallback: (Seq[(TopicPartition, FetchPartitionData)]) => Unit): Unit = {
     val rlm = new MockRemoteLogManager(5, 20)
     val fetchInfo = new PartitionData(100, 0, 1000, Optional.of(1))
-    val remoteFetchInfo = RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted)
+    val remoteFetchInfo = RemoteStorageFetchInfo(1000, true, tpId, fetchInfo, FetchTxnCommitted)
 
     val fetchPartitionStatus = FetchPartitionStatus(new LogOffsetMetadata(fetchInfo.fetchOffset), fetchInfo)
 

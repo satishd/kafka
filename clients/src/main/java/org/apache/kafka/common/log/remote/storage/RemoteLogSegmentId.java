@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 
 import static java.util.Objects.requireNonNull;
@@ -28,21 +29,27 @@ import java.util.UUID;
  * This represents a universally unique identifier associated to a topic partition's log segment. This will be
  * regenerated for every attempt of copying a specific log segment in {@link RemoteStorageManager#copyLogSegment(RemoteLogSegmentMetadata, LogSegmentData)}.
  */
-public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Serializable {
+public class RemoteLogSegmentId implements Serializable {
     private static final long serialVersionUID = 1L;
 
-    private final TopicPartition topicPartition;
+    private final TopicIdPartition topicIdPartition;
     private final UUID id;
 
-    public RemoteLogSegmentId(TopicPartition topicPartition, UUID id) {
-        this.topicPartition = requireNonNull(topicPartition);
+    public RemoteLogSegmentId(TopicIdPartition topicIdPartition, UUID id) {
+        this.topicIdPartition = requireNonNull(topicIdPartition);
         this.id = requireNonNull(id);
     }
 
-    public TopicPartition topicPartition() {
-        return topicPartition;
+    /**
+     * @return TopicIdPartition of this remote log segment.
+     */
+    public TopicIdPartition topicIdPartition() {
+        return topicIdPartition;
     }
 
+    /**
+     * @return Universally Unique Id of this remote log segment.
+     */
     public UUID id() {
         return id;
     }
@@ -50,7 +57,7 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
     @Override
     public String toString() {
         return "RemoteLogSegmentId{" +
-                "topicPartition=" + topicPartition +
+                "topicIdPartition=" + topicIdPartition +
                 ", id=" + id +
                 '}';
     }
@@ -60,19 +67,12 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteLogSegmentId that = (RemoteLogSegmentId) o;
-        return Objects.equals(topicPartition, that.topicPartition) &&
-                Objects.equals(id, that.id);
+        return Objects.equals(topicIdPartition, that.topicIdPartition) && Objects.equals(id, that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(topicPartition, id);
+        return Objects.hash(topicIdPartition, id);
     }
 
-    @Override
-    public int compareTo(RemoteLogSegmentId other) {
-        Objects.requireNonNull(other, "other instance can not be null");
-
-        return id.compareTo(other.id());
-    }
 }

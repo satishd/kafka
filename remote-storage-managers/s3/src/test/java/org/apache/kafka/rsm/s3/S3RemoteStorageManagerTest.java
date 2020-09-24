@@ -26,10 +26,7 @@ import kafka.log.LogSegment;
 import kafka.log.LogUtils;
 import kafka.utils.TestUtils;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.log.remote.storage.LogSegmentData;
-import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
-import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.common.log.remote.storage.*;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
@@ -164,8 +161,9 @@ public class S3RemoteStorageManagerTest {
         final LogSegmentData lsd = createLogSegmentData(segment);
         remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
-        try (final InputStream remoteInputStream = remoteStorageManager.fetchLogSegmentData(metadata, 0L, null)) {
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
+        try (final InputStream remoteInputStream = remoteStorageManager.fetchLogSegmentData(metadata, 0)) {
             assertStreamContentEqualToFile(segment.log().file(), null, null, remoteInputStream);
         }
     }
@@ -180,12 +178,13 @@ public class S3RemoteStorageManagerTest {
         final LogSegmentData lsd = createLogSegmentData(segment);
         remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
 
-        final long skipBeginning = 23L;
-        final long startPosition = skipBeginning;
-        final long skipEnd = 42L;
-        final long endPosition = segment.log().file().length() - skipEnd;
+        final int skipBeginning = 23;
+        final int startPosition = skipBeginning;
+        final int skipEnd = 42;
+        final int endPosition = Math.toIntExact(segment.log().file().length() - skipEnd);
         try (final InputStream remoteInputStream = remoteStorageManager.fetchLogSegmentData(metadata, startPosition, endPosition)) {
             assertStreamContentEqualToFile(segment.log().file(), skipBeginning, skipEnd, remoteInputStream);
         }
@@ -200,7 +199,8 @@ public class S3RemoteStorageManagerTest {
         final RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, UUID.randomUUID());
         final LogSegmentData lsd = createLogSegmentData(segment);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchOffsetIndex(metadata)) {
             assertStreamContentEqualToFile(segment.offsetIndex().file(), null, null, remoteInputStream);
         }
@@ -216,7 +216,8 @@ public class S3RemoteStorageManagerTest {
         final LogSegmentData lsd =  createLogSegmentData(segment);
         remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId, segment), lsd);
 
-        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L, Collections.emptyMap());
+        final RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, -1, -1, -1, -1, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         try (final InputStream remoteInputStream = remoteStorageManager.fetchTimestampIndex(metadata)) {
             assertStreamContentEqualToFile(segment.timeIndex().file(), null, null, remoteInputStream);
         }
@@ -238,7 +239,8 @@ public class S3RemoteStorageManagerTest {
         final LogSegmentData lsd2 =  createLogSegmentData(segment2);
         remoteStorageManager.copyLogSegment(createLogSegmentMetadata(segmentId2, segment2), lsd2);
 
-        final RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId1, -1, -1, -1, -1, 1L, Collections.emptyMap());
+        final RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId1, -1, -1, -1, -1, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         remoteStorageManager.deleteLogSegment(metadata1);
 
         final List<String> keys = listS3Keys();
@@ -250,7 +252,7 @@ public class S3RemoteStorageManagerTest {
     }
 
     private void assertStreamContentEqualToFile(final File expectedFile,
-                                                final Long skipBeginning, final Long skipEnd,
+                                                final Integer skipBeginning, final Integer skipEnd,
                                                 final InputStream actual) throws IOException {
         int length = (int) expectedFile.length();
         if (skipEnd != null) {
@@ -285,7 +287,7 @@ public class S3RemoteStorageManagerTest {
     private RemoteLogSegmentMetadata createLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, LogSegment logSegment) {
         return new RemoteLogSegmentMetadata(remoteLogSegmentId, logSegment.baseOffset(),
                 logSegment.readNextOffset() - 1, logSegment.largestTimestamp(),
-                0, logSegment.size(), Collections.emptyMap());
+                0, 1000L, logSegment.size(), RemoteLogSegmentState.COPY_SEGMENT_STARTED,  Collections.emptyMap());
     }
 
     private LogSegment createLogSegment(final long offset) {

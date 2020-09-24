@@ -18,6 +18,7 @@ package org.apache.kafka.common;
 
 import java.nio.ByteBuffer;
 import java.util.Base64;
+import java.util.UUID;
 
 /**
  * This class defines an immutable universally unique identifier (UUID). It represents a 128-bit value.
@@ -55,6 +56,15 @@ public class Uuid {
         while (uuid.equals(SENTINEL_ID_INTERNAL) || uuid.equals(ZERO_ID_INTERNAL)) {
             uuid = java.util.UUID.randomUUID();
         }
+        return new Uuid(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+    }
+
+    /**
+     * Create Uuid instance from the given UUID instance.
+     * @param uuid uuid to be converted into Uuid
+     * @return
+     */
+    public static Uuid fromUUID(UUID uuid) {
         return new Uuid(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
 
@@ -107,6 +117,14 @@ public class Uuid {
     public static Uuid fromString(String str) {
         ByteBuffer uuidBytes = ByteBuffer.wrap(Base64.getUrlDecoder().decode(str));
         return new Uuid(uuidBytes.getLong(), uuidBytes.getLong());
+    }
+
+    /**
+     * Returns the UUID instance for this Uuid instance.
+     * @return
+     */
+    public UUID toUUID() {
+        return new UUID(mostSignificantBits, leastSignificantBits);
     }
 
     private byte[] getBytesFromUuid() {

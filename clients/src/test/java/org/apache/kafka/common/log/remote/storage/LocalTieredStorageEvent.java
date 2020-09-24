@@ -51,8 +51,8 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
     private final int timestamp;
     private final Optional<RemoteLogSegmentFileset> fileset;
     private final Optional<RemoteLogSegmentMetadata> metadata;
-    private final Optional<Long> startPosition;
-    private final Optional<Long> endPosition;
+    private final int startPosition;
+    private final Optional<Integer> endPosition;
     private final Optional<Exception> exception;
 
     /**
@@ -65,7 +65,7 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
         if (condition.eventType != type) {
             return false;
         }
-        if (!segmentId.topicPartition().equals(condition.topicPartition)) {
+        if (!segmentId.topicIdPartition().topicPartition().equals(condition.topicPartition)) {
             return false;
         }
         if (!exception.map(e -> condition.failed).orElseGet(() -> !condition.failed)) {
@@ -93,7 +93,7 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
     }
 
     public TopicPartition getTopicPartition() {
-        return segmentId.topicPartition();
+        return segmentId.topicIdPartition().topicPartition();
     }
 
     @Override
@@ -121,7 +121,7 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
         this.timestamp = builder.timestamp;
         this.fileset = ofNullable(builder.fileset);
         this.metadata = ofNullable(builder.metadata);
-        this.startPosition = ofNullable(builder.startPosition);
+        this.startPosition = builder.startPosition;
         this.endPosition = ofNullable(builder.endPosition);
         this.exception = ofNullable(builder.exception);
     }
@@ -137,8 +137,8 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
         private int timestamp;
         private RemoteLogSegmentFileset fileset;
         private RemoteLogSegmentMetadata metadata;
-        private Long startPosition;
-        private Long endPosition;
+        private int startPosition;
+        private Integer endPosition;
         private Exception exception;
 
         public Builder withFileset(final RemoteLogSegmentFileset fileset) {
@@ -151,12 +151,12 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
             return this;
         }
 
-        public Builder withStartPosition(final Long startPosition) {
+        public Builder withStartPosition(final int startPosition) {
             this.startPosition = startPosition;
             return this;
         }
 
-        public Builder withEndPosition(final Long endPosition) {
+        public Builder withEndPosition(final Integer endPosition) {
             this.endPosition = endPosition;
             return this;
         }

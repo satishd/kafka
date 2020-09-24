@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.KafkaException;
+
 /**
  * Base exception exposed by the Tiered Storage framework to the Apache Kafka runtime.
  *
@@ -31,4 +33,5 @@ public class RemoteStorageException extends Exception {
     public RemoteStorageException(final String message, final Throwable cause) {
         super(message, cause);
     }
+
 }

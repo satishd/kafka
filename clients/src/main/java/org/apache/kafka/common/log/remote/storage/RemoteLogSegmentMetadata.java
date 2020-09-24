@@ -21,44 +21,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * It describes the metadata about the log segment in the remote storage.
+ * It describes the metadata about a topic partition's log segment in the remote storage. This is uniquely represented
+ * with {@link RemoteLogSegmentId}.
  */
 public class RemoteLogSegmentMetadata implements Serializable {
-
-    /**
-     * It indicates the state of the remote log segment. This will be based on the action executed on this segment by
-     * remote log service implementation.
-     *
-     * todo: check whether the state validations to be checked or not, add next possible states for each state.
-     */
-    public enum State {
-
-        /**
-         * This state indicates that the segment copying to remote storage is started but not yet finished.
-         */
-        COPY_STARTED(),
-
-        /**
-         * This state indicates that the segment copying to remote storage is finished.
-         */
-        COPY_FINISHED(),
-
-        /**
-         * This segment is marked for delete. That means, it is eligible for deletion. This is used when a topic/partition
-         * is deleted so that deletion agents can start deleting them as the leader/follower does not exist.
-         */
-        DELETE_MARKED(),
-
-        /**
-         * This state indicates that the segment deletion is started but not yet finished.
-         */
-        DELETE_STARTED(),
-
-        /**
-         * This state indicates that the segment is deleted successfully.
-         */
-        DELETE_FINISHED();
-    }
 
     private static final long serialVersionUID = 1L;
 
@@ -95,32 +61,32 @@ public class RemoteLogSegmentMetadata implements Serializable {
     /**
      * LeaderEpoch vs offset for messages with in this segment.
      */
-    private final Map<Long, Long> segmentLeaderEpochs;
+    private final Map<Integer, Long> segmentLeaderEpochs;
 
     /**
      * Size of the segment in bytes.
      */
-    private final long segmentSizeInBytes;
+    private final int segmentSizeInBytes;
 
     /**
      * It indicates the state in which the action is executed on this segment.
      */
-    private final State state;
+    private final RemoteLogSegmentState state;
 
     /**
      * @param remoteLogSegmentId  Universally unique remote log segment id.
      * @param startOffset         Start offset of this segment.
      * @param endOffset           End offset of this segment.
-     * @param maxTimestamp        maximum timestamp in this segment
+     * @param maxTimestamp        Maximum timestamp in this segment
      * @param leaderEpoch         Leader epoch of the broker.
-     * @param eventTimestamp    Epoch time at which the remote log segment is copied to the remote tier storage.
-     * @param segmentSizeInBytes  size of this segment in bytes.
-     * @param state   The respective segment of remoteLogSegmentId is marked fro deletion.
+     * @param eventTimestamp      Epoch time at which the remote log segment is copied to the remote tier storage.
+     * @param segmentSizeInBytes  Size of this segment in bytes.
+     * @param state               State of the respective segment of remoteLogSegmentId.
      * @param segmentLeaderEpochs leader epochs occurred with in this segment
      */
     public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset,
                                     long maxTimestamp, int leaderEpoch, long eventTimestamp,
-                                    long segmentSizeInBytes, State state, Map<Long, Long> segmentLeaderEpochs) {
+                                    int segmentSizeInBytes, RemoteLogSegmentState state, Map<Integer, Long> segmentLeaderEpochs) {
         this.remoteLogSegmentId = remoteLogSegmentId;
         this.startOffset = startOffset;
         this.endOffset = endOffset;
@@ -133,64 +99,90 @@ public class RemoteLogSegmentMetadata implements Serializable {
     }
 
     /**
-     * @param remoteLogSegmentId  Universally unique remote log segment id.
-     * @param startOffset         Start offset of this segment.
-     * @param endOffset           End offset of this segment.
-     * @param maxTimeStamp        maximum timestamp with in this segment
-     * @param leaderEpoch         Leader epoch of the broker.
-     * @param segmentSizeInBytes  size of this segment in bytes.
-     * @param segmentLeaderEpochs leader epochs occurred with in this segment
+     * @return unique id of this segment.
      */
-    public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset,
-                                    long maxTimeStamp, int leaderEpoch, long segmentSizeInBytes, Map<Long, Long> segmentLeaderEpochs) {
-        this(remoteLogSegmentId,
-                startOffset,
-                endOffset,
-                maxTimeStamp,
-                leaderEpoch,
-                System.currentTimeMillis(),
-                segmentSizeInBytes, State.COPY_STARTED, segmentLeaderEpochs
-        );
-    }
-
     public RemoteLogSegmentId remoteLogSegmentId() {
         return remoteLogSegmentId;
     }
 
+    /**
+     * @return Start offset of this segment(inclusive).
+     */
     public long startOffset() {
         return startOffset;
     }
 
+    /**
+     * @return End offset of this segment(inclusive).
+     */
     public long endOffset() {
         return endOffset;
     }
 
-    public int leaderEpoch() {
-        return leaderEpoch;
-    }
-
-    public long createdTimestamp() {
+    /**
+     * @return Epoch time at which this evcent is occurred.
+     */
+    public long eventTimestamp() {
         return eventTimestamp;
     }
 
-    public long segmentSizeInBytes() {
+    /**
+     * @return total size of this segment in bytes.
+     */
+    public int segmentSizeInBytes() {
         return segmentSizeInBytes;
     }
 
-    public State state() {
-        return state;
-    }
-
-    public boolean markedForDeletion() {
-        return state == State.DELETE_STARTED;
-    }
-
+    /**
+     * @return maximum timestamp of a record with in this segment.
+     */
     public long maxTimestamp() {
         return maxTimestamp;
     }
 
-    public Map<Long, Long> segmentLeaderEpochs() {
+    /**
+     * @return Map of leader epoch vs offset for the records available in this segment.
+     */
+    public Map<Integer, Long> segmentLeaderEpochs() {
         return segmentLeaderEpochs;
+    }
+
+    /**
+     * @return Leader or controller epoch of the broker from where this event occurred.
+     */
+    public int leaderEpoch() {
+        return leaderEpoch;
+    }
+
+    /**
+     * Returns the current state of this remote log segment. It can be any of the below
+     * <ul>
+     *     {@link RemoteLogSegmentState#COPY_SEGMENT_STARTED}
+     *     {@link RemoteLogSegmentState#COPY_SEGMENT_FINISHED}
+     *     {@link RemoteLogSegmentState#DELETE_SEGMENT_STARTED}
+     *     {@link RemoteLogSegmentState#DELETE_SEGMENT_FINISHED}
+     * </ul>
+     */
+    public RemoteLogSegmentState state() {
+        return state;
+    }
+
+    //todo-tier remove this!!
+    public boolean markedForDeletion() {
+        return state == RemoteLogSegmentState.DELETE_SEGMENT_STARTED;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        RemoteLogSegmentMetadata that = (RemoteLogSegmentMetadata) o;
+        return startOffset == that.startOffset && endOffset == that.endOffset && leaderEpoch == that.leaderEpoch && maxTimestamp == that.maxTimestamp && eventTimestamp == that.eventTimestamp && segmentSizeInBytes == that.segmentSizeInBytes && Objects.equals(remoteLogSegmentId, that.remoteLogSegmentId) && Objects.equals(segmentLeaderEpochs, that.segmentLeaderEpochs) && state == that.state;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(remoteLogSegmentId, startOffset, endOffset, leaderEpoch, maxTimestamp, eventTimestamp, segmentLeaderEpochs, segmentSizeInBytes, state);
     }
 
     @Override
@@ -206,33 +198,6 @@ public class RemoteLogSegmentMetadata implements Serializable {
                 ", segmentSizeInBytes=" + segmentSizeInBytes +
                 ", state=" + state +
                 '}';
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        RemoteLogSegmentMetadata metadata = (RemoteLogSegmentMetadata) o;
-        return startOffset == metadata.startOffset &&
-                endOffset == metadata.endOffset &&
-                leaderEpoch == metadata.leaderEpoch &&
-                maxTimestamp == metadata.maxTimestamp &&
-                eventTimestamp == metadata.eventTimestamp &&
-                segmentSizeInBytes == metadata.segmentSizeInBytes &&
-                Objects.equals(remoteLogSegmentId, metadata.remoteLogSegmentId) &&
-                Objects.equals(segmentLeaderEpochs, metadata.segmentLeaderEpochs) &&
-                state == metadata.state;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(remoteLogSegmentId, startOffset, endOffset, leaderEpoch, maxTimestamp, eventTimestamp, segmentLeaderEpochs, segmentSizeInBytes, state);
-    }
-
-    public static RemoteLogSegmentMetadata markForDeletion(RemoteLogSegmentMetadata original) {
-        return new RemoteLogSegmentMetadata(original.remoteLogSegmentId, original.startOffset, original.endOffset,
-                original.maxTimestamp, original.leaderEpoch, original.eventTimestamp, original.segmentSizeInBytes, State.DELETE_STARTED, original.segmentLeaderEpochs
-        );
     }
 
     public static RemoteLogSegmentId remoteLogSegmentId(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {

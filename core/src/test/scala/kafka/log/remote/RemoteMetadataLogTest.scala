@@ -1,8 +1,8 @@
 package kafka.log.remote
 
 import kafka.utils.{MockTime, TestUtils}
-import org.apache.kafka.common.TopicPartition
-import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata}
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
+import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentState}
 import org.apache.kafka.common.record.SimpleRecord
 import org.junit.jupiter.api.Assertions.{assertEquals, assertTrue}
 import org.junit.jupiter.api.Test
@@ -18,11 +18,12 @@ class RemoteMetadataLogTest {
   def testFormatRecordKeyValue(): Unit = {
     val topic = "topic"
     val topicPartition = new TopicPartition(topic, 0)
+    val topicIdPartition = new TopicIdPartition(UUID.randomUUID(), topicPartition)
     val timestamp = time.hiResClockMs()
 
-    val metadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(topicPartition, UUID.randomUUID()), 5,
+    val metadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(topicIdPartition, UUID.randomUUID()), 5,
       10, timestamp, 2, timestamp, 100,
-      RemoteLogSegmentMetadata.State.COPY_STARTED, Collections.emptyMap())
+      RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap())
 
     val keyBytes = RemoteMetadataLog.keyToBytes(topicPartition.toString)
     val valueBytes = RemoteMetadataLog.valueToBytes(metadata)

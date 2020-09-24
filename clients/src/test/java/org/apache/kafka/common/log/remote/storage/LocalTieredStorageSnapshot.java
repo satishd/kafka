@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType;
 
@@ -41,13 +42,13 @@ public final class LocalTieredStorageSnapshot {
         return new LocalTieredStorageSnapshot(snapshot);
     }
 
-    public List<TopicPartition> getTopicPartitions() {
+    public List<TopicIdPartition> getTopicPartitions() {
         return Collections.unmodifiableList(snapshot.topicPartitions);
     }
 
     public List<RemoteLogSegmentFileset> getFilesets(final TopicPartition topicPartition) {
         return snapshot.records.values().stream()
-                .filter(fileset -> fileset.getRemoteLogSegmentId().topicPartition().equals(topicPartition))
+                .filter(fileset -> fileset.getRemoteLogSegmentId().topicIdPartition().topicPartition().equals(topicPartition))
                 .collect(Collectors.toList());
     }
 
@@ -76,10 +77,10 @@ public final class LocalTieredStorageSnapshot {
 
     private static final class Snapshot implements LocalTieredStorageTraverser {
         private final Map<RemoteLogSegmentId, RemoteLogSegmentFileset> records = new HashMap<>();
-        private final List<TopicPartition> topicPartitions = new ArrayList<>();
+        private final List<TopicIdPartition> topicPartitions = new ArrayList<>();
 
         @Override
-        public void visitTopicPartition(TopicPartition topicPartition) {
+        public void visitTopicPartition(TopicIdPartition topicPartition) {
             if (topicPartitions.contains(topicPartition)) {
                 throw new IllegalStateException(format("Topic-partition %s was already visited", topicPartition));
             }

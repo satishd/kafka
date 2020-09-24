@@ -50,7 +50,7 @@ class CommittedLogMetadataStore {
         File newMetadataStoreFile = new File(metadataStoreFile.getAbsolutePath() + ".new");
         try (FileOutputStream fileOutputStream = new FileOutputStream(newMetadataStoreFile);
              BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream);
-             RLSMSerDe.RLSMSerializer serializer = new RLSMSerDe.RLSMSerializer()) {
+             RLMSerDe.RLSMSerializer serializer = new RLMSerDe.RLSMSerializer()) {
 
             //write version
             ByteBuffer versionBuffer = ByteBuffer.allocate(2);
@@ -86,7 +86,7 @@ class CommittedLogMetadataStore {
         }
 
         try (FileInputStream fis = new FileInputStream(metadataStoreFile);
-             RLSMSerDe.RLSMDeserializer deserializer = new RLSMSerDe.RLSMDeserializer()) {
+             RLMSerDe.RLSMDeserializer deserializer = new RLMSerDe.RLSMDeserializer()) {
 
             List<RemoteLogSegmentMetadata> result = new ArrayList<>();
 

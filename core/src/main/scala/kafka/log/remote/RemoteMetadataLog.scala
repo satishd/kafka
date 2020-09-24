@@ -2,7 +2,7 @@ package kafka.log.remote
 
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.MessageFormatter
-import org.apache.kafka.common.log.remote.metadata.storage.RLSMSerDe
+import org.apache.kafka.common.log.remote.metadata.storage.RLMSerDe
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata
 import org.apache.kafka.common.record.Record
 import org.apache.kafka.common.serialization.Serdes.StringSerde
@@ -15,7 +15,7 @@ import java.nio.ByteBuffer.wrap
 object RemoteMetadataLog {
 
   val keySerde = new StringSerde
-  val valSerde = new RLSMSerDe
+  val valSerde = new RLMSerDe
 
   private[remote] def keyToBytes(data: String): Array[Byte] = {
     keySerde.serializer().serialize(null, data)

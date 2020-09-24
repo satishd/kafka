@@ -45,7 +45,7 @@ import org.apache.kafka.common.requests.ListOffsetsRequest
 import org.apache.kafka.common.requests.OffsetsForLeaderEpochResponse.UNDEFINED_EPOCH_OFFSET
 import org.apache.kafka.common.requests.ProduceResponse.RecordError
 import org.apache.kafka.common.utils.{Time, Utils}
-import org.apache.kafka.common.{InvalidRecordException, KafkaException, TopicPartition, Uuid}
+import org.apache.kafka.common.{InvalidRecordException, KafkaException, TopicIdPartition, TopicPartition, Uuid}
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -1728,7 +1728,7 @@ class Log(@volatile private var _dir: File,
 
       if (isFirstSegment && remoteLogManager.isDefined) {
         val localOffset = targetSeg.get.findOffsetByTimestamp(targetTimestamp, logStartOffset)
-        val remoteOffset = remoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset)
+        val remoteOffset = remoteLogManager.get.findOffsetByTimestamp(new TopicIdPartition(topicId.toUUID, topicPartition), targetTimestamp, logStartOffset)
 
         if (localOffset.isEmpty)
           remoteOffset
