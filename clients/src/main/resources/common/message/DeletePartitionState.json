@@ -14,20 +14,20 @@
 // limitations under the License.
 
 {
-  "apiKey": 0,
+  "apiKey": 2,
   "type": "data",
-  "name": "RemoteLogSegmentMetadataRecord",
+  "name": "DeletePartitionStateRecord",
   "validVersions": "0",
   "flexibleVersions": "none",
   "fields": [
     {
-      "name": "RemoteLogSegmentId",
-      "type": "RemoteLogSegmentIdEntry",
+      "name": "TopicIdPartition",
+      "type": "TopicIdPartitionEntry",
       "versions": "0+",
-      "about": "Unique id of the remote log segment",
+      "about": "Unique representation of topic partition",
       "fields": [
         {
-          "name": "topic",
+          "name": "name",
           "type": "string",
           "versions": "0+",
           "about": "Topic name"
@@ -39,68 +39,24 @@
           "about": "Partition number"
         },
         {
-          "name": "id",
+          "name": "topic-id",
           "type": "uuid",
           "versions": "0+",
-          "about": "Unique identifier"
+          "about": "Unique id of the topic"
         }
       ]
     },
     {
-      "name": "StartOffset",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Start offset of the segment."
-    },
-    {
-      "name": "endOffset",
-      "type": "int64",
-      "versions": "0+",
-      "about": "End offset of the segment."
-    },
-    {
-      "name": "LeaderEpoch",
+      "name": "epoch",
       "type": "int32",
       "versions": "0+",
-      "about": "Leader epoch from which this segment instance is created or updated"
-    },
-    {
-      "name": "MaxTimestamp",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Maximum timestamp with in this segment."
+      "about": "Epoch (controller or leader) from which this event is created"
     },
     {
       "name": "EventTimestamp",
       "type": "int64",
       "versions": "0+",
       "about": "Event timestamp of this segment."
-    },
-    {
-      "name": "SegmentLeaderEpochs",
-      "type": "[]SegmentLeaderEpochEntry",
-      "versions": "0+",
-      "about": "Event timestamp of this segment.",
-      "fields": [
-        {
-          "name": "LeaderEpoch",
-          "type": "int32",
-          "versions": "0+",
-          "about": "Leader epoch"
-        },
-        {
-          "name": "Offset",
-          "type": "int64",
-          "versions": "0+",
-          "about": "Start offset for the leader epoch"
-        }
-      ]
-    },
-    {
-      "name": "SegmentSizeInBytes",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Segment size in bytes"
     },
     {
       "name": "State",

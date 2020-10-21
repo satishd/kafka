@@ -256,6 +256,6 @@ class MockRemoteLogMetadataManager extends RemoteLogMetadataManager {
    * @param remoteLogSegmentMetadataUpdate
    * @throws RemoteStorageException
    */
-  override def updateRemoteLohSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {
+  override def updateRemoteLogSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {
   }
 }
