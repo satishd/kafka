@@ -60,7 +60,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
         /**
          * This is used when a topic/partition is deleted by controller.
          * This partition is marked for delete by controller. That means, all its remote log segments are eligible for
-         * deletion. so that remote log cleaners can start deleting them.
+         * deletion so that remote log cleaners can start deleting them.
          */
         DELETE_PARTITION_MARKED((byte) 4),
 

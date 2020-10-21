@@ -14,7 +14,7 @@
 // limitations under the License.
 
 {
-  "apiKey": 0,
+  "apiKey": 1,
   "type": "data",
   "name": "RemoteLogSegmentMetadataRecord",
   "validVersions": "0",
@@ -47,60 +47,16 @@
       ]
     },
     {
-      "name": "StartOffset",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Start offset of the segment."
-    },
-    {
-      "name": "endOffset",
-      "type": "int64",
-      "versions": "0+",
-      "about": "End offset of the segment."
-    },
-    {
       "name": "LeaderEpoch",
       "type": "int32",
       "versions": "0+",
       "about": "Leader epoch from which this segment instance is created or updated"
     },
     {
-      "name": "MaxTimestamp",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Maximum timestamp with in this segment."
-    },
-    {
       "name": "EventTimestamp",
       "type": "int64",
       "versions": "0+",
       "about": "Event timestamp of this segment."
-    },
-    {
-      "name": "SegmentLeaderEpochs",
-      "type": "[]SegmentLeaderEpochEntry",
-      "versions": "0+",
-      "about": "Event timestamp of this segment.",
-      "fields": [
-        {
-          "name": "LeaderEpoch",
-          "type": "int32",
-          "versions": "0+",
-          "about": "Leader epoch"
-        },
-        {
-          "name": "Offset",
-          "type": "int64",
-          "versions": "0+",
-          "about": "Start offset for the leader epoch"
-        }
-      ]
-    },
-    {
-      "name": "SegmentSizeInBytes",
-      "type": "int64",
-      "versions": "0+",
-      "about": "Segment size in bytes"
     },
     {
       "name": "State",

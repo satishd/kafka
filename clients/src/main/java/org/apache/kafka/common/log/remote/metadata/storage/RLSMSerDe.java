@@ -17,6 +17,7 @@
 package org.apache.kafka.common.log.remote.metadata.storage;
 
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
@@ -35,15 +36,16 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
     public static final Byte CURRENT_SCHEMA_VERSION = 0;
 
-    public static final Field.Str TOPIC_FIELD = new Field.Str("topic", "Topic name");
+    public static final Field.Str TOPIC_NAME_FIELD = new Field.Str("topic-name", "Topic name");
+    public static final Field.UUID TOPIC_ID_FIELD = new Field.UUID("topic-id", "UUID of the topic");
     public static final Field.Int32 PARTITION_FIELD = new Field.Int32("partition", "Partition number");
-    public static final Schema TOPIC_PARTITION_SCHEMA = new Schema(TOPIC_FIELD, PARTITION_FIELD);
+    public static final Schema TOPIC_PARTITION_SCHEMA = new Schema(TOPIC_ID_FIELD, TOPIC_NAME_FIELD, PARTITION_FIELD);
 
     private static final String TOPIC_PARTITION = "topic-partition";
     public static final String ID = "id";
-    public static final Field.UUID ID_FIELD = new Field.UUID(ID, " UUID of this entry");
+    public static final Field.UUID ID_FIELD = new Field.UUID(ID, "UUID of this entry");
     private static final Schema REMOTE_LOG_SEGMENT_ID_SCHEMA_V0 = new Schema(
-            new Field(TOPIC_PARTITION, TOPIC_PARTITION_SCHEMA, " Topic partition"),
+            new Field(TOPIC_PARTITION, TOPIC_PARTITION_SCHEMA, "Topic partition"),
             ID_FIELD);
 
     public static final String REMOTE_LOG_SEGMENT_ID_NAME = "remote-log-segment-id";
@@ -90,8 +92,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
         public byte[] serialize(String topic, RemoteLogSegmentMetadata data, boolean includeVersion) {
             Struct tpStruct = new Struct(TOPIC_PARTITION_SCHEMA);
-            tpStruct.set(TOPIC_FIELD, data.remoteLogSegmentId().topicPartition().topic());
-            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicPartition().partition());
+            tpStruct.set(TOPIC_NAME_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().topic());
+            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().partition());
 
             Struct rlsIdStruct = new Struct(REMOTE_LOG_SEGMENT_ID_SCHEMA_V0);
             rlsIdStruct.set(TOPIC_PARTITION, tpStruct);
@@ -139,7 +141,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
             Uuid uuid = rlsIdStruct.get(ID_FIELD);
             RemoteLogSegmentId rlsId = new RemoteLogSegmentId(
-                    new TopicPartition(tpStruct.get(TOPIC_FIELD), tpStruct.get(PARTITION_FIELD)),
+                    new TopicIdPartition(new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
+                            new TopicPartition(tpStruct.get(TOPIC_NAME_FIELD), tpStruct.get(PARTITION_FIELD))),
                     new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
             return new RemoteLogSegmentMetadata(rlsId,

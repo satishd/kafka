@@ -128,7 +128,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public void updateRemoteLohSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException {
+    public void updateRemoteLogSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException {
         ensureInitialized();
 
         // insert remote log metadata into the topic.
@@ -141,14 +141,14 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
                 remoteLogSegmentMetadata);
 
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
-        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicPartition());
+        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicIdPartition());
         try {
             final ProducerCallback callback = new ProducerCallback();
             if (partitionNo >= noOfMetadataTopicPartitions) {
                 log.error("Chosen partition no [{}] is more than the partition count: [{}]", partitionNo, noOfMetadataTopicPartitions);
             }
             producer.send(new ProducerRecord<>(REMOTE_LOG_METADATA_TOPIC_NAME, partitionNo,
-                            remoteLogSegmentId.topicPartition().toString(), remoteLogSegmentMetadata), callback)
+                            remoteLogSegmentId.topicIdPartition().toString(), remoteLogSegmentMetadata), callback)
                     .get(PUBLISH_TIMEOUT_SECS, TimeUnit.SECONDS);
 
             final RecordMetadata recordMetadata = callback.recordMetadata();
@@ -371,7 +371,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         try {
             final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
             for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
-                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicPartition(),
+                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
                     k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
                 idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
             }

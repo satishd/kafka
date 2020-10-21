@@ -261,7 +261,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
                 fileset = openFileset(storageDirectory, id);
 
                 logger.info("Offloading log segment for {} from offset={}",
-                        id.topicPartition(),
+                        id.topicIdPartition(),
                         data.logSegment().getName().split("\\.")[0]);
 
                 fileset.copy(transferer, data);
