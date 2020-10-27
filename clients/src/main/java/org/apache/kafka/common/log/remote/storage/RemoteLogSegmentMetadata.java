@@ -17,80 +17,13 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * It describes the metadata about the log segment in the remote storage.
  */
 public class RemoteLogSegmentMetadata implements Serializable {
-
-    /**
-     * It indicates the state of the remote log segment. This will be based on the action executed on this segment by
-     * remote log service implementation.
-     *
-     * todo: check whether the state validations to be checked or not, add next possible states for each state.
-     */
-    public enum State {
-
-        /**
-         * This state indicates that the segment copying to remote storage is started but not yet finished.
-         */
-        COPY_SEGMENT_STARTED((byte) 0),
-
-        /**
-         * This state indicates that the segment copying to remote storage is finished.
-         */
-        COPY_SEGMENT_FINISHED((byte) 1),
-
-        /**
-         * This state indicates that the segment deletion is started but not yet finished.
-         */
-        DELETE_SEGMENT_STARTED((byte) 2),
-
-        /**
-         * This state indicates that the segment is deleted successfully.
-         */
-        DELETE_SEGMENT_FINISHED((byte) 3),
-
-        /**
-         * This is used when a topic/partition is deleted by controller.
-         * This partition is marked for delete by controller. That means, all its remote log segments are eligible for
-         * deletion so that remote log cleaners can start deleting them.
-         */
-        DELETE_PARTITION_MARKED((byte) 4),
-
-        /**
-         * This state indicates that the partition deletion is started but not yet finished.
-         */
-        DELETE_PARTITION_STARTED((byte) 5),
-
-        /**
-         * This state indicates that the partition is deleted successfully.
-         */
-        DELETE_PARTITION_FINISHED((byte) 6);
-
-        private static final Map<Byte, State> STATE_TYPES = Collections.unmodifiableMap(
-                Arrays.stream(values()).collect(Collectors.toMap(State::id, Function.identity())));
-
-        private final byte id;
-
-        State(byte id) {
-            this.id = id;
-        }
-
-        public byte id() {
-            return id;
-        }
-
-        public static State forId(byte id) {
-            return STATE_TYPES.get(id);
-        }
-    }
 
     private static final long serialVersionUID = 1L;
 
@@ -137,7 +70,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
     /**
      * It indicates the state in which the action is executed on this segment.
      */
-    private final State state;
+    private final RemoteLogState state;
 
     /**
      * @param remoteLogSegmentId  Universally unique remote log segment id.
@@ -152,7 +85,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
      */
     public RemoteLogSegmentMetadata(RemoteLogSegmentId remoteLogSegmentId, long startOffset, long endOffset,
                                     long maxTimestamp, int brokerEpoch, long eventTimestamp,
-                                    long segmentSizeInBytes, State state, Map<Long, Long> segmentLeaderEpochs) {
+                                    long segmentSizeInBytes, RemoteLogState state, Map<Long, Long> segmentLeaderEpochs) {
         this.remoteLogSegmentId = remoteLogSegmentId;
         this.startOffset = startOffset;
         this.endOffset = endOffset;
@@ -181,7 +114,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
                 maxTimeStamp,
                 brokerEpoch,
                 System.currentTimeMillis(),
-                segmentSizeInBytes, State.COPY_SEGMENT_STARTED, segmentLeaderEpochs
+                segmentSizeInBytes, RemoteLogState.COPY_SEGMENT_STARTED, segmentLeaderEpochs
         );
     }
 
@@ -209,12 +142,12 @@ public class RemoteLogSegmentMetadata implements Serializable {
         return segmentSizeInBytes;
     }
 
-    public State state() {
+    public RemoteLogState state() {
         return state;
     }
 
     public boolean markedForDeletion() {
-        return state == State.DELETE_SEGMENT_STARTED;
+        return state == RemoteLogState.DELETE_SEGMENT_STARTED;
     }
 
     public long maxTimestamp() {
@@ -263,7 +196,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
 
     public static RemoteLogSegmentMetadata markForDeletion(RemoteLogSegmentMetadata original) {
         return new RemoteLogSegmentMetadata(original.remoteLogSegmentId, original.startOffset, original.endOffset,
-                original.maxTimestamp, original.brokerEpoch, original.eventTimestamp, original.segmentSizeInBytes, State.DELETE_SEGMENT_STARTED, original.segmentLeaderEpochs
+                original.maxTimestamp, original.brokerEpoch, original.eventTimestamp, original.segmentSizeInBytes, RemoteLogState.DELETE_SEGMENT_STARTED, original.segmentLeaderEpochs
         );
     }
 

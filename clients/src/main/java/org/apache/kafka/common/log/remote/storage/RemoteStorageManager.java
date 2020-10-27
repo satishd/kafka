@@ -31,7 +31,7 @@ import java.io.InputStream;
  * which is universally unique even for the same topic partition and offsets.
  * <p>
  * RemoteLogSegmentMetadata is stored in {@link RemoteLogMetadataManager} before and after copy/delete operations on
- * RemoteStorageManager with the respective {@link RemoteLogSegmentMetadata.State}. {@link RemoteLogMetadataManager} is
+ * RemoteStorageManager with the respective {@link RemoteLogState}. {@link RemoteLogMetadataManager} is
  * responsible for storing and fetching metadata about the remote log segments in a strongly consistent manner.
  * This allows RemoteStorageManager to store segments even in eventually consistent manner as the metadata is already
  * stored in a consistent store.

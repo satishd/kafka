@@ -21,6 +21,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.common.log.remote.storage.RemoteLogState;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -151,7 +152,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
                     struct.get(MAX_TIMESTAMP_FIELD),
                     struct.get(LEADER_EPOCH_FIELD),
                     struct.get(EVENT_TIMESTAMP_FIELD),
-                    struct.get(SEGMENT_SIZE_FIELD), RemoteLogSegmentMetadata.State.values()[struct.get(STATE_FIELD)],
+                    struct.get(SEGMENT_SIZE_FIELD), RemoteLogState.values()[struct.get(STATE_FIELD)],
                     Collections.emptyMap()
             );
         }
