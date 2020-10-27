@@ -39,7 +39,7 @@ public class RemoteLogSegmentMetadataUpdate implements Serializable {
     /**
      * It indicates the state in which the action is executed on this segment.
      */
-    private final RemoteLogSegmentMetadata.State state;
+    private final RemoteLogState state;
 
     /**
      * @param remoteLogSegmentId  Universally unique remote log segment id.
@@ -48,7 +48,7 @@ public class RemoteLogSegmentMetadataUpdate implements Serializable {
      */
     public RemoteLogSegmentMetadataUpdate(RemoteLogSegmentId remoteLogSegmentId,
                                           long eventTimestamp,
-                                          RemoteLogSegmentMetadata.State state) {
+                                          RemoteLogState state) {
         this.remoteLogSegmentId = remoteLogSegmentId;
         this.eventTimestamp = eventTimestamp;
         this.state = state;
@@ -62,7 +62,7 @@ public class RemoteLogSegmentMetadataUpdate implements Serializable {
         return eventTimestamp;
     }
 
-    public RemoteLogSegmentMetadata.State state() {
+    public RemoteLogState state() {
         return state;
     }
 

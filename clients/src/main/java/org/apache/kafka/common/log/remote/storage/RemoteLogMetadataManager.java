@@ -121,6 +121,22 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     void deleteRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
 
     /**
+     * Update the delete partition state of a topic partition in metadata storage. Controller invokes this method with
+     * DeletePartitionUpdate having state as {@link RemoteLogState#DELETE_PARTITION_MARKED}. So, remote log cleaners
+     * can act on this event to clean the respective remote log segments of the partition.
+     *
+     * Incase of default RLMM implementation, remote log cleaner processes RemoteLogState#DELETE_PARTITION_MARKED
+     *  - sends an event with state as RemoteLogState#DELETE_PARTITION_STARTED
+     *  - getting all the remote log segments and deletes them.
+     *  - sends an event with state as RemoteLogState#DELETE_PARTITION_FINISHED once all the remote log segments are
+     *  deleted.
+     *
+     * @param deletePartitionUpdate update on delete state of a partition.
+     * @throws RemoteStorageException if there are any storage related errors occurred.
+     */
+    void updateDeletePartitionState(DeletePartitionUpdate deletePartitionUpdate) throws RemoteStorageException;
+
+    /**
      * List the remote log segment metadata of the given topicPartition.
      * <p>
      * This is used when a topic partition is deleted, to fetch all the remote log segments for the given topic
