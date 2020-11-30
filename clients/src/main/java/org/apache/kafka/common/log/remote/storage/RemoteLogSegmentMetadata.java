@@ -33,12 +33,12 @@ public class RemoteLogSegmentMetadata implements Serializable {
     private final RemoteLogSegmentId remoteLogSegmentId;
 
     /**
-     * Start offset of this segment.
+     * Start offset of this segment(inclusive).
      */
     private final long startOffset;
 
     /**
-     * End offset of this segment.
+     * End offset of this segment(inclusive).
      */
     private final long endOffset;
 
@@ -78,7 +78,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
      * @param endOffset           End offset of this segment.
      * @param maxTimestamp        maximum timestamp in this segment
      * @param brokerEpoch         Leader or controller epoch of the broker from where this event occurred.
-     * @param eventTimestamp    Epoch time at which the remote log segment is copied to the remote tier storage.
+     * @param eventTimestamp      Epoch time at which the remote log segment is copied to the remote tier storage.
      * @param segmentSizeInBytes  size of this segment in bytes.
      * @param state   The respective segment of remoteLogSegmentId is marked fro deletion.
      * @param segmentLeaderEpochs leader epochs occurred with in this segment
@@ -118,26 +118,44 @@ public class RemoteLogSegmentMetadata implements Serializable {
         );
     }
 
+    /**
+     * @return unique id of this segment.
+     */
     public RemoteLogSegmentId remoteLogSegmentId() {
         return remoteLogSegmentId;
     }
 
+    /**
+     * @return Start offset of this segment(inclusive).
+     */
     public long startOffset() {
         return startOffset;
     }
 
+    /**
+     * @return End offset of this segment(inclusive).
+     */
     public long endOffset() {
         return endOffset;
     }
 
+    /**
+     * @return Leader or controller epoch of the broker from where this event occurred.
+     */
     public int brokerEpoch() {
         return brokerEpoch;
     }
 
-    public long createdTimestamp() {
+    /**
+     * @return Epoch time at which this evcent is occurred.
+     */
+    public long eventTimestamp() {
         return eventTimestamp;
     }
 
+    /**
+     * @return
+     */
     public long segmentSizeInBytes() {
         return segmentSizeInBytes;
     }

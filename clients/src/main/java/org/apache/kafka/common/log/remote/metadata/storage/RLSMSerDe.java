@@ -93,8 +93,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
         public byte[] serialize(String topic, RemoteLogSegmentMetadata data, boolean includeVersion) {
             Struct tpStruct = new Struct(TOPIC_PARTITION_SCHEMA);
-            tpStruct.set(TOPIC_NAME_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().topic());
-            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().partition());
+            tpStruct.set(TOPIC_NAME_FIELD, data.remoteLogSegmentId().topicPartition().topic());
+            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicPartition().partition());
 
             Struct rlsIdStruct = new Struct(REMOTE_LOG_SEGMENT_ID_SCHEMA_V0);
             rlsIdStruct.set(TOPIC_PARTITION, tpStruct);
@@ -107,7 +107,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             rlsmStruct.set(END_OFFSET_FIELD, data.endOffset());
             rlsmStruct.set(LEADER_EPOCH_FIELD, data.brokerEpoch());
             rlsmStruct.set(MAX_TIMESTAMP_FIELD, data.maxTimestamp());
-            rlsmStruct.set(EVENT_TIMESTAMP_FIELD, data.createdTimestamp());
+            rlsmStruct.set(EVENT_TIMESTAMP_FIELD, data.eventTimestamp());
             rlsmStruct.set(STATE_FIELD, (byte) data.state().ordinal());
             rlsmStruct.set(SEGMENT_SIZE_FIELD, data.segmentSizeInBytes());
 
@@ -142,8 +142,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
             Uuid uuid = rlsIdStruct.get(ID_FIELD);
             RemoteLogSegmentId rlsId = new RemoteLogSegmentId(
-                    new TopicIdPartition(new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()),
-                            new TopicPartition(tpStruct.get(TOPIC_NAME_FIELD), tpStruct.get(PARTITION_FIELD))),
+                    new TopicPartition(tpStruct.get(TOPIC_NAME_FIELD), tpStruct.get(PARTITION_FIELD)),
                     new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
             return new RemoteLogSegmentMetadata(rlsId,

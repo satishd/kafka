@@ -367,7 +367,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 val logFile = segment.log.file()
                 val fileName = logFile.getName
                 info(s"Copying $fileName to remote storage.");
-                val id = new RemoteLogSegmentId(tp, java.util.UUID.randomUUID())
+                val id = new RemoteLogSegmentId(tp, java.util.UUID.randomUUID());
 
                 val nextOffset = segment.readNextOffset
                 //todo-tier double check on this
@@ -404,7 +404,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
                 val rlsmAfterCreate = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
                   segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), segment.log.sizeInBytes(),
-                  State.COPY_SEGMENT_FINISHED, Collections.emptyMap())
+                  RemoteLogState.COPY_SEGMENT_FINISHED, Collections.emptyMap())
 
                 remoteLogMetadataManager.putRemoteLogSegmentData(rlsmAfterCreate)
                 brokerTopicStats.topicStats(tp.topic()).remoteBytesOutRate.mark(rlsmAfterCreate.segmentSizeInBytes())
@@ -432,6 +432,8 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       }
 
       try {
+        // we do not need to do much for follower here as the replication protocol takes care of updating
+        // log-start-offset.
         val remoteLogStartOffset: Option[Long] =
           if (isLeader()) {
             // cleanup remote log segments
@@ -440,7 +442,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
             else {
               var maxOffset: Long = Long.MinValue
               val cleanupTs = time.milliseconds() - rlmConfig.remoteLogRetentionMillis
-              remoteLogSegmentMetadatas.asScala.takeWhile(m => m.createdTimestamp() <= cleanupTs)
+              remoteLogSegmentMetadatas.asScala.takeWhile(m => m.eventTimestamp() <= cleanupTs)
                 .foreach(m => {
                   deleteRemoteLogSegment(m)
                   maxOffset = Math.max(m.endOffset(), maxOffset)

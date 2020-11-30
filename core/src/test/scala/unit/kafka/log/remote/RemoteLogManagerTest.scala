@@ -250,12 +250,9 @@ class MockRemoteLogMetadataManager extends RemoteLogMetadataManager {
 
   override def close(): Unit = {}
 
-  /**
-   * Explain detail what all states this can be applied with.
-   *
-   * @param remoteLogSegmentMetadataUpdate
-   * @throws RemoteStorageException
-   */
   override def updateRemoteLogSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {
+  }
+
+  override def updateDeletePartitionState(deletePartitionUpdate: DeletePartitionUpdate): Unit = {
   }
 }

@@ -137,7 +137,7 @@ public final class RemoteLogSegmentFileset {
      */
     public static RemoteLogSegmentFileset openFileset(final File storageDir, final RemoteLogSegmentId id) {
 
-        final RemoteTopicPartitionDirectory tpDir = openTopicPartitionDirectory(id.topicIdPartition(), storageDir);
+        final RemoteTopicPartitionDirectory tpDir = openTopicPartitionDirectory(id.topicPartition(), storageDir);
         final File partitionDirectory = tpDir.getDirectory();
         final UUID uuid = id.id();
 

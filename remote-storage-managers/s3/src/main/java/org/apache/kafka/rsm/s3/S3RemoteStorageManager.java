@@ -228,7 +228,7 @@ public class S3RemoteStorageManager implements RemoteStorageManager {
     }
 
     private String fileNamePrefix(final RemoteLogSegmentId remoteLogSegmentId) {
-        return remoteLogSegmentId.topicIdPartition().toString() + "/";
+        return remoteLogSegmentId.topicPartition().toString() + "/";
     }
 
     private S3RemoteLogSegmentContext deserializeS3RemoteLogSegmentContext(final byte[] contextBytes) throws RemoteStorageException {

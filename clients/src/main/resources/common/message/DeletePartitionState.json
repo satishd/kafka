@@ -39,7 +39,7 @@
           "about": "Partition number"
         },
         {
-          "name": "topic-id",
+          "name": "topicId",
           "type": "uuid",
           "versions": "0+",
           "about": "Unique id of the topic"

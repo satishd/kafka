@@ -16,7 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.TopicPartition;
 
 import java.util.Objects;
 
@@ -25,12 +25,12 @@ import java.util.Objects;
  */
 public class DeletePartitionUpdate {
 
-    private final TopicIdPartition topicPartition;
+    private final TopicPartition topicPartition;
     private final RemoteLogState state;
     private final long eventTimestamp;
     private final int epoch;
 
-    public DeletePartitionUpdate(TopicIdPartition topicPartition, RemoteLogState state, long eventTimestamp, int epoch) {
+    public DeletePartitionUpdate(TopicPartition topicPartition, RemoteLogState state, long eventTimestamp, int epoch) {
         Objects.requireNonNull(topicPartition);
         Objects.requireNonNull(state);
         if(state != RemoteLogState.DELETE_PARTITION_MARKED && state != RemoteLogState.DELETE_PARTITION_STARTED
@@ -43,7 +43,7 @@ public class DeletePartitionUpdate {
         this.epoch = epoch;
     }
 
-    public TopicIdPartition topicPartition() {
+    public TopicPartition topicPartition() {
         return topicPartition;
     }
 

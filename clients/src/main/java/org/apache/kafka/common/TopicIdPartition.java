@@ -19,9 +19,26 @@ package org.apache.kafka.common;
 import java.util.Objects;
 import java.util.UUID;
 
+/**
+ *
+ */
 public class TopicIdPartition {
+
+    private static final UUID DEFAULT = new UUID(1, 1);
+
     private final UUID topicId;
     private final TopicPartition topicPartition;
+
+    /**
+     * It uses {@link #DEFAULT as the unique id for this partition}.
+     *
+     * This constructor will be removed once topic id change is introduced as part of KIP-516.
+     *
+     * @param topicPartition
+     */
+    public TopicIdPartition(TopicPartition topicPartition) {
+        this(DEFAULT, topicPartition);
+    }
 
     public TopicIdPartition(UUID topicId, TopicPartition topicPartition) {
         this.topicId = topicId;

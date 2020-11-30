@@ -16,7 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
-import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.TopicPartition;
 
 import static java.util.Objects.requireNonNull;
 
@@ -31,16 +31,16 @@ import java.util.UUID;
 public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Serializable {
     private static final long serialVersionUID = 1L;
 
-    private final TopicIdPartition topicIdPartition;
+    private final TopicPartition topicPartition;
     private final UUID id;
 
-    public RemoteLogSegmentId(TopicIdPartition topicIdPartition, UUID id) {
-        this.topicIdPartition = requireNonNull(topicIdPartition);
+    public RemoteLogSegmentId(TopicPartition topicPartition, UUID id) {
+        this.topicPartition = requireNonNull(topicPartition);
         this.id = requireNonNull(id);
     }
 
-    public TopicIdPartition topicIdPartition() {
-        return topicIdPartition;
+    public TopicPartition topicPartition() {
+        return topicPartition;
     }
 
     public UUID id() {
@@ -50,7 +50,7 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
     @Override
     public String toString() {
         return "RemoteLogSegmentId{" +
-                "topicPartition=" + topicIdPartition +
+                "topicPartition=" + topicPartition +
                 ", id=" + id +
                 '}';
     }
@@ -60,13 +60,13 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteLogSegmentId that = (RemoteLogSegmentId) o;
-        return Objects.equals(topicIdPartition, that.topicIdPartition) &&
+        return Objects.equals(topicPartition, that.topicPartition) &&
                 Objects.equals(id, that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(topicIdPartition, id);
+        return Objects.hash(topicPartition, id);
     }
 
     @Override

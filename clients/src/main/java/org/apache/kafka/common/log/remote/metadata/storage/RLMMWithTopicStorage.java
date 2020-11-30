@@ -29,6 +29,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.internals.Topic;
+import org.apache.kafka.common.log.remote.storage.DeletePartitionUpdate;
 import org.apache.kafka.common.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
@@ -141,14 +142,14 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
                 remoteLogSegmentMetadata);
 
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
-        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicIdPartition());
+        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicPartition());
         try {
             final ProducerCallback callback = new ProducerCallback();
             if (partitionNo >= noOfMetadataTopicPartitions) {
                 log.error("Chosen partition no [{}] is more than the partition count: [{}]", partitionNo, noOfMetadataTopicPartitions);
             }
             producer.send(new ProducerRecord<>(REMOTE_LOG_METADATA_TOPIC_NAME, partitionNo,
-                            remoteLogSegmentId.topicIdPartition().toString(), remoteLogSegmentMetadata), callback)
+                            remoteLogSegmentId.topicPartition().toString(), remoteLogSegmentMetadata), callback)
                     .get(PUBLISH_TIMEOUT_SECS, TimeUnit.SECONDS);
 
             final RecordMetadata recordMetadata = callback.recordMetadata();
@@ -240,6 +241,11 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
 
         publishMessageToPartition(RemoteLogSegmentMetadata.markForDeletion(remoteLogSegmentMetadata));
+    }
+
+    @Override
+    public void updateDeletePartitionState(DeletePartitionUpdate deletePartitionUpdate) throws RemoteStorageException {
+
     }
 
     @Override
@@ -371,7 +377,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         try {
             final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
             for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
-                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
+                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicPartition(),
                     k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
                 idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
             }
