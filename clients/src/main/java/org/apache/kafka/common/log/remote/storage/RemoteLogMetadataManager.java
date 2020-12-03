@@ -139,8 +139,8 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     /**
      * List the remote log segment metadata of the given topicPartition.
      * <p>
-     * This is used when a topic partition is deleted, to fetch all the remote log segments for the given topic
-     * partition and delete them .
+     * This is used when a topic partition is deleted or cleaning up segments based on the retention, to fetch all the
+     * remote log segments for the given topic partition and delete them.
      *
      * @return Iterator of remote segments, sorted by baseOffset in ascending order.
      */
@@ -151,7 +151,7 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     /**
      * Returns iterator of remote log segment metadata, sorted by {@link RemoteLogSegmentMetadata#startOffset()} in
      * ascending order which contains the given leader epoch. This is used by remote log retention management subsystem
-     * to fetch the segment metadata for a given leader epoch and cleansup based on retention policies.
+     * to fetch the segment metadata for a given leader epoch.
      *
      * @param topicPartition topic partition
      * @param leaderEpoch    leader epoch
