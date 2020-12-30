@@ -41,6 +41,8 @@ public class TopicIdPartition {
     }
 
     public TopicIdPartition(UUID topicId, TopicPartition topicPartition) {
+        Objects.requireNonNull(topicId, "topicId can not be null");
+        Objects.requireNonNull(topicPartition, "topicPartition can not be null");
         this.topicId = topicId;
         this.topicPartition = topicPartition;
     }
