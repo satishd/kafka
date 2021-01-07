@@ -74,7 +74,7 @@ class DelayedDeleteRecords(delayMs: Long,
       trace(s"Checking delete records satisfaction for $topicPartition, current status $status")
       // skip those partitions that have already been satisfied
       if (status.acksPending) {
-        val (lowWatermarkReached, error, lw) = replicaManager.getPardelaytition(topicPartition) match {
+        val (lowWatermarkReached, error, lw) = replicaManager.getPartition(topicPartition) match {
           case HostedPartition.Online(partition) =>
             partition.leaderLogIfLocal match {
               case Some(_) =>

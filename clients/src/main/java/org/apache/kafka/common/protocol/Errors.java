@@ -19,7 +19,6 @@ package org.apache.kafka.common.protocol;
 import org.apache.kafka.common.InvalidRecordException;
 
 import org.apache.kafka.common.errors.*;
-import org.apache.kafka.common.internals.InvalidProducerEpochException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -246,9 +245,16 @@ public enum Errors {
             "voter-only request is not one of the expected voters", InconsistentVoterSetException::new),
     INVALID_UPDATE_VERSION(95, "The given update version was invalid.", InvalidUpdateVersionException::new),
     FEATURE_UPDATE_FAILED(96, "Unable to update finalized features due to an unexpected server error.", FeatureUpdateFailedException::new),
-    OFFSET_MOVED_TO_TIERED_STORAGE(97, "The requested offset is moved to tiered storage.",
+    PRINCIPAL_DESERIALIZATION_FAILURE(97, "Request principal deserialization failed during forwarding. " +
+            "This indicates an internal error on the broker cluster security setup.", PrincipalDeserializationException::new),
+    SNAPSHOT_NOT_FOUND(98, "Requested snapshot was not found", SnapshotNotFoundException::new),
+    POSITION_OUT_OF_RANGE(
+            99,
+            "Requested position is not greater than or equal to zero, and less than the size of the snapshot.",
+            PositionOutOfRangeException::new),
+    OFFSET_MOVED_TO_TIERED_STORAGE(100, "The requested offset is moved to tiered storage.",
             OffsetMovedToTieredStorageException::new),
-    TIERED_STORAGE_NOT_AVAILABLE(98, "Remote storage is not available.",
+    TIERED_STORAGE_NOT_AVAILABLE(101, "Remote storage is not available.",
             TieredStorageNotAvailableException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
