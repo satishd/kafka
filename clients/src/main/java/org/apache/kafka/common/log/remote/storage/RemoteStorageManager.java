@@ -43,6 +43,36 @@ public interface RemoteStorageManager extends Configurable, Closeable {
     InputStream EMPTY_INPUT_STREAM = new ByteArrayInputStream(new byte[0]);
 
     /**
+     * Type of the index file.
+     */
+    enum IndexType {
+        /**
+         * Represents offset index.
+         */
+        Offset,
+
+        /**
+         * Represents timestamp index.
+         */
+        Timestamp,
+
+        /**
+         * Represents producer snapshot index.
+         */
+        ProducerSnapshot,
+
+        /**
+         * Represents transaction index.
+         */
+        Transaction,
+
+        /**
+         * Represents leader epoch index.
+         */
+        LeaderEpoch,
+    }
+
+    /**
      * Copies LogSegmentData provided for the given {@param remoteLogSegmentMetadata}.
      * <p>
      * Invoker of this API should always send a unique id as part of {@link RemoteLogSegmentMetadata#remoteLogSegmentId()#id()}
@@ -68,6 +98,18 @@ public interface RemoteStorageManager extends Configurable, Closeable {
      */
     InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
                                     Long startPosition, Long endPosition) throws RemoteStorageException;
+
+    /**
+     * Returns the index for the respective log segment of {@link RemoteLogSegmentMetadata}.
+     *
+     * @param remoteLogSegmentMetadata metadata about the remote log segment.
+     * @param indexType type of the index to be fetched for the segment.
+     * @return input stream of the requested  index.
+     * @throws RemoteStorageException if there are any errors while fetching the index.
+     */
+    default InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
+        return EMPTY_INPUT_STREAM;
+    }
 
     /**
      * Returns the offset index for the respective log segment of {@link RemoteLogSegmentMetadata}.
