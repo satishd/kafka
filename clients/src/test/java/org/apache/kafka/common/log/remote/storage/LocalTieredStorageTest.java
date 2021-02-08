@@ -252,7 +252,7 @@ public final class LocalTieredStorageTest {
         final RemoteLogSegmentMetadata metadata = newRemoteLogSegmentMetadata(newRemoteLogSegmentId());
 
         assertThrows(RemoteResourceNotFoundException.class,
-            () -> tieredStorage.fetchLogSegmentData(metadata, 0L, null));
+            () -> tieredStorage.fetchLogSegmentData(metadata, 0));
         assertThrows(RemoteResourceNotFoundException.class, () -> tieredStorage.fetchOffsetIndex(metadata));
         assertThrows(RemoteResourceNotFoundException.class, () -> tieredStorage.fetchTimestampIndex(metadata));
     }
@@ -261,13 +261,13 @@ public final class LocalTieredStorageTest {
     public void assertStartAndEndPositionConsistency() {
         final RemoteLogSegmentMetadata metadata = newRemoteLogSegmentMetadata(newRemoteLogSegmentId());
 
-        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, -1L, null));
-        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 1L, -1L));
-        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 2L, 1L));
+        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 1, -1));
+        assertThrows(IllegalArgumentException.class, () -> tieredStorage.fetchLogSegmentData(metadata, 2, 1));
     }
 
     private RemoteLogSegmentMetadata newRemoteLogSegmentMetadata(final RemoteLogSegmentId id) {
-        return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000, Collections.emptyMap());
+        return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000L, 1000,
+                RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
     }
 
     private RemoteLogSegmentId newRemoteLogSegmentId() {
@@ -355,9 +355,9 @@ public final class LocalTieredStorageTest {
          * @param startPosition The position in the segment to fetch from.
          * @param expected The expected content.
          */
-        public void verifyFetchedLogSegment(final RemoteLogSegmentId id, final long startPosition, final byte[] expected) {
+        public void verifyFetchedLogSegment(final RemoteLogSegmentId id, final int startPosition, final byte[] expected) {
             try {
-                final InputStream in = remoteStorage.fetchLogSegmentData(newMetadata(id), startPosition, null);
+                final InputStream in = remoteStorage.fetchLogSegmentData(newMetadata(id), startPosition);
                 final ByteBuffer buffer = ByteBuffer.wrap(readFully(in));
                 Iterator<Record> records = MemoryRecords.readableRecords(buffer).records().iterator();
 
@@ -402,7 +402,8 @@ public final class LocalTieredStorageTest {
         }
 
         private RemoteLogSegmentMetadata newMetadata(final RemoteLogSegmentId id) {
-            return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000, Collections.emptyMap());
+            return new RemoteLogSegmentMetadata(id, 0, 0, -1L, -1, 1000L, 1000,
+                    RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         }
 
         private String getStorageRootDirectory() {

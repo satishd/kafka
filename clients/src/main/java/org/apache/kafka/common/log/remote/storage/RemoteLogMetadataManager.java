@@ -122,7 +122,7 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
 
     /**
      * Update the delete partition state of a topic partition in metadata storage. Controller invokes this method with
-     * DeletePartitionUpdate having state as {@link RemoteLogState#DELETE_PARTITION_MARKED}. So, remote log cleaners
+     * DeletePartitionUpdate having state as {@link RemoteLogSegmentState#DELETE_PARTITION_MARKED}. So, remote log cleaners
      * can act on this event to clean the respective remote log segments of the partition.
      *
      * Incase of default RLMM implementation, remote log cleaner processes RemoteLogState#DELETE_PARTITION_MARKED

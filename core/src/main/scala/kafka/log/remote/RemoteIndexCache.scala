@@ -22,10 +22,10 @@ import java.util
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.{Consumer, Function}
-
 import kafka.log.{CleanableIndex, Log, OffsetIndex, OffsetPosition, TimeIndex, TransactionIndex, TxnIndexSearchResult}
 import kafka.utils.{CoreUtils, Logging}
 import org.apache.kafka.common.errors.CorruptRecordException
+import org.apache.kafka.common.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteStorageManager}
 import org.apache.kafka.common.utils.{KafkaThread, Utils}
 
@@ -45,7 +45,7 @@ class Entry(val offsetIndex: OffsetIndex, val timeIndex: TimeIndex, val txnIndex
     else offsetIndex.lookup(targetOffset)
   }
 
-  def lookupTimestamp(timestamp: Long, startingOffset: Long): Long = {
+  def lookupTimestamp(timestamp: Long, startingOffset: Long): Int = {
     if (closed.get()) throw new IllegalStateException("This entry is already closed")
 
     val timestampOffset = timeIndex.lookup(timestamp)
@@ -164,14 +164,14 @@ class RemoteIndexCache(maxSize: Int = 1024, remoteStorageManager: RemoteStorageM
           val startOffset = remoteLogSegmentMetadata.startOffset()
 
           val offsetIndex: OffsetIndex = loadIndexFile(fileSuffix, RemoteIndexCache.OffsetIndexFileSuffix,
-            rlsMetadata => remoteStorageManager.fetchOffsetIndex(rlsMetadata), file => {
+            rlsMetadata => remoteStorageManager.fetchIndex(rlsMetadata, IndexType.Offset), file => {
               val index = new OffsetIndex(file, startOffset, Int.MaxValue, writable = false)
               index.sanityCheck()
               index
             })
 
           val timeIndex = loadIndexFile(fileSuffix, RemoteIndexCache.TimeIndexFileSuffix,
-            rlsMetadata => remoteStorageManager.fetchTimestampIndex(rlsMetadata),
+            rlsMetadata => remoteStorageManager.fetchIndex(rlsMetadata, IndexType.Timestamp),
             file => {
               val index = new TimeIndex(file, startOffset, Int.MaxValue, writable = false)
               index.sanityCheck()
@@ -179,7 +179,7 @@ class RemoteIndexCache(maxSize: Int = 1024, remoteStorageManager: RemoteStorageM
             })
 
           val txnIndex:TransactionIndex = loadIndexFile(fileSuffix, RemoteIndexCache.TxnIndexFileSuffix,
-            rlsMetadata => remoteStorageManager.fetchTransactionIndex(rlsMetadata),
+            rlsMetadata => remoteStorageManager.fetchIndex(rlsMetadata, IndexType.Transaction),
             file => {
               val index = new TransactionIndex(startOffset, file)
               index.sanityCheck()
@@ -192,11 +192,11 @@ class RemoteIndexCache(maxSize: Int = 1024, remoteStorageManager: RemoteStorageM
     }
   }
 
-  def lookupOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Long = {
+  def lookupOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Int = {
     getIndexEntry(remoteLogSegmentMetadata).lookupOffset(offset).position
   }
 
-  def lookupTimestamp(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, timestamp: Long, startingOffset: Long): Long = {
+  def lookupTimestamp(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, timestamp: Long, startingOffset: Long): Int = {
     getIndexEntry(remoteLogSegmentMetadata).lookupTimestamp(timestamp, startingOffset)
   }
 

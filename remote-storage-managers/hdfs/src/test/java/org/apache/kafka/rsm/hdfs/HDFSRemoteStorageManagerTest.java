@@ -24,10 +24,7 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.log.remote.storage.LogSegmentData;
-import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
-import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.common.log.remote.storage.*;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
@@ -154,7 +151,8 @@ public class HDFSRemoteStorageManagerTest {
         UUID uuid0 = UUID.randomUUID();
         RemoteLogSegmentId id0 = new RemoteLogSegmentId(tp, uuid0);
         LogSegmentData seg0 = getLogSegmentData(segments.get(0));
-        RemoteLogSegmentMetadata seg0metadata = new RemoteLogSegmentMetadata(id0, 0, 299, 0, 0, 1L, Collections.emptyMap());
+        RemoteLogSegmentMetadata seg0metadata = new RemoteLogSegmentMetadata(id0, 0, 299, 0, 0, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         rsm.copyLogSegment(seg0metadata, seg0);
 
         assertTrue(hdfs.exists(new Path(baseDir + "/test-1")));
@@ -164,28 +162,29 @@ public class HDFSRemoteStorageManagerTest {
 
         UUID uuid1 = UUID.randomUUID();
         RemoteLogSegmentId id1 = new RemoteLogSegmentId(tp, uuid1);
-        RemoteLogSegmentMetadata seg1metadata = new RemoteLogSegmentMetadata(id1, 300, 499, 0, 0, 1L, Collections.emptyMap());
+        RemoteLogSegmentMetadata seg1metadata = new RemoteLogSegmentMetadata(id1, 300, 499, 0, 0, 1L,
+                1000, RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap());
         LogSegmentData seg1 = getLogSegmentData(segments.get(1));
         rsm.copyLogSegment(seg1metadata, seg1);
         assertTrue(hdfs.exists(new Path(baseDir + "/test-1/" + uuid1 + "/index")));
 
-        try (InputStream is = rsm.fetchLogSegmentData(seg0metadata, 0L, Long.MAX_VALUE)) {
+        try (InputStream is = rsm.fetchLogSegmentData(seg0metadata, 0)) {
             assertFileEquals(is, segments.get(0).log().file());
         }
-        try (InputStream is = rsm.fetchOffsetIndex(seg0metadata)) {
+        try (InputStream is = rsm.fetchIndex(seg0metadata, RemoteStorageManager.IndexType.Offset)) {
             assertFileEquals(is, segments.get(0).offsetIndex().file());
         }
-        try (InputStream is = rsm.fetchTimestampIndex(seg0metadata)) {
+        try (InputStream is = rsm.fetchIndex(seg0metadata, RemoteStorageManager.IndexType.Timestamp)) {
             assertFileEquals(is, segments.get(0).timeIndex().file());
         }
 
-        try (InputStream is = rsm.fetchLogSegmentData(seg1metadata, 0L, Long.MAX_VALUE)) {
+        try (InputStream is = rsm.fetchLogSegmentData(seg1metadata, 0)) {
             assertFileEquals(is, segments.get(1).log().file());
         }
-        try (InputStream is = rsm.fetchOffsetIndex(seg1metadata)) {
+        try (InputStream is = rsm.fetchIndex(seg1metadata, RemoteStorageManager.IndexType.Offset)) {
             assertFileEquals(is, segments.get(1).offsetIndex().file());
         }
-        try (InputStream is = rsm.fetchTimestampIndex(seg1metadata)) {
+        try (InputStream is = rsm.fetchIndex(seg1metadata, RemoteStorageManager.IndexType.Timestamp)) {
             assertFileEquals(is, segments.get(1).timeIndex().file());
         }
 
@@ -197,10 +196,10 @@ public class HDFSRemoteStorageManagerTest {
         assertFalse(hdfs.exists(new Path(baseDir + "/test-1/" + uuid1)));
 
         assertThrows(RemoteStorageException.class, () -> {
-            rsm.fetchLogSegmentData(seg0metadata, 0L, Long.MAX_VALUE);
+            rsm.fetchLogSegmentData(seg0metadata, 0);
         });
         assertThrows(RemoteStorageException.class, () -> {
-            rsm.fetchOffsetIndex(seg1metadata);
+            rsm.fetchIndex(seg1metadata, RemoteStorageManager.IndexType.Offset);
         });
     }
 }

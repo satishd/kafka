@@ -26,15 +26,15 @@ import java.util.Objects;
 public class DeletePartitionUpdate {
 
     private final TopicPartition topicPartition;
-    private final RemoteLogState state;
+    private final RemotePartitionDeleteState state;
     private final long eventTimestamp;
     private final int epoch;
 
-    public DeletePartitionUpdate(TopicPartition topicPartition, RemoteLogState state, long eventTimestamp, int epoch) {
+    public DeletePartitionUpdate(TopicPartition topicPartition, RemotePartitionDeleteState state, long eventTimestamp, int epoch) {
         Objects.requireNonNull(topicPartition);
         Objects.requireNonNull(state);
-        if(state != RemoteLogState.DELETE_PARTITION_MARKED && state != RemoteLogState.DELETE_PARTITION_STARTED
-                && state != RemoteLogState.DELETE_PARTITION_FINISHED) {
+        if(state != RemotePartitionDeleteState.DELETE_PARTITION_MARKED && state != RemotePartitionDeleteState.DELETE_PARTITION_STARTED
+                && state != RemotePartitionDeleteState.DELETE_PARTITION_FINISHED) {
             throw new IllegalArgumentException("state should be one of the delete partition states");
         }
         this.topicPartition = topicPartition;
@@ -47,7 +47,7 @@ public class DeletePartitionUpdate {
         return topicPartition;
     }
 
-    public RemoteLogState state() {
+    public RemotePartitionDeleteState state() {
         return state;
     }
 

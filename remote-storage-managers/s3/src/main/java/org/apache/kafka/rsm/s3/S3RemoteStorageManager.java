@@ -131,16 +131,20 @@ public class S3RemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition) throws RemoteStorageException {
+        return fetchLogSegmentData(remoteLogSegmentMetadata, startPosition, Integer.MAX_VALUE);
+    }
+
+    @Override
     public InputStream fetchLogSegmentData(final RemoteLogSegmentMetadata remoteLogSegmentMetadata,
-                                           final Long startPosition, final Long endPosition) throws RemoteStorageException {
+                                           final int startPosition, int endPosition) throws RemoteStorageException {
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata must not be null");
-        Objects.requireNonNull(startPosition, "startPosition must not be null");
 
         if (startPosition < 0) {
             throw new IllegalArgumentException("startPosition must be non-negative");
         }
 
-        if (endPosition != null && endPosition < startPosition) {
+        if (endPosition < startPosition) {
             throw new IllegalArgumentException("endPosition must >= startPosition");
         }
 
@@ -148,7 +152,7 @@ public class S3RemoteStorageManager implements RemoteStorageManager {
 
         try {
             final GetObjectRequest getObjectRequest;
-            if (endPosition != null) {
+            if (endPosition < Integer.MAX_VALUE) {
                 getObjectRequest = new GetObjectRequest(bucket, logFileKey).withRange(startPosition, endPosition);
             } else {
                 getObjectRequest = new GetObjectRequest(bucket, logFileKey).withRange(startPosition);
@@ -161,6 +165,24 @@ public class S3RemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
+    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
+        InputStream result;
+        switch (indexType) {
+            case Offset:
+                result = fetchOffsetIndex(remoteLogSegmentMetadata);
+                break;
+            case Timestamp:
+                result = fetchTimestampIndex(remoteLogSegmentMetadata);
+                break;
+            case Transaction:
+            case LeaderEpoch:
+            default:
+                throw new IllegalArgumentException("indexType" + indexType + " is not supported.");
+        }
+
+        return result;
+    }
+
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata must not be null");
 
@@ -174,7 +196,6 @@ public class S3RemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata must not be null");
 

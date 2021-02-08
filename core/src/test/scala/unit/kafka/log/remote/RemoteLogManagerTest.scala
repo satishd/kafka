@@ -22,7 +22,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 import java.util.{Collections, Optional, Properties}
 import java.{lang, util}
-
 import kafka.log.remote.RemoteLogManager.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX
 import kafka.log._
 import kafka.server.QuotaFactory.UnboundedQuota
@@ -31,6 +30,7 @@ import kafka.server.checkpoints.LazyOffsetCheckpoints
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.common.log.remote.storage._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
@@ -209,14 +209,14 @@ class MockRemoteStorageManager extends RemoteStorageManager {
   }
 
   override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
-                                   startPosition: lang.Long,
-                                   endPosition: lang.Long): InputStream = new ByteArrayInputStream(Array.emptyByteArray)
+                                   startPosition: Int): InputStream = new ByteArrayInputStream(Array.emptyByteArray)
 
-  override def fetchOffsetIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = new ByteArrayInputStream(
-    Array.emptyByteArray)
+  override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                                   startPosition: Int,
+                                   endPosition: Int): InputStream = new ByteArrayInputStream(Array.emptyByteArray)
 
-  override def fetchTimestampIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = new ByteArrayInputStream(
-    Array.emptyByteArray)
+  override def fetchIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, indexType: IndexType): InputStream
+  = new ByteArrayInputStream(Array.emptyByteArray)
 
   override def deleteLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {}
 }

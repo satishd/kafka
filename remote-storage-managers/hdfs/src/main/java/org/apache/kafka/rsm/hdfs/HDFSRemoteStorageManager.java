@@ -74,7 +74,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
-    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, Long startPosition, Long endPosition) throws RemoteStorageException {
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition) throws RemoteStorageException {
+        return fetchLogSegmentData(remoteLogSegmentMetadata, startPosition, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition, int endPosition) throws RemoteStorageException {
         try {
             String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
             Path logFile = getPath(path, LOG_FILE_NAME);
@@ -85,21 +90,28 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
-    public InputStream fetchOffsetIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        try {
-            String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-            Path indexFile = getPath(path, OFFSET_INDEX_FILE_NAME);
-            return new CachedInputStream(indexFile, 0, Long.MAX_VALUE);
-        } catch (Exception e) {
-            throw new RemoteStorageException("Failed to fetch offset index from remote storage", e);
+    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
+        InputStream result;
+        switch (indexType) {
+            case Offset:
+                result = doFetchIndex(remoteLogSegmentMetadata, OFFSET_INDEX_FILE_NAME);
+                break;
+            case Timestamp:
+                result = doFetchIndex(remoteLogSegmentMetadata, TIME_INDEX_FILE_NAME);
+                break;
+            case Transaction:
+            case LeaderEpoch:
+            default:
+                throw new IllegalArgumentException("indexType" + indexType + " is not supported.");
         }
+
+        return result;
     }
 
-    @Override
-    public InputStream fetchTimestampIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
+    public InputStream doFetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, String indexSuffix) throws RemoteStorageException {
         try {
             String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-            Path timeindexFile = getPath(path, TIME_INDEX_FILE_NAME);
+            Path timeindexFile = getPath(path, indexSuffix);
             return new CachedInputStream(timeindexFile, 0, Long.MAX_VALUE);
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to fetch timestamp index from remote storage", e);

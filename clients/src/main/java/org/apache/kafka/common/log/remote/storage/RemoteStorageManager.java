@@ -19,10 +19,8 @@ package org.apache.kafka.common.log.remote.storage;
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.common.annotation.InterfaceStability;
 
-import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.InputStream;
-
 /**
  * RemoteStorageManager provides the lifecycle of remote log segments that includes copy, fetch, and delete from remote
  * storage.
@@ -31,7 +29,7 @@ import java.io.InputStream;
  * which is universally unique even for the same topic partition and offsets.
  * <p>
  * RemoteLogSegmentMetadata is stored in {@link RemoteLogMetadataManager} before and after copy/delete operations on
- * RemoteStorageManager with the respective {@link RemoteLogState}. {@link RemoteLogMetadataManager} is
+ * RemoteStorageManager with the respective {@link RemoteLogSegmentState}. {@link RemoteLogMetadataManager} is
  * responsible for storing and fetching metadata about the remote log segments in a strongly consistent manner.
  * This allows RemoteStorageManager to store segments even in eventually consistent manner as the metadata is already
  * stored in a consistent store.
@@ -40,7 +38,7 @@ import java.io.InputStream;
  */
 @InterfaceStability.Unstable
 public interface RemoteStorageManager extends Configurable, Closeable {
-    InputStream EMPTY_INPUT_STREAM = new ByteArrayInputStream(new byte[0]);
+
 
     /**
      * Type of the index file.
@@ -87,6 +85,18 @@ public interface RemoteStorageManager extends Configurable, Closeable {
 
     /**
      * Returns the remote log segment data file/object as InputStream for the given RemoteLogSegmentMetadata starting
+     * from the given startPosition. The stream will end at the end of the remote log segment data file/object.
+     *
+     * @param remoteLogSegmentMetadata metadata about the remote log segment.
+     * @param startPosition            start position of log segment to be read, inclusive.
+     * @return input stream of the requested log segment data.
+     * @throws RemoteStorageException if there are any errors while fetching the desired segment.
+     */
+    InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
+                                    int startPosition) throws RemoteStorageException;
+
+    /**
+     * Returns the remote log segment data file/object as InputStream for the given RemoteLogSegmentMetadata starting
      * from the given startPosition. The stream will end at the smaller of endPosition and the end of the remote log
      * segment data file/object.
      *
@@ -97,71 +107,17 @@ public interface RemoteStorageManager extends Configurable, Closeable {
      * @throws RemoteStorageException if there are any errors while fetching the desired segment.
      */
     InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
-                                    Long startPosition, Long endPosition) throws RemoteStorageException;
+                                    int startPosition, int endPosition) throws RemoteStorageException;
 
     /**
      * Returns the index for the respective log segment of {@link RemoteLogSegmentMetadata}.
      *
      * @param remoteLogSegmentMetadata metadata about the remote log segment.
      * @param indexType type of the index to be fetched for the segment.
-     * @return input stream of the requested  index.
+     * @return input stream of the requested index.
      * @throws RemoteStorageException if there are any errors while fetching the index.
      */
-    default InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
-        return EMPTY_INPUT_STREAM;
-    }
-
-    /**
-     * Returns the offset index for the respective log segment of {@link RemoteLogSegmentMetadata}.
-     *
-     * @param remoteLogSegmentMetadata metadata about the remote log segment.
-     * @return input stream of the requested  offset index.
-     * @throws RemoteStorageException if there are any errors while fetching the index.
-     */
-    InputStream fetchOffsetIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
-
-    /**
-     * Returns the timestamp index for the respective log segment of {@link RemoteLogSegmentMetadata}.
-     *
-     * @param remoteLogSegmentMetadata metadata about the remote log segment.
-     * @return input stream of the requested  timestamp index.
-     * @throws RemoteStorageException if there are any errors while fetching the index.
-     */
-    InputStream fetchTimestampIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
-
-    /**
-     * Returns the transaction index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
-     *
-     * @param remoteLogSegmentMetadata metadata about the remote log segment.
-     * @return input stream of the requested  transaction index.
-     * @throws RemoteStorageException if there are any errors while fetching the index.
-     */
-    default InputStream fetchTransactionIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        return EMPTY_INPUT_STREAM;
-    }
-
-    /**
-     * Returns the producer snapshot index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
-     *
-     * @param remoteLogSegmentMetadata metadata about the remote log segment.
-     * @return input stream of the producer snapshot.
-     * @throws RemoteStorageException if there are any errors while fetching the index.
-     */
-    default InputStream fetchProducerSnapshotIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        return EMPTY_INPUT_STREAM;
-    }
-
-    /**
-     * Returns the leader epoch index for the the respective log segment of {@link RemoteLogSegmentMetadata}.
-     *
-     * @param remoteLogSegmentMetadata metadata about the remote log segment.
-     * @return input stream of the leader epoch index.
-     * @throws RemoteStorageException if there are any errors while fetching the index.
-     */
-    default InputStream fetchLeaderEpochIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata)
-            throws RemoteStorageException {
-        return EMPTY_INPUT_STREAM;
-    }
+    InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException;
 
     /**
      * Deletes the resources associated with the given {@param remoteLogSegmentMetadata}. Deletion is considered as

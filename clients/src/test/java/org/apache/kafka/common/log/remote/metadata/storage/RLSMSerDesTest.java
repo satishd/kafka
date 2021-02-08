@@ -19,7 +19,7 @@ package org.apache.kafka.common.log.remote.metadata.storage;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.common.log.remote.storage.RemoteLogState;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.junit.Assert;
@@ -42,7 +42,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmWithNoContext);
 
@@ -54,7 +54,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmWithContext);
 
@@ -66,7 +66,7 @@ public class RLSMSerDesTest {
                 System.currentTimeMillis() - 10000,
                 1,
                 System.currentTimeMillis(),
-                1000, RemoteLogState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
+                1000, RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.emptyMap()
         );
         doTestSerDes(topic, rlsmMarkedDelete);
 

@@ -17,11 +17,10 @@
 package org.apache.kafka.common.log.remote.metadata.storage;
 
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.common.log.remote.storage.RemoteLogState;
+import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.common.protocol.types.Field;
 import org.apache.kafka.common.protocol.types.Schema;
 import org.apache.kafka.common.protocol.types.Struct;
@@ -65,7 +64,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             "Created timestamp value of the remote log segment");
     private static final Field.Int8 STATE_FIELD = new Field.Int8("state",
             "State of this segment");
-    private static final Field.Int64 SEGMENT_SIZE_FIELD = new Field.Int64("segment-size",
+    private static final Field.Int32 SEGMENT_SIZE_FIELD = new Field.Int32("segment-size",
             "Size of the remote log segment");
 
     private static final Schema SCHEMA_V0 = new Schema(
@@ -105,7 +104,7 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             rlsmStruct.set(REMOTE_LOG_SEGMENT_ID_NAME, rlsIdStruct);
             rlsmStruct.set(START_OFFSET_FIELD, data.startOffset());
             rlsmStruct.set(END_OFFSET_FIELD, data.endOffset());
-            rlsmStruct.set(LEADER_EPOCH_FIELD, data.brokerEpoch());
+            rlsmStruct.set(LEADER_EPOCH_FIELD, data.leaderEpoch());
             rlsmStruct.set(MAX_TIMESTAMP_FIELD, data.maxTimestamp());
             rlsmStruct.set(EVENT_TIMESTAMP_FIELD, data.eventTimestamp());
             rlsmStruct.set(STATE_FIELD, (byte) data.state().ordinal());
@@ -151,7 +150,8 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
                     struct.get(MAX_TIMESTAMP_FIELD),
                     struct.get(LEADER_EPOCH_FIELD),
                     struct.get(EVENT_TIMESTAMP_FIELD),
-                    struct.get(SEGMENT_SIZE_FIELD), RemoteLogState.values()[struct.get(STATE_FIELD)],
+                    struct.get(SEGMENT_SIZE_FIELD),
+                    RemoteLogSegmentState.values()[struct.get(STATE_FIELD)],
                     Collections.emptyMap()
             );
         }

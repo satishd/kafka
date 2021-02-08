@@ -38,7 +38,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.log.remote.storage.{ClassLoaderAwareRemoteLogMetadataManager, LogSegmentData, RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogState, RemoteStorageManager}
+import org.apache.kafka.common.log.remote.storage.{ClassLoaderAwareRemoteLogMetadataManager, LogSegmentData, RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentState, RemoteStorageManager}
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record.{MemoryRecords, RecordBatch, RemoteLogInputStream}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -373,15 +373,14 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 //todo-tier double check on this
                 val endOffset = nextOffset - 1
 
-                remoteLogMetadataManager.putRemoteLogSegmentData(new RemoteLogSegmentMetadata(id, segment.baseOffset,
-                  endOffset, segment.maxTimestampSoFar, leaderEpochVal, segment.log.sizeInBytes(), Collections.emptyMap()))
+                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
+                  segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), segment.log.sizeInBytes(),
+                  RemoteLogSegmentState.COPY_SEGMENT_STARTED, Collections.emptyMap())
+                remoteLogMetadataManager.putRemoteLogSegmentData(remoteLogSegmentMetadata)
 
                 val producerIdSnapshotFile = log.producerStateManager.fetchSnapshot(nextOffset).orNull
 
                 // todo-tier build segment leader epochs
-                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
-                  segment.maxTimestampSoFar, leaderEpochVal, segment.log.sizeInBytes(), Collections.emptyMap())
-
                 val leaderEpochStateFile = new File(logFile.getParentFile, "leader-epoch-checkpoint-" + nextOffset)
 
                 try {
@@ -404,7 +403,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
                 val rlsmAfterCreate = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
                   segment.maxTimestampSoFar, leaderEpochVal, System.currentTimeMillis(), segment.log.sizeInBytes(),
-                  RemoteLogState.COPY_SEGMENT_FINISHED, Collections.emptyMap())
+                  RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.emptyMap())
 
                 remoteLogMetadataManager.putRemoteLogSegmentData(rlsmAfterCreate)
                 brokerTopicStats.topicStats(tp.topic()).remoteBytesOutRate.mark(rlsmAfterCreate.segmentSizeInBytes())
@@ -492,7 +491,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
   }
 
-  def lookupPositionForOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Long = {
+  def lookupPositionForOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Int = {
     indexCache.lookupOffset(remoteLogSegmentMetadata, offset)
   }
 

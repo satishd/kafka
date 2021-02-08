@@ -17,7 +17,7 @@
 package kafka.log.remote
 
 import java.io.InputStream
-import java.{lang, util}
+import java.util
 
 import org.apache.kafka.common.log.remote.storage.{LogSegmentData, RemoteLogSegmentMetadata, RemoteStorageManager}
 
@@ -60,25 +60,25 @@ class ClassLoaderAwareRemoteStorageManager(val rsm: RemoteStorageManager,
     }
   }
 
+  override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, startPosition: Int): InputStream = {
+    withClassLoader {
+      rsm.fetchLogSegmentData(remoteLogSegmentMetadata, startPosition)
+    }
+  }
+
   override def fetchLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
-                                   startPosition: lang.Long,
-                                   endPosition: lang.Long): InputStream = {
+                                   startPosition: Int,
+                                   endPosition: Int): InputStream = {
     withClassLoader {
       rsm.fetchLogSegmentData(remoteLogSegmentMetadata, startPosition, endPosition)
     }
   }
 
-  override def fetchOffsetIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
+  override def fetchIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, indexType: RemoteStorageManager.IndexType): InputStream = {
     withClassLoader {
-      rsm.fetchOffsetIndex(remoteLogSegmentMetadata)
+      rsm.fetchIndex(remoteLogSegmentMetadata, indexType)
     }
 
-  }
-
-  override def fetchTimestampIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
-    withClassLoader {
-      rsm.fetchTimestampIndex(remoteLogSegmentMetadata)
-    }
   }
 
   override def deleteLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {
@@ -87,9 +87,4 @@ class ClassLoaderAwareRemoteStorageManager(val rsm: RemoteStorageManager,
     }
   }
 
-  override def fetchTransactionIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): InputStream = {
-    withClassLoader {
-      rsm.fetchTransactionIndex(remoteLogSegmentMetadata)
-    }
-  }
 }

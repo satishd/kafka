@@ -291,13 +291,12 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
     @Override
     public InputStream fetchLogSegmentData(final RemoteLogSegmentMetadata metadata,
-                                           final Long startPos,
-                                           final Long endPos) throws RemoteStorageException {
+                                           final int startPos,
+                                           final int endPos) throws RemoteStorageException {
         checkArgument(startPos >= 0, "Start position must be positive", startPos);
-        if (endPos != null) {
-            checkArgument(endPos >= startPos,
-                    "End position cannot be less than startPosition", startPos, endPos);
-        }
+        checkArgument(endPos >= 0, "Start position must be positive", startPos);
+        checkArgument(endPos >= startPos,
+                "End position cannot be less than startPosition", startPos, endPos);
         return wrap(() -> {
 
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_SEGMENT, metadata);
@@ -324,6 +323,29 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     }
 
     @Override
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition) throws RemoteStorageException {
+        return fetchLogSegmentData(remoteLogSegmentMetadata, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
+        InputStream result;
+        switch (indexType) {
+            case Offset:
+                result = fetchOffsetIndex(remoteLogSegmentMetadata);
+                break;
+            case Timestamp:
+                result = fetchTimestampIndex(remoteLogSegmentMetadata);
+                break;
+            case Transaction:
+            case LeaderEpoch:
+            default:
+                throw new IllegalArgumentException("indexType" + indexType + " is not supported.");
+        }
+
+        return result;
+    }
+
     public InputStream fetchOffsetIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_OFFSET_INDEX, metadata);
@@ -344,7 +366,6 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         });
     }
 
-    @Override
     public InputStream fetchTimestampIndex(final RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         return wrap(() -> {
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(FETCH_TIME_INDEX, metadata);
