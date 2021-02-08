@@ -23,8 +23,7 @@ import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.{BiConsumer, Consumer, Function}
-import java.util.{Collections, Optional}
-
+import java.util.{Collections, Optional, UUID}
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.Partition
 import kafka.common.KafkaException
@@ -35,7 +34,7 @@ import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.{BrokerTopicStats, Defaults, FetchDataInfo, FetchTxnCommitted, KafkaConfig, LogOffsetMetadata, RemoteStorageFetchInfo}
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.log.remote.storage.{ClassLoaderAwareRemoteLogMetadataManager, LogSegmentData, RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentState, RemoteStorageManager}
@@ -117,8 +116,8 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                        clusterId: String = "",
                        logDir: String,
                        brokerTopicStats: BrokerTopicStats) extends Logging with Closeable with KafkaMetricsGroup  {
-  private val leaderOrFollowerTasks: ConcurrentHashMap[TopicPartition, RLMTaskWithFuture] =
-    new ConcurrentHashMap[TopicPartition, RLMTaskWithFuture]()
+  private val leaderOrFollowerTasks: ConcurrentHashMap[TopicIdPartition, RLMTaskWithFuture] =
+    new ConcurrentHashMap[TopicIdPartition, RLMTaskWithFuture]()
   private val remoteStorageFetcherThreadPool = new RemoteStorageReaderThreadPool(rlmConfig.remoteLogReaderThreads,
     rlmConfig.remoteLogReaderMaxPendingTasks, time)
 
@@ -193,11 +192,11 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
   private[remote] def leaderOrFollowerTasksSize: Int = leaderOrFollowerTasks.size()
 
-  private def doHandleLeaderOrFollowerPartitions(topicPartition: TopicPartition,
+  private def doHandleLeaderOrFollowerPartitions(topicPartition: TopicIdPartition,
                                                  convertToLeaderOrFollower: RLMTask => Unit): Unit = {
     val rlmTaskWithFuture = leaderOrFollowerTasks.computeIfAbsent(topicPartition,
-      new Function[TopicPartition, RLMTaskWithFuture] {
-        override def apply(tp: TopicPartition): RLMTaskWithFuture = {
+      new Function[TopicIdPartition, RLMTaskWithFuture] {
+        override def apply(tp: TopicIdPartition): RLMTaskWithFuture = {
           val task = new RLMTask(tp)
           //set this upfront when it is getting initialized instead of doing it after scheduling.
           convertToLeaderOrFollower(task)
@@ -237,9 +236,14 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       partitions.filter(partition => !(Topic.isInternal(partition.topic) || partition.log.exists(log => log.config.compact)))
     }
 
-    val followerTopicPartitions = filterPartitions(partitionsBecomeFollower).map(p => p.topicPartition)
+    val followerTopicPartitions = filterPartitions(partitionsBecomeFollower).map(p => {
+      val uuid = new UUID(p.log.get.topicId.getMostSignificantBits, p.log.get.topicId.getLeastSignificantBits)
+      new TopicIdPartition(uuid, p.topicPartition)})
+
     val leaderPartitions = filterPartitions(partitionsBecomeLeader)
-    val leaderTopicPartitions = leaderPartitions.map(p => p.topicPartition)
+    val leaderTopicPartitions = leaderPartitions.map(p => {
+      val uuid = new UUID(p.log.get.topicId.getMostSignificantBits, p.log.get.topicId.getLeastSignificantBits)
+      new TopicIdPartition(uuid, p.topicPartition)})
 
     debug(s"Effective topic partitions after filtering compact and internal topics, leaders: $leaderTopicPartitions " +
       s"and followers: $followerTopicPartitions")
@@ -293,7 +297,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
   }
 
-  class RLMTask(tp: TopicPartition) extends CancellableRunnable with Logging {
+  class RLMTask(tp: TopicIdPartition) extends CancellableRunnable with Logging {
     this.logIdent = s"[RemoteLogManager=$brokerId partition=$tp] "
     @volatile private var leaderEpoch: Int = -1
 
@@ -449,13 +453,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
               if(maxOffset == Long.MinValue) None else Some(maxOffset+1)
             }
-          } else {
-//            val earliestEpoch = fetchLog(tp).map(
-//              log => log.leaderEpochCache.map(cache => cache.earliestEntry.getOrElse(EpochEntry(UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET)).epoch))
-            val earliestLeaderEpoch = 0
-            val result = remoteLogMetadataManager.earliestLogOffset(tp, earliestLeaderEpoch)
-            if (result.isPresent) Some(result.get()) else None
-          }
+          } else None
 
         remoteLogStartOffset.foreach(x => handleLogStartOffsetUpdate(tp, x))
       } catch {

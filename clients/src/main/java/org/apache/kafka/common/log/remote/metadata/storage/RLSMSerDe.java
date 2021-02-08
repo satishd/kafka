@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.metadata.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
@@ -92,8 +93,10 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
 
         public byte[] serialize(String topic, RemoteLogSegmentMetadata data, boolean includeVersion) {
             Struct tpStruct = new Struct(TOPIC_PARTITION_SCHEMA);
-            tpStruct.set(TOPIC_NAME_FIELD, data.remoteLogSegmentId().topicPartition().topic());
-            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicPartition().partition());
+            tpStruct.set(TOPIC_NAME_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().topic());
+            tpStruct.set(PARTITION_FIELD, data.remoteLogSegmentId().topicIdPartition().topicPartition().partition());
+            UUID topicId = data.remoteLogSegmentId().topicIdPartition().topicId();
+            tpStruct.set(TOPIC_ID_FIELD, new Uuid(topicId.getMostSignificantBits(), topicId.getLeastSignificantBits()));
 
             Struct rlsIdStruct = new Struct(REMOTE_LOG_SEGMENT_ID_SCHEMA_V0);
             rlsIdStruct.set(TOPIC_PARTITION, tpStruct);
@@ -140,8 +143,10 @@ public class RLSMSerDe extends Serdes.WrapperSerde<RemoteLogSegmentMetadata> {
             final Struct tpStruct = (Struct) rlsIdStruct.get(TOPIC_PARTITION);
 
             Uuid uuid = rlsIdStruct.get(ID_FIELD);
+            Uuid topicId = tpStruct.get(TOPIC_ID_FIELD);
             RemoteLogSegmentId rlsId = new RemoteLogSegmentId(
-                    new TopicPartition(tpStruct.get(TOPIC_NAME_FIELD), tpStruct.get(PARTITION_FIELD)),
+                    new TopicIdPartition(new UUID(topicId.getMostSignificantBits(), topicId.getLeastSignificantBits()),
+                            new TopicPartition(tpStruct.get(TOPIC_NAME_FIELD), tpStruct.get(PARTITION_FIELD))),
                     new UUID(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
 
             return new RemoteLogSegmentMetadata(rlsId,

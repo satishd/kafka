@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 
 import static java.util.Objects.requireNonNull;
@@ -31,18 +32,28 @@ import java.util.UUID;
 public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Serializable {
     private static final long serialVersionUID = 1L;
 
-    private final TopicPartition topicPartition;
+    private final TopicIdPartition topicIdPartition;
     private final UUID id;
 
-    public RemoteLogSegmentId(TopicPartition topicPartition, UUID id) {
-        this.topicPartition = requireNonNull(topicPartition);
+    public RemoteLogSegmentId(TopicIdPartition topicIdPartition, UUID id) {
+        this.topicIdPartition = requireNonNull(topicIdPartition);
         this.id = requireNonNull(id);
     }
 
-    public TopicPartition topicPartition() {
-        return topicPartition;
+    /**
+     * Returns TopicIdPartition of this remote log segment.
+     *
+     * @return
+     */
+    public TopicIdPartition topicIdPartition() {
+        return topicIdPartition;
     }
 
+    /**
+     * Returns Universally Unique Id of this remote log segment.
+     *
+     * @return
+     */
     public UUID id() {
         return id;
     }
@@ -50,7 +61,7 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
     @Override
     public String toString() {
         return "RemoteLogSegmentId{" +
-                "topicPartition=" + topicPartition +
+                "topicIdPartition=" + topicIdPartition +
                 ", id=" + id +
                 '}';
     }
@@ -60,13 +71,12 @@ public class RemoteLogSegmentId implements Comparable<RemoteLogSegmentId>, Seria
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteLogSegmentId that = (RemoteLogSegmentId) o;
-        return Objects.equals(topicPartition, that.topicPartition) &&
-                Objects.equals(id, that.id);
+        return Objects.equals(topicIdPartition, that.topicIdPartition) && Objects.equals(id, that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(topicPartition, id);
+        return Objects.hash(topicIdPartition, id);
     }
 
     @Override

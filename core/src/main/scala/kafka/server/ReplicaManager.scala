@@ -1523,6 +1523,7 @@ class ReplicaManager(val config: KafkaConfig,
           replicaFetcherManager.shutdownIdleFetcherThreads()
           replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
 
+          //todo-tier only for online partitions?
           remoteLogManager.foreach(rlm => rlm.onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower))
 
           onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)

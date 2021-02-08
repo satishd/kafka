@@ -16,7 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.metadata.storage;
 
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
 
 import java.io.IOException;
@@ -29,11 +29,10 @@ public interface RemoteLogSegmentMetadataUpdater {
 
     /**
      * Update RemoteLogSegmentMetadata for a topic partition.
-     *
-     * @param tp
+     *  @param tp
      * @param remoteLogSegmentMetadata
      */
-    void updateRemoteLogSegmentMetadata(TopicPartition tp, RemoteLogSegmentMetadata remoteLogSegmentMetadata);
+    void updateRemoteLogSegmentMetadata(TopicIdPartition tp, RemoteLogSegmentMetadata remoteLogSegmentMetadata);
 
     /**
      * Sync the remote log metadata state maintained for this broker.
@@ -48,5 +47,5 @@ public interface RemoteLogSegmentMetadataUpdater {
      * @param tp
      * @return
      */
-    int metadataPartitionFor(TopicPartition tp);
+    int metadataPartitionFor(TopicIdPartition tp);
 }

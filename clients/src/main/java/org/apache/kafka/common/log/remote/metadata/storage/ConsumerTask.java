@@ -20,6 +20,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.KafkaException;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
@@ -47,11 +48,11 @@ import java.util.stream.Collectors;
  * When a broker is started, controller sends topic partitions that this broker is leader or follower for and the
  * partitions to be deleted. This class receives those notifications with
  * {@link #addAssignmentsForPartitions(Set)} and {@link #removeAssignmentsForPartitions(Set)} assigns consumer for the
- * respective remote log metadata partitions by using {@link RemoteLogSegmentMetadataUpdater#metadataPartitionFor(TopicPartition)}.
+ * respective remote log metadata partitions by using {@link RemoteLogSegmentMetadataUpdater#metadataPartitionFor(TopicIdPartition)}.
  * Any leadership changes later are called through the same API. We will remove the partitions that ard deleted from
  * this broker which are received through {@link #removeAssignmentsForPartitions(Set)}. 
  *
- * After receiving these events it invokes {@link RemoteLogSegmentMetadataUpdater#updateRemoteLogSegmentMetadata(TopicPartition, RemoteLogSegmentMetadata)},
+ * After receiving these events it invokes {@link RemoteLogSegmentMetadataUpdater#updateRemoteLogSegmentMetadata(TopicIdPartition, RemoteLogSegmentMetadata)},
  * which maintains inmemory representation of the state of {@link RemoteLogSegmentMetadata}.
  */
 class ConsumerTask implements Runnable, Closeable {
@@ -62,7 +63,7 @@ class ConsumerTask implements Runnable, Closeable {
 
     private final Object lock = new Object();
     private volatile Set<Integer> assignedMetaPartitions = Collections.emptySet();
-    private Set<TopicPartition> reassignedTopicPartitions = Collections.emptySet();
+    private Set<TopicIdPartition> reassignedTopicPartitions = Collections.emptySet();
 
     private volatile boolean closed = false;
     private volatile boolean reassign = false;
@@ -147,7 +148,8 @@ class ConsumerTask implements Runnable, Closeable {
                     try {
                         String key = record.key();
                         TopicPartition tp = buildTopicPartition(key);
-                        remoteLogSegmentMetadataUpdater.updateRemoteLogSegmentMetadata(tp, record.value());
+                        //todo read the segment with the new format
+                        remoteLogSegmentMetadataUpdater.updateRemoteLogSegmentMetadata(new TopicIdPartition(tp), record.value());
                         committedOffsets.put(record.partition(), record.offset());
                     } catch (Exception e) {
                         log.error(String.format("Error encountered while consuming record: {%s}", record), e);
@@ -230,19 +232,19 @@ class ConsumerTask implements Runnable, Closeable {
         }
     }
 
-    public void addAssignmentsForPartitions(Set<TopicPartition> updatedPartitions) {
+    public void addAssignmentsForPartitions(Set<TopicIdPartition> updatedPartitions) {
         Objects.requireNonNull(updatedPartitions, "partitions can not be null");
 
         log.info("Reassigning for user partitions {}", updatedPartitions);
         updateAssignmentsForPartitions(updatedPartitions, Collections.emptySet());
     }
 
-    public void removeAssignmentsForPartitions(Set<TopicPartition> partitions) {
+    public void removeAssignmentsForPartitions(Set<TopicIdPartition> partitions) {
         updateAssignmentsForPartitions(Collections.emptySet(), partitions);
     }
 
-    private void updateAssignmentsForPartitions(Set<TopicPartition> addedPartitions,
-                                                Set<TopicPartition> removedPartitions) {
+    private void updateAssignmentsForPartitions(Set<TopicIdPartition> addedPartitions,
+                                                Set<TopicIdPartition> removedPartitions) {
         Objects.requireNonNull(addedPartitions, "addedPartitions must not be null");
         Objects.requireNonNull(removedPartitions, "removedPartitions must not be null");
 
@@ -251,11 +253,11 @@ class ConsumerTask implements Runnable, Closeable {
         }
 
         synchronized (lock) {
-            Set<TopicPartition> updatedReassignedPartitions = new HashSet<>(reassignedTopicPartitions);
+            Set<TopicIdPartition> updatedReassignedPartitions = new HashSet<>(reassignedTopicPartitions);
             updatedReassignedPartitions.addAll(addedPartitions);
             updatedReassignedPartitions.removeAll(removedPartitions);
             Set<Integer> updatedAssignedMetaPartitions = new HashSet<>();
-            for (TopicPartition tp : updatedReassignedPartitions) {
+            for (TopicIdPartition tp : updatedReassignedPartitions) {
                 updatedAssignedMetaPartitions.add(remoteLogSegmentMetadataUpdater.metadataPartitionFor(tp));
             }
 

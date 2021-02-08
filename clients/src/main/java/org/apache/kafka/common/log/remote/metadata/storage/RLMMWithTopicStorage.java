@@ -26,7 +26,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.log.remote.storage.DeletePartitionUpdate;
@@ -93,7 +93,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     protected int noOfMetadataTopicPartitions;
     private ConcurrentSkipListMap<RemoteLogSegmentId, RemoteLogSegmentMetadata> idWithSegmentMetadata =
             new ConcurrentSkipListMap<>();
-    private Map<TopicPartition, NavigableMap<Long, RemoteLogSegmentId>> partitionsWithSegmentIds =
+    private Map<TopicIdPartition, NavigableMap<Long, RemoteLogSegmentId>> partitionsWithSegmentIds =
             new ConcurrentHashMap<>();
     private KafkaProducer<String, Object> producer;
     private AdminClient adminClient;
@@ -142,14 +142,14 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
                 remoteLogSegmentMetadata);
 
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
-        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicPartition());
+        int partitionNo = metadataPartitionFor(remoteLogSegmentId.topicIdPartition());
         try {
             final ProducerCallback callback = new ProducerCallback();
             if (partitionNo >= noOfMetadataTopicPartitions) {
                 log.error("Chosen partition no [{}] is more than the partition count: [{}]", partitionNo, noOfMetadataTopicPartitions);
             }
             producer.send(new ProducerRecord<>(REMOTE_LOG_METADATA_TOPIC_NAME, partitionNo,
-                            remoteLogSegmentId.topicPartition().toString(), remoteLogSegmentMetadata), callback)
+                            remoteLogSegmentId.topicIdPartition().toString(), remoteLogSegmentMetadata), callback)
                     .get(PUBLISH_TIMEOUT_SECS, TimeUnit.SECONDS);
 
             final RecordMetadata recordMetadata = callback.recordMetadata();
@@ -189,10 +189,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public RemoteLogSegmentMetadata remoteLogSegmentMetadata(TopicPartition topicPartition, long offset, int epochForOffset) throws RemoteStorageException {
+    public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition, long offset, int epochForOffset) throws RemoteStorageException {
         ensureInitialized();
 
-        NavigableMap<Long, RemoteLogSegmentId> remoteLogSegmentIdMap = partitionsWithSegmentIds.get(topicPartition);
+        NavigableMap<Long, RemoteLogSegmentId> remoteLogSegmentIdMap = partitionsWithSegmentIds.get(topicIdPartition);
         if (remoteLogSegmentIdMap == null) {
             return null;
         }
@@ -201,7 +201,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         Map.Entry<Long, RemoteLogSegmentId> entry = remoteLogSegmentIdMap.floorEntry(offset);
         if (entry == null) {
             // if the offset is lower than the minimum offset available in metadata then return null.
-            return null;
+            return Optional.empty();
         }
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = idWithSegmentMetadata.get(entry.getValue());
@@ -215,32 +215,15 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
             remoteLogSegmentMetadata = idWithSegmentMetadata.get(entry.getValue());
         }
 
-        return remoteLogSegmentMetadata;
+        return Optional.ofNullable(remoteLogSegmentMetadata);
     }
 
-    @Override
-    public Optional<Long> earliestLogOffset(TopicPartition topicPartition, int leaderEpoch) throws RemoteStorageException {
+    public Optional<Long> highestLogOffset(TopicIdPartition topicIdPartition, int leaderEpoch) throws RemoteStorageException {
         ensureInitialized();
 
-        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicPartition);
-
-        return map == null || map.isEmpty() ? Optional.empty() : Optional.of(map.firstEntry().getKey());
-    }
-
-    public Optional<Long> highestLogOffset(TopicPartition topicPartition, int leaderEpoch) throws RemoteStorageException {
-        ensureInitialized();
-
-        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicPartition);
+        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicIdPartition);
 
         return map == null || map.isEmpty() ? Optional.empty() : Optional.of(map.lastEntry().getKey());
-    }
-
-    @Override
-    public void deleteRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        ensureInitialized();
-        Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
-
-        publishMessageToPartition(RemoteLogSegmentMetadata.markForDeletion(remoteLogSegmentMetadata));
     }
 
     @Override
@@ -249,12 +232,12 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicPartition topicPartition) {
+    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicPartition) {
         return null;
     }
 
     @Override
-    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicPartition topicPartition, long minOffset) {
+    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicPartition, long minOffset) {
         ensureInitialized();
 
         NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicPartition);
@@ -269,8 +252,8 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     }
 
     @Override
-    public void onPartitionLeadershipChanges(Set<TopicPartition> leaderPartitions,
-                                             Set<TopicPartition> followerPartitions) {
+    public void onPartitionLeadershipChanges(Set<TopicIdPartition> leaderPartitions,
+                                             Set<TopicIdPartition> followerPartitions) {
         Objects.requireNonNull(leaderPartitions, "leaderPartitions can not be null");
         Objects.requireNonNull(followerPartitions, "followerPartitions can not be null");
 
@@ -279,13 +262,13 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         log.info("Received leadership notifications with leader partitions {} and follower partitions {}",
                 leaderPartitions, followerPartitions);
 
-        final HashSet<TopicPartition> allPartitions = new HashSet<>(leaderPartitions);
+        final HashSet<TopicIdPartition> allPartitions = new HashSet<>(leaderPartitions);
         allPartitions.addAll(followerPartitions);
         consumerTask.addAssignmentsForPartitions(allPartitions);
     }
 
     @Override
-    public void onStopPartitions(Set<TopicPartition> partitions) {
+    public void onStopPartitions(Set<TopicIdPartition> partitions) {
         ensureInitialized();
 
         // remove these partitions from the currently assigned topic partitions.
@@ -377,7 +360,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         try {
             final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
             for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
-                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicPartition(),
+                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
                     k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
                 idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
             }
@@ -406,7 +389,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         }
     }
 
-    public void updateRemoteLogSegmentMetadata(TopicPartition tp, RemoteLogSegmentMetadata metadata) {
+    public void updateRemoteLogSegmentMetadata(TopicIdPartition tp, RemoteLogSegmentMetadata metadata) {
         ensureInitialized();
 
         final NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds
@@ -421,7 +404,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
         }
     }
 
-    public int metadataPartitionFor(TopicPartition tp) {
+    public int metadataPartitionFor(TopicIdPartition tp) {
         ensureInitialized();
         Objects.requireNonNull(tp, "TopicPartition can not be null");
 
