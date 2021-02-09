@@ -92,7 +92,7 @@ class DelayedRemoteFetch(remoteFetchTask: RemoteLogManager#AsyncReadTask,
    */
   override def onComplete():Unit = {
     val fetchPartitionData = localReadResults.map { case (tp, result) =>
-      if (tp.equals(remoteFetchInfo.topicPartition) && remoteFetchResult.isDone
+      if (tp.equals(remoteFetchInfo.topicIdPartition) && remoteFetchResult.isDone
         && result.exception.isEmpty && result.info.delayedRemoteStorageFetch.isDefined) {
         if (remoteFetchResult.get.error.isDefined) {
           val r = replicaManager.createLogReadResult(remoteFetchResult.get.error.get)

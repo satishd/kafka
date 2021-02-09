@@ -53,7 +53,7 @@ import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.requests.ProduceResponse.PartitionResponse
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.utils.Time
-import org.apache.kafka.common.{ElectionType, IsolationLevel, Node, TopicPartition, Uuid}
+import org.apache.kafka.common.{ElectionType, IsolationLevel, Node, TopicIdPartition, TopicPartition, Uuid}
 
 import java.io.File
 import java.util.Optional
@@ -1052,7 +1052,8 @@ class ReplicaManager(val config: KafkaConfig,
         fetchOnlyFromLeader, fetchIsolation, isFromFollower, replicaId, fetchPartitionStatus)
 
       if (remoteFetchInfo.isDefined) {
-        val key = new TopicPartitionOperationKey(remoteFetchInfo.get.topicPartition.topic(), remoteFetchInfo.get.topicPartition.partition())
+        val key = new TopicPartitionOperationKey(remoteFetchInfo.get.topicIdPartition.topicPartition().topic(),
+          remoteFetchInfo.get.topicIdPartition.topicPartition().partition())
         val remoteFetchResult = new CompletableFuture[RemoteLogReadResult]
         var remoteFetchTask: RemoteLogManager#AsyncReadTask  = null
         try {
@@ -1067,7 +1068,7 @@ class ReplicaManager(val config: KafkaConfig,
           case e: RejectedExecutionException =>
             val fetchPartitionData = logReadResults.map { case (tp, result) =>
               val r = {
-                if (tp.equals(remoteFetchInfo.get.topicPartition))
+                if (tp.equals(remoteFetchInfo.get.topicIdPartition))
                   createLogReadResult(e)
                 else
                   result
@@ -1251,7 +1252,7 @@ class ReplicaManager(val config: KafkaConfig,
                   relativePositionInSegment = LogOffsetMetadata.UnknownFilePosition)
                 FetchDataInfo(logOffsetMetadata, MemoryRecords.EMPTY,
                   delayedRemoteStorageFetch = Some(
-                    RemoteStorageFetchInfo(adjustedMaxBytes, minOneMessage, tp, fetchInfo, fetchIsolation)))
+                    RemoteStorageFetchInfo(adjustedMaxBytes, minOneMessage, new TopicIdPartition(log.topicId.toUUID, tp), fetchInfo, fetchIsolation)))
               }
 
               LogReadResult(checkFetchDataInfo(partition, fetchDataInfo),
