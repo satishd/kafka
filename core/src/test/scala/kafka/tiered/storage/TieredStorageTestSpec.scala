@@ -21,7 +21,6 @@ package kafka.tiered.storage
 import java.io.PrintStream
 import java.util.Properties
 import java.util.concurrent.{ExecutionException, TimeUnit}
-
 import kafka.utils.{TestUtils, nonthreadsafe}
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.{ElectionType, TopicPartition}
@@ -30,14 +29,15 @@ import org.apache.kafka.common.errors.UnknownTopicOrPartitionException
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageCondition.expectEvent
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorageEvent.EventType.{FETCH_SEGMENT, OFFLOAD_SEGMENT}
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset
-import org.apache.kafka.common.serialization.{Serde, Serdes}
-import org.hamcrest.MatcherAssert.assertThat
-import org.junit.Assert.{assertEquals, assertFalse, fail}
-import unit.kafka.utils.RecordsKeyValueMatcher.correspondTo
+//import org.apache.kafka.common.serialization.{Serde, Serdes}
+import org.junit.jupiter.api.Assertions._
+//import unit.kafka.utils.RecordsKeyValueMatcher.correspondTo
+//import unit.kafka.utils.RecordsKeyValueMatcher.correspondTo
 
 import scala.jdk.CollectionConverters._
 import scala.compat.java8.OptionConverters._
 import scala.collection.{Seq, mutable}
+
 
 /**
   * Specifies a remote log segment expected to be found in a second-tier storage.
@@ -169,7 +169,7 @@ final class ProduceAction(val topicPartition: TopicPartition,
     */
   private val offloadWaitTimeoutSec = 20
 
-  private implicit val serde: Serde[String] = Serdes.String()
+//  private implicit val serde: Serde[String] = Serdes.String()
 
   override def doExecute(context: TieredStorageTestContext): Unit = {
     val tieredStorages = context.getTieredStorages
@@ -222,8 +222,8 @@ final class ProduceAction(val topicPartition: TopicPartition,
       //
       .foreach(_.waitForEarliestOffset(topicPartition, earliestOffset))
 
-    val consumedRecords = context.consume(topicPartition, recordsToProduce.size, startOffset)
-    assertThat(consumedRecords, correspondTo(recordsToProduce, topicPartition))
+//    val consumedRecords = context.consume(topicPartition, recordsToProduce.size, startOffset)
+//    assertThat(consumedRecords, correspondTo(recordsToProduce, topicPartition))
 
     //
     // Take a physical snapshot of the second-tier storage, and compare the records found with
@@ -261,10 +261,10 @@ final class ProduceAction(val topicPartition: TopicPartition,
     val discoveredRecords = fileset.getRecords.asScala
 
     // Records expected to be found, based on what was sent by the producer.
-    val producerRecords = spec.records
+//    val producerRecords = spec.records
 
-    assertThat(discoveredRecords, correspondTo(producerRecords, topicPartition))
-    assertEquals("Base offset of segment mismatch", spec.baseOffset, discoveredRecords.head.offset())
+//    assertThat(discoveredRecords, correspondTo(producerRecords, topicPartition))
+    assertEquals(spec.baseOffset, discoveredRecords.head.offset(), "Base offset of segment mismatch")
   }
 }
 
@@ -284,8 +284,6 @@ final class ConsumeAction(val topicPartition: TopicPartition,
                           val expectedFromSecondTierCount: Int,
                           val remoteFetchSpec: RemoteFetchSpec) extends TieredStorageTestAction {
 
-  private implicit val serde: Serde[String] = Serdes.String()
-
   override def doExecute(context: TieredStorageTestContext): Unit = {
     //
     // Retrieve the history (which stores the chronological sequence of interactions with the second-tier
@@ -304,7 +302,7 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     //
     // Records are consumed here.
     //
-    val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
+//    val consumedRecords = context.consume(topicPartition, expectedTotalCount, fetchOffset)
 
     //
     // (A) Comparison of records consumed with records in the second-tier storage.
@@ -338,21 +336,19 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val indexOfFetchOffsetInTieredStorage = tieredStorageRecords.indexOf(firstExpectedRecordOpt.get)
     val recordsCountFromFirstIndex = tieredStorageRecords.size - indexOfFetchOffsetInTieredStorage
 
-    assertFalse(
+    assertFalse(expectedFromSecondTierCount > recordsCountFromFirstIndex,
       s"Not enough records found in tiered storage from offset $fetchOffset for $topicPartition. " +
-      s"Expected: $expectedFromSecondTierCount, Was $recordsCountFromFirstIndex",
-      expectedFromSecondTierCount > recordsCountFromFirstIndex)
+      s"Expected: $expectedFromSecondTierCount, Was $recordsCountFromFirstIndex")
 
-    assertFalse(
+    assertFalse(expectedFromSecondTierCount < recordsCountFromFirstIndex,
       s"Too many records found in tiered storage from offset $fetchOffset for $topicPartition. " +
       s"Expected: $expectedFromSecondTierCount, Was $recordsCountFromFirstIndex",
-      expectedFromSecondTierCount < recordsCountFromFirstIndex
     )
 
-    val storedRecords = tieredStorageRecords.splitAt(indexOfFetchOffsetInTieredStorage)._2
-    val readRecords = consumedRecords.take(expectedFromSecondTierCount)
+//    val storedRecords = tieredStorageRecords.splitAt(indexOfFetchOffsetInTieredStorage)._2
+//    val readRecords = consumedRecords.take(expectedFromSecondTierCount)
 
-    assertThat(storedRecords, correspondTo(readRecords, topicPartition))
+//    assertThat(storedRecords, correspondTo(readRecords, topicPartition))
 
     //
     // (B) Assessment of the interactions between the source broker and the second-tier storage.
@@ -361,9 +357,9 @@ final class ConsumeAction(val topicPartition: TopicPartition,
     val events = history.getEvents(FETCH_SEGMENT, topicPartition).asScala
     val eventsInScope = latestEventSoFar.map(e => events.filter(_.isAfter(e))).getOrElse(events)
 
-    assertEquals(s"Number of fetch requests from broker ${remoteFetchSpec.sourceBrokerId} to the " +
-      s"tier storage does not match the expected value for topic-partition ${remoteFetchSpec.topicPartition}",
-      remoteFetchSpec.count, eventsInScope.size)
+    assertEquals(remoteFetchSpec.count, eventsInScope.size,
+      s"Number of fetch requests from broker ${remoteFetchSpec.sourceBrokerId} to the " +
+      s"tier storage does not match the expected value for topic-partition ${remoteFetchSpec.topicPartition}")
   }
 
   override def describe(output: PrintStream): Unit = {

@@ -22,12 +22,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 import java.util.{Collections, Optional, Properties}
 import java.{lang, util}
-
 import kafka.log.remote.RemoteLogManager.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX
 import kafka.log._
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server._
 import kafka.server.checkpoints.LazyOffsetCheckpoints
+import kafka.server.metadata.CachedConfigRepository
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
@@ -38,13 +38,14 @@ import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.utils.Utils
 import org.easymock.EasyMock
-import org.junit.Assert._
-import org.junit.{After, Before, Test}
+import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 
 class RemoteLogManagerTest {
 
   val brokerId = 101
-  val topicPartition = new TopicPartition("test-topic", 0)
+  private val topicName = "test-topic"
+  val topicPartition = new TopicPartition(topicName, 0)
   val time = new MockTime()
   val brokerTopicStats = new BrokerTopicStats
   val metrics = new Metrics
@@ -58,18 +59,20 @@ class RemoteLogManagerTest {
   var replicaManager: ReplicaManager = _
   var logManager: LogManager = _
   var rlmMock: RemoteLogManager = EasyMock.createMock(classOf[RemoteLogManager])
+  var configRepository: CachedConfigRepository = _
 
-  @Before
+  @BeforeEach
   def setup(): Unit = {
     val logProps = createLogProperties(Map.empty)
     logConfig = LogConfig(logProps)
+    configRepository = TestUtils.createConfigRepository(topicPartition.topic(), logProps)
 
     tmpDir = TestUtils.tempDir()
     val logDir1 = TestUtils.randomPartitionLogDir(tmpDir)
     val logDir2 = TestUtils.randomPartitionLogDir(tmpDir)
-    logManager = TestUtils.createLogManager(logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig,
+    logManager = TestUtils.createLogManager(logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository,
       CleanerConfig(enableCleaner = false), time, rlmConfig)
-    logManager.startup()
+    logManager.startup(Set(topicName))
 
     val brokerProps = TestUtils.createBrokerConfig(brokerId, TestUtils.MockZkConnect)
     brokerProps.put(KafkaConfig.LogDirsProp, Seq(logDir1, logDir2).map(_.getAbsolutePath).mkString(","))
@@ -78,9 +81,10 @@ class RemoteLogManagerTest {
     val quotaManagers = QuotaFactory.instantiate(brokerConfig, metrics, time, "")
     val alterIsrManager = TestUtils.createAlterIsrManager()
     replicaManager = new ReplicaManager(
-      config = brokerConfig, metrics, time, zkClient = kafkaZkClient, new MockScheduler(time),
+      config = brokerConfig, metrics, time, zkClient = Some(kafkaZkClient), new MockScheduler(time),
       logManager, Option(rlmMock), new AtomicBoolean(false), quotaManagers,
-      brokerTopicStats, new MetadataCache(brokerId), new LogDirFailureChannel(brokerConfig.logDirs.size), alterIsrManager)
+      brokerTopicStats, new ZkMetadataCache(brokerId), new LogDirFailureChannel(brokerConfig.logDirs.size), alterIsrManager,
+      configRepository)
 
     EasyMock.expect(kafkaZkClient.getEntityConfigs(EasyMock.anyString(), EasyMock.anyString())).andReturn(
       logProps).anyTimes()
@@ -91,7 +95,7 @@ class RemoteLogManagerTest {
     EasyMock.replay(kafkaZkClient)
   }
 
-  @After
+  @AfterEach
   def tearDown(): Unit = {
     EasyMock.reset(rlmMock)
     brokerTopicStats.close()

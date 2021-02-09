@@ -17,16 +17,18 @@
 package org.apache.kafka.common.record;
 
 import org.apache.kafka.test.TestUtils;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.ArgumentsProvider;
+import org.junit.jupiter.params.provider.ArgumentsSource;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static java.util.Arrays.asList;
 import static org.apache.kafka.common.record.RecordBatch.MAGIC_VALUE_V0;
@@ -36,24 +38,41 @@ import static org.apache.kafka.common.record.RecordBatch.NO_TIMESTAMP;
 import static org.apache.kafka.common.record.TimestampType.CREATE_TIME;
 import static org.apache.kafka.common.record.TimestampType.NO_TIMESTAMP_TYPE;
 import static org.apache.kafka.test.TestUtils.tempFile;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@RunWith(value = Parameterized.class)
 public class RemoteLogInputStreamTest {
-    private final byte magic;
-    private final CompressionType compression;
 
-    public RemoteLogInputStreamTest(byte magic, CompressionType compression) {
-        this.magic = magic;
-        this.compression = compression;
+    private static class Args {
+        private final byte magic;
+        private final CompressionType compression;
+
+        public Args(byte magic, CompressionType compression) {
+            this.magic = magic;
+            this.compression = compression;
+        }
     }
 
-    @Test
-    public void testSimpleBatchIteration() throws IOException {
-        if (compression == CompressionType.ZSTD && magic < MAGIC_VALUE_V2)
+    private static class ArgsProvider implements ArgumentsProvider {
+        @Override
+        public Stream<? extends Arguments> provideArguments(ExtensionContext context) throws Exception {
+            List<Arguments> parameters = new ArrayList<>();
+            for (byte magic : asList(MAGIC_VALUE_V0, MAGIC_VALUE_V1, MAGIC_VALUE_V2))
+                for (CompressionType type : CompressionType.values())
+                    parameters.add(Arguments.of(new Args(magic, type)));
+            return parameters.stream();
+        }
+    }
+
+    public RemoteLogInputStreamTest() {
+    }
+
+    @ParameterizedTest
+    @ArgumentsSource(ArgsProvider.class)
+    public void testSimpleBatchIteration(Args args) throws IOException {
+        if (args.compression == CompressionType.ZSTD && args.magic < MAGIC_VALUE_V2)
             return;
 
         SimpleRecord firstBatchRecord = new SimpleRecord(3241324L, "a".getBytes(), "foo".getBytes());
@@ -61,8 +80,8 @@ public class RemoteLogInputStreamTest {
 
         File file = tempFile();
         try (FileRecords fileRecords = FileRecords.open(file)) {
-            fileRecords.append(MemoryRecords.withRecords(magic, 0L, compression, CREATE_TIME, firstBatchRecord));
-            fileRecords.append(MemoryRecords.withRecords(magic, 1L, compression, CREATE_TIME, secondBatchRecord));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 0L, args.compression, CREATE_TIME, firstBatchRecord));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 1L, args.compression, CREATE_TIME, secondBatchRecord));
             fileRecords.flush();
         }
 
@@ -70,23 +89,23 @@ public class RemoteLogInputStreamTest {
             RemoteLogInputStream logInputStream = new RemoteLogInputStream(is);
 
             RecordBatch firstBatch = logInputStream.nextBatch();
-            assertGenericRecordBatchData(firstBatch, 0L, 3241324L, firstBatchRecord);
+            assertGenericRecordBatchData(firstBatch, 0L, 3241324L, args, firstBatchRecord);
             assertNoProducerData(firstBatch);
 
             RecordBatch secondBatch = logInputStream.nextBatch();
-            assertGenericRecordBatchData(secondBatch, 1L, 234280L, secondBatchRecord);
+            assertGenericRecordBatchData(secondBatch, 1L, 234280L, args, secondBatchRecord);
             assertNoProducerData(secondBatch);
 
             assertNull(logInputStream.nextBatch());
         }
     }
 
-    @Test
-    public void testBatchIterationWithMultipleRecordsPerBatch() throws IOException {
-        if (magic < MAGIC_VALUE_V2 && compression == CompressionType.NONE)
+    @ParameterizedTest
+    public void testBatchIterationWithMultipleRecordsPerBatch(Args args) throws IOException {
+        if (args.magic < MAGIC_VALUE_V2 && args.compression == CompressionType.NONE)
             return;
 
-        if (compression == CompressionType.ZSTD && magic < MAGIC_VALUE_V2)
+        if (args.compression == CompressionType.ZSTD && args.magic < MAGIC_VALUE_V2)
             return;
 
         SimpleRecord[] firstBatchRecords = new SimpleRecord[]{
@@ -102,8 +121,8 @@ public class RemoteLogInputStreamTest {
 
         File file = tempFile();
         try (FileRecords fileRecords = FileRecords.open(file)) {
-            fileRecords.append(MemoryRecords.withRecords(magic, 0L, compression, CREATE_TIME, firstBatchRecords));
-            fileRecords.append(MemoryRecords.withRecords(magic, 1L, compression, CREATE_TIME, secondBatchRecords));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 0L, args.compression, CREATE_TIME, firstBatchRecords));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 1L, args.compression, CREATE_TIME, secondBatchRecords));
             fileRecords.flush();
         }
 
@@ -112,19 +131,19 @@ public class RemoteLogInputStreamTest {
 
             RecordBatch firstBatch = logInputStream.nextBatch();
             assertNoProducerData(firstBatch);
-            assertGenericRecordBatchData(firstBatch, 0L, 3241324L, firstBatchRecords);
+            assertGenericRecordBatchData(firstBatch, 0L, 3241324L, args, firstBatchRecords);
 
             RecordBatch secondBatch = logInputStream.nextBatch();
             assertNoProducerData(secondBatch);
-            assertGenericRecordBatchData(secondBatch, 1L, 238423489L, secondBatchRecords);
+            assertGenericRecordBatchData(secondBatch, 1L, 238423489L, args, secondBatchRecords);
 
             assertNull(logInputStream.nextBatch());
         }
     }
 
-    @Test
-    public void testBatchIterationV2() throws IOException {
-        if (magic != MAGIC_VALUE_V2)
+    @ParameterizedTest
+    public void testBatchIterationV2(Args args) throws IOException {
+        if (args.magic != MAGIC_VALUE_V2)
             return;
 
         long producerId = 83843L;
@@ -145,9 +164,9 @@ public class RemoteLogInputStreamTest {
 
         File file = tempFile();
         try (FileRecords fileRecords = FileRecords.open(file)) {
-            fileRecords.append(MemoryRecords.withIdempotentRecords(magic, 15L, compression, producerId,
+            fileRecords.append(MemoryRecords.withIdempotentRecords(args.magic, 15L, args.compression, producerId,
                 producerEpoch, baseSequence, partitionLeaderEpoch, firstBatchRecords));
-            fileRecords.append(MemoryRecords.withTransactionalRecords(magic, 27L, compression, producerId,
+            fileRecords.append(MemoryRecords.withTransactionalRecords(args.magic, 27L, args.compression, producerId,
                 producerEpoch, baseSequence + firstBatchRecords.length, partitionLeaderEpoch, secondBatchRecords));
             fileRecords.flush();
         }
@@ -157,30 +176,30 @@ public class RemoteLogInputStreamTest {
 
             RecordBatch firstBatch = logInputStream.nextBatch();
             assertProducerData(firstBatch, producerId, producerEpoch, baseSequence, false, firstBatchRecords);
-            assertGenericRecordBatchData(firstBatch, 15L, 3241324L, firstBatchRecords);
+            assertGenericRecordBatchData(firstBatch, 15L, 3241324L, args, firstBatchRecords);
             assertEquals(partitionLeaderEpoch, firstBatch.partitionLeaderEpoch());
 
             RecordBatch secondBatch = logInputStream.nextBatch();
             assertProducerData(secondBatch, producerId, producerEpoch, baseSequence + firstBatchRecords.length,
                 true, secondBatchRecords);
-            assertGenericRecordBatchData(secondBatch, 27L, 238423489L, secondBatchRecords);
+            assertGenericRecordBatchData(secondBatch, 27L, 238423489L, args, secondBatchRecords);
             assertEquals(partitionLeaderEpoch, secondBatch.partitionLeaderEpoch());
 
             assertNull(logInputStream.nextBatch());
         }
     }
 
-    @Test
-    public void testBatchIterationIncompleteBatch() throws IOException {
-        if (compression == CompressionType.ZSTD && magic < MAGIC_VALUE_V2)
+    @ParameterizedTest
+    public void testBatchIterationIncompleteBatch(Args args) throws IOException {
+        if (args.compression == CompressionType.ZSTD && args.magic < MAGIC_VALUE_V2)
             return;
 
         try (FileRecords fileRecords = FileRecords.open(tempFile())) {
             SimpleRecord firstBatchRecord = new SimpleRecord(100L, "foo".getBytes());
             SimpleRecord secondBatchRecord = new SimpleRecord(200L, "bar".getBytes());
 
-            fileRecords.append(MemoryRecords.withRecords(magic, 0L, compression, CREATE_TIME, firstBatchRecord));
-            fileRecords.append(MemoryRecords.withRecords(magic, 1L, compression, CREATE_TIME, secondBatchRecord));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 0L, args.compression, CREATE_TIME, firstBatchRecord));
+            fileRecords.append(MemoryRecords.withRecords(args.magic, 1L, args.compression, CREATE_TIME, secondBatchRecord));
             fileRecords.flush();
             fileRecords.truncateTo(fileRecords.sizeInBytes() - 13);
 
@@ -188,7 +207,7 @@ public class RemoteLogInputStreamTest {
 
             FileLogInputStream.FileChannelRecordBatch firstBatch = logInputStream.nextBatch();
             assertNoProducerData(firstBatch);
-            assertGenericRecordBatchData(firstBatch, 0L, 100L, firstBatchRecord);
+            assertGenericRecordBatchData(firstBatch, 0L, 100L, args, firstBatchRecord);
 
             assertNull(logInputStream.nextBatch());
         }
@@ -211,11 +230,11 @@ public class RemoteLogInputStreamTest {
         assertFalse(batch.isTransactional());
     }
 
-    private void assertGenericRecordBatchData(RecordBatch batch, long baseOffset, long maxTimestamp, SimpleRecord... records) {
-        assertEquals(magic, batch.magic());
-        assertEquals(compression, batch.compressionType());
+    private void assertGenericRecordBatchData(RecordBatch batch, long baseOffset, long maxTimestamp, Args args, SimpleRecord... records) {
+        assertEquals(args.magic, batch.magic());
+        assertEquals(args.compression, batch.compressionType());
 
-        if (magic == MAGIC_VALUE_V0) {
+        if (args.magic == MAGIC_VALUE_V0) {
             assertEquals(NO_TIMESTAMP_TYPE, batch.timestampType());
         } else {
             assertEquals(CREATE_TIME, batch.timestampType());
@@ -223,7 +242,7 @@ public class RemoteLogInputStreamTest {
         }
 
         assertEquals(baseOffset + records.length - 1, batch.lastOffset());
-        if (magic >= MAGIC_VALUE_V2)
+        if (args.magic >= MAGIC_VALUE_V2)
             assertEquals(Integer.valueOf(records.length), batch.countOrNull());
 
         assertEquals(baseOffset, batch.baseOffset());
@@ -234,19 +253,11 @@ public class RemoteLogInputStreamTest {
             assertEquals(baseOffset + i, batchRecords.get(i).offset());
             assertEquals(records[i].key(), batchRecords.get(i).key());
             assertEquals(records[i].value(), batchRecords.get(i).value());
-            if (magic == MAGIC_VALUE_V0)
+            if (args.magic == MAGIC_VALUE_V0)
                 assertEquals(NO_TIMESTAMP, batchRecords.get(i).timestamp());
             else
                 assertEquals(records[i].timestamp(), batchRecords.get(i).timestamp());
         }
     }
 
-    @Parameterized.Parameters(name = "magic={0}, compression={1}")
-    public static Collection<Object[]> data() {
-        List<Object[]> values = new ArrayList<>();
-        for (byte magic : asList(MAGIC_VALUE_V0, MAGIC_VALUE_V1, MAGIC_VALUE_V2))
-            for (CompressionType type : CompressionType.values())
-                values.add(new Object[]{magic, type});
-        return values;
-    }
 }

@@ -30,6 +30,7 @@ import org.apache.kafka.common.errors.DelegationTokenDisabledException;
 import org.apache.kafka.common.errors.DelegationTokenExpiredException;
 import org.apache.kafka.common.errors.DelegationTokenNotFoundException;
 import org.apache.kafka.common.errors.DelegationTokenOwnerMismatchException;
+import org.apache.kafka.common.errors.DuplicateBrokerRegistrationException;
 import org.apache.kafka.common.errors.DuplicateResourceException;
 import org.apache.kafka.common.errors.DuplicateSequenceException;
 import org.apache.kafka.common.errors.ElectionNotNeededException;
@@ -112,6 +113,7 @@ import org.apache.kafka.common.errors.UnknownLeaderEpochException;
 import org.apache.kafka.common.errors.UnknownMemberIdException;
 import org.apache.kafka.common.errors.UnknownProducerIdException;
 import org.apache.kafka.common.errors.UnknownServerException;
+import org.apache.kafka.common.errors.UnknownTopicIdException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.errors.UnstableOffsetCommitException;
 import org.apache.kafka.common.errors.UnsupportedByAuthenticationException;
@@ -352,7 +354,9 @@ public enum Errors {
         99,
         "Requested position is not greater than or equal to zero, and less than the size of the snapshot.",
         PositionOutOfRangeException::new),
-    OFFSET_MOVED_TO_TIERED_STORAGE(100, "The requested offset is moved to tiered storage.",
+    UNKNOWN_TOPIC_ID(100, "This server does not host this topic ID.", UnknownTopicIdException::new),
+    DUPLICATE_BROKER_REGISTRATION_EXCEPTION(101, "This broker ID is already in use.", DuplicateBrokerRegistrationException::new),
+    OFFSET_MOVED_TO_TIERED_STORAGE(102, "The requested offset is moved to tiered storage.",
                                    OffsetMovedToTieredStorageException::new);
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);

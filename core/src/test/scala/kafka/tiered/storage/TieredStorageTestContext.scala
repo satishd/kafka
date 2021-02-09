@@ -22,10 +22,9 @@ import java.io.PrintStream
 import java.time.Duration
 import java.util.Properties
 import java.util.concurrent.TimeUnit
-
 import kafka.admin.AdminUtils.assignReplicasToBrokers
 import kafka.admin.BrokerMetadata
-import kafka.server.{KafkaServer, RunningAsBroker}
+import kafka.server.KafkaServer
 import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG
@@ -38,6 +37,7 @@ import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTier
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.serialization.Serdes
 import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.metadata.BrokerState
 import unit.kafka.utils.BrokerLocalStorage
 
 import scala.collection.mutable.ArrayBuffer
@@ -88,7 +88,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
 
   def createTopic(spec: TopicSpec): Unit = {
     val assignments = spec.assignment.getOrElse {
-      val metadata = brokers.head.metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, b.rack))
+      val metadata = brokers.head.metadataCache.getAliveBrokers.map(b => BrokerMetadata(b.id, Some(b.rack)))
       assignReplicasToBrokers(metadata, spec.partitionCount, spec.replicationFactor, 0, 0)
     }
 
@@ -194,7 +194,7 @@ final class TieredStorageTestContext(private val zookeeperClient: KafkaZkClient,
   def admin() = adminClient
 
   def isActive(brokerId: Int): Boolean = {
-    brokers(brokerId).brokerState.currentState equals RunningAsBroker.state
+    brokers(brokerId).brokerState.get() == BrokerState.RUNNING
   }
 
   def isAssignedReplica(topicPartition: TopicPartition, replicaId: Int): Boolean = {

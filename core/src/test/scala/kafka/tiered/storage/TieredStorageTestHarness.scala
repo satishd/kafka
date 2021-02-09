@@ -27,7 +27,7 @@ import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage
 import org.apache.kafka.common.log.remote.storage.LocalTieredStorage.STORAGE_DIR_PROP
 import org.apache.kafka.common.replica.ReplicaSelector
-import org.junit.{After, Before, Test}
+import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import unit.kafka.utils.BrokerLocalStorage
 
 import scala.collection.Seq
@@ -91,7 +91,7 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
 
   protected def writeTestSpecifications(builder: TieredStorageTestBuilder): Unit
 
-  @Before
+  @BeforeEach
   override def setUp(): Unit = {
     super.setUp()
     contextOpt = Some(new TieredStorageTestContext(zkClient, servers, producerConfig, consumerConfig, securityProtocol))
@@ -111,7 +111,7 @@ abstract class TieredStorageTestHarness extends IntegrationTestHarness {
     }
   }
 
-  @After
+  @AfterEach
   override def tearDown(): Unit = {
     contextOpt.foreach(_.close())
     super.tearDown()

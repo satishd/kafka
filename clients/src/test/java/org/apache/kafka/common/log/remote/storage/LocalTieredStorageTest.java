@@ -24,11 +24,10 @@ import org.apache.kafka.common.record.MemoryRecordsBuilder;
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
 import org.apache.kafka.common.record.TimestampType;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TestName;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -57,15 +56,13 @@ import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
 import static org.apache.kafka.common.log.remote.storage.LocalTieredStorageSnapshot.takeSnapshot;
 import static org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.SEGMENT;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public final class LocalTieredStorageTest {
-    @Rule
-    public final TestName testName = new TestName();
 
     private final LocalLogSegments localLogSegments = new LocalLogSegments();
     private final TopicPartition topicPartition = new TopicPartition("my-topic", 1);
@@ -73,12 +70,12 @@ public final class LocalTieredStorageTest {
     private LocalTieredStorage tieredStorage;
     private Verifier remoteStorageVerifier;
 
-    private void init(Map<String, Object> extraConfig) {
+    private void init(Map<String, Object> extraConfig, TestInfo testInfo) {
         tieredStorage = new LocalTieredStorage();
         remoteStorageVerifier = new Verifier(tieredStorage, topicPartition);
 
         Map<String, Object> config = new HashMap<>();
-        config.put(LocalTieredStorage.STORAGE_DIR_PROP, generateStorageId());
+        config.put(LocalTieredStorage.STORAGE_DIR_PROP, generateStorageId(testInfo));
         config.put(LocalTieredStorage.DELETE_ON_CLOSE_PROP, "true");
         config.put(LocalTieredStorage.BROKER_ID, 1);
         config.putAll(extraConfig);
@@ -86,12 +83,12 @@ public final class LocalTieredStorageTest {
         tieredStorage.configure(config);
     }
 
-    @Before
-    public void before() {
-        init(Collections.emptyMap());
+    @BeforeEach
+    public void before(TestInfo testInfo) {
+        init(Collections.emptyMap(), testInfo);
     }
 
-    @After
+    @AfterEach
     public void after() {
         tieredStorage.clear();
         localLogSegments.deleteAll();
@@ -192,8 +189,8 @@ public final class LocalTieredStorageTest {
     }
 
     @Test
-    public void segmentsAreNotDeletedIfDeleteApiIsDisabled() throws RemoteStorageException {
-        init(Collections.singletonMap(LocalTieredStorage.ENABLE_DELETE_API_PROP, "false"));
+    public void segmentsAreNotDeletedIfDeleteApiIsDisabled(TestInfo testInfo) throws RemoteStorageException {
+        init(Collections.singletonMap(LocalTieredStorage.ENABLE_DELETE_API_PROP, "false"), testInfo);
 
         final RemoteLogSegmentId id = newRemoteLogSegmentId();
         final LogSegmentData segment = localLogSegments.nextSegment();
@@ -329,9 +326,9 @@ public final class LocalTieredStorageTest {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm:ss");
 
-    private String generateStorageId() {
+    private String generateStorageId(TestInfo testInfo) {
         return format("%s-%s-%s",
-                getClass().getSimpleName(), testName.getMethodName(), DATE_TIME_FORMATTER.format(LocalDateTime.now()));
+                getClass().getSimpleName(), testInfo.getTestMethod(), DATE_TIME_FORMATTER.format(LocalDateTime.now()));
     }
 
     public final class Verifier {

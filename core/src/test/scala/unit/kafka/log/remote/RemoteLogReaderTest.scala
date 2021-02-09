@@ -30,9 +30,8 @@ import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.utils.SystemTime
-import org.junit.Assert.assertEquals
-import org.junit.Test
-import org.scalatest.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.Test
 
 import scala.jdk.CollectionConverters._
 
@@ -87,10 +86,10 @@ class RemoteLogReaderTest {
     }
     assertEquals(0, finishCount.get)
 
-    assertThrows[RejectedExecutionException] {
+    assertThrows(classOf[RejectedExecutionException], () => {
       val fetchInfo = new PartitionData(25, 0, 1000, Optional.of(1))
       rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
-    }
+    })
 
     tasks(7).cancel(false)
     tasks(10).cancel(true)

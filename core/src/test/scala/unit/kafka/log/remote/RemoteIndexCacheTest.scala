@@ -24,8 +24,8 @@ import kafka.log.{OffsetIndex, OffsetPosition, TimeIndex}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata}
 import org.easymock.EasyMock
-import org.junit.Assert._
-import org.junit.{After, Before, Test}
+import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 
 class RemoteIndexCacheTest {
 
@@ -37,7 +37,7 @@ class RemoteIndexCacheTest {
   val maxEntries = 30
   val baseOffset = 45L
 
-  @Before
+  @BeforeEach
   def setup(): Unit = {
     offsetIndex = new OffsetIndex(createTempFile(), baseOffset, maxIndexSize = maxEntries * 8)
     timeIndex = new TimeIndex(createTempFile(), baseOffset = baseOffset, maxIndexSize = maxEntries * 12)
@@ -92,7 +92,7 @@ class RemoteIndexCacheTest {
     file
   }
 
-  @After
+  @AfterEach
   def cleanup(): Unit = {
     EasyMock.reset(rlsm)
 

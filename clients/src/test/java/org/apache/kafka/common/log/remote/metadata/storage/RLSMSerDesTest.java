@@ -21,11 +21,12 @@ import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serializer;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class RLSMSerDesTest {
 
@@ -81,7 +82,7 @@ public class RLSMSerDesTest {
             final Deserializer<RemoteLogSegmentMetadata> deserializer = rlsmSerDe.deserializer();
             final RemoteLogSegmentMetadata deserializedRlsm = deserializer.deserialize(topic, serializedBytes);
 
-            Assert.assertEquals(rlsm, deserializedRlsm);
+            assertEquals(rlsm, deserializedRlsm);
         }
     }
 }
