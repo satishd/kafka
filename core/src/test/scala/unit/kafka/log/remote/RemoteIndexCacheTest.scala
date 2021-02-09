@@ -20,7 +20,7 @@ import java.io.{File, FileInputStream}
 import java.nio.file.Files
 import java.util.UUID
 import kafka.log.{OffsetIndex, OffsetPosition, TimeIndex}
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentState}
 import org.easymock.EasyMock
@@ -63,7 +63,9 @@ class RemoteIndexCacheTest {
     val logDir = Files.createTempDirectory("kafka-").toString
     cache = new RemoteIndexCache(remoteStorageManager = rlsm, logDir = logDir)
 
-    rlsMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(new TopicPartition("foo", 0),
+    val tp = new TopicPartition("foo", 0)
+    val tpId = new TopicIdPartition(UUID.randomUUID(), tp)
+    rlsMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(tpId,
       UUID.randomUUID()), baseOffset, offsetIndex.lastOffset, -1L, 1,
       System.currentTimeMillis(), 1024, RemoteLogSegmentState.COPY_SEGMENT_STARTED,
       java.util.Collections.emptyMap())

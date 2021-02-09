@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.CompressionType;
 import org.apache.kafka.common.record.FileRecords;
@@ -68,6 +69,7 @@ public final class LocalTieredStorageTest {
 
     private final LocalLogSegments localLogSegments = new LocalLogSegments();
     private final TopicPartition topicPartition = new TopicPartition("my-topic", 1);
+    private final TopicIdPartition topicIdPartition = new TopicIdPartition(UUID.randomUUID(), topicPartition);
 
     private LocalTieredStorage tieredStorage;
     private Verifier remoteStorageVerifier;
@@ -185,8 +187,8 @@ public final class LocalTieredStorageTest {
 
         tieredStorage.traverse(new LocalTieredStorageTraverser() {
             @Override
-            public void visitTopicPartition(TopicPartition topicPartition) {
-                assertEquals(LocalTieredStorageTest.this.topicPartition, topicPartition);
+            public void visitTopicPartition(TopicIdPartition topicPartition) {
+                assertEquals(LocalTieredStorageTest.this.topicIdPartition, topicPartition);
             }
 
             @Override
@@ -271,7 +273,7 @@ public final class LocalTieredStorageTest {
     }
 
     private RemoteLogSegmentId newRemoteLogSegmentId() {
-        return new RemoteLogSegmentId(topicPartition, UUID.randomUUID());
+        return new RemoteLogSegmentId(topicIdPartition, UUID.randomUUID());
     }
 
     private static List<ByteBuffer> extractRecordsValue(

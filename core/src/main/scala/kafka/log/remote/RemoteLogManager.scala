@@ -37,7 +37,7 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.log.remote.storage.{ClassLoaderAwareRemoteLogMetadataManager, LogSegmentData, RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentMetadataUpdate, RemoteLogSegmentState, RemotePartitionDeleteState, RemoteStorageManager}
+import org.apache.kafka.common.log.remote.storage.{ClassLoaderAwareRemoteLogMetadataManager, LogSegmentData, RemoteLogMetadataManager, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentMetadataUpdate, RemoteLogSegmentState, RemoteStorageManager}
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
 import org.apache.kafka.common.record.{MemoryRecords, RecordBatch, RemoteLogInputStream}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
@@ -276,14 +276,15 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
           // Actual deletion of remote log segments triggered by COntroller with publishing the state
           // RemotePartitionDeleteState.DELETE_PARTITION_MARKED
           // We should remove assignments of RLMM for these partitions.
-          remoteLogMetadataManager.onStopPartitions(Collections.singleton(topicPartition))
+          fetchLog(topicPartition).map(l => l.topicId.toUUID)
+            .foreach(id => remoteLogMetadataManager.onStopPartitions(Collections.singleton(new TopicIdPartition(id, topicPartition))));
         } catch {
           case ex: Exception => error(s"Error occurred while deleting topic partition: $topicPartition", ex)
         }
       }
   }
 
-  private def deleteRemoteLogSegment(metadata: RemoteLogSegmentMetadata) = {
+  private def deleteRemoteLogSegment(metadata: RemoteLogSegmentMetadata): Unit = {
     try {
       //
       remoteLogMetadataManager.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(metadata.remoteLogSegmentId(), System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED));

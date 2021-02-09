@@ -62,7 +62,7 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
         if (condition.eventType != type) {
             return false;
         }
-        if (!segmentId.topicPartition().equals(condition.topicPartition)) {
+        if (!segmentId.topicIdPartition().topicPartition().equals(condition.topicPartition)) {
             return false;
         }
         if (!exception.map(e -> condition.failed).orElseGet(() -> !condition.failed)) {
@@ -90,7 +90,7 @@ public final class LocalTieredStorageEvent implements Comparable<LocalTieredStor
     }
 
     public TopicPartition getTopicPartition() {
-        return segmentId.topicPartition();
+        return segmentId.topicIdPartition().topicPartition();
     }
 
     @Override

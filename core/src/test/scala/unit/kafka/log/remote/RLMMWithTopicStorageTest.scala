@@ -25,7 +25,7 @@ import kafka.server.KafkaConfig
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.log.remote.metadata.storage.RLMMWithTopicStorage
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata.remoteLogSegmentId
-import org.apache.kafka.common.log.remote.storage.{DeletePartitionUpdate, RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentMetadataUpdate, RemoteLogSegmentState}
+import org.apache.kafka.common.log.remote.storage.{RemoteLogSegmentId, RemoteLogSegmentMetadata, RemoteLogSegmentMetadataUpdate, RemoteLogSegmentState}
 import org.apache.kafka.common.{KafkaException, TopicIdPartition, TopicPartition}
 import org.junit.{Assert, Before, Test}
 import org.scalatest.Matchers.assertThrows

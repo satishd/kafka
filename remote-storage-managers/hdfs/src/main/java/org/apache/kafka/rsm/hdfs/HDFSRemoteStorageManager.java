@@ -255,7 +255,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
-        return baseDir + "/" + remoteLogSegmentId.topicPartition() + "/" + remoteLogSegmentId.id();
+        return baseDir + "/" + remoteLogSegmentId.topicIdPartition().topicPartition() + "/" + remoteLogSegmentId.id();
     }
 
     private Path getPath(String dirPath, String fileName) {

@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 
@@ -54,15 +55,15 @@ public final class RemoteTopicPartitionDirectory {
 
     private final File directory;
     private final boolean existed;
-    private final TopicPartition topicPartition;
+    private final TopicIdPartition topicPartition;
 
-    RemoteTopicPartitionDirectory(final TopicPartition topicPartition, final File directory, final boolean existed) {
+    RemoteTopicPartitionDirectory(final TopicIdPartition topicPartition, final File directory, final boolean existed) {
         this.topicPartition = requireNonNull(topicPartition);
         this.directory = requireNonNull(directory);
         this.existed = existed;
     }
 
-    public TopicPartition getTopicPartition() {
+    public TopicIdPartition getTopicPartition() {
         return topicPartition;
     }
 
@@ -97,7 +98,7 @@ public final class RemoteTopicPartitionDirectory {
      * Creates a new {@link RemoteTopicPartitionDirectory} instance for the directory of the
      * provided topicPartition under the root directory of the local tiered storage.
      */
-    public static RemoteTopicPartitionDirectory openTopicPartitionDirectory(final TopicPartition topicPartition,
+    public static RemoteTopicPartitionDirectory openTopicPartitionDirectory(final TopicIdPartition topicPartition,
                                                                             final File storageDirectory) {
 
         final File directory = new File(storageDirectory, topicPartition.toString());
@@ -138,11 +139,12 @@ public final class RemoteTopicPartitionDirectory {
                     "Invalid format for topic-partition directory: %s", dirname), ex);
         }
 
+        UUID id = null; //todo-tier
         final RemoteTopicPartitionDirectory directory =
-                openTopicPartitionDirectory(new TopicPartition(topic, partition), storageDirectory);
+                openTopicPartitionDirectory(new TopicIdPartition(id, new TopicPartition(topic, partition)), storageDirectory);
 
         if (!directory.existed) {
-            throw new IllegalArgumentException(format("Topic-partitition directory %s not found", dirname));
+            throw new IllegalArgumentException(format("Topic-partition directory %s not found", dirname));
         }
 
         return directory;

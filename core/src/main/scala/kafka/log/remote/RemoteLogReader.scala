@@ -23,17 +23,17 @@ import org.apache.kafka.common.utils.Time
 
 class RemoteLogReader(fetchInfo: RemoteStorageFetchInfo, rlm: RemoteLogManager, brokerTopicStats: BrokerTopicStats, callback: (RemoteLogReadResult) => Unit)
   extends RemoteStorageTask[Unit] with Logging {
-  brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topic()).remoteReadRequestRate.mark()
+  brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topicPartition().topic()).remoteReadRequestRate.mark()
 
   override def execute(): Unit = {
     val result = {
       try {
         val r = rlm.read(fetchInfo)
-        brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topic()).remoteBytesInRate.mark(r.records.sizeInBytes())
+        brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topicPartition().topic()).remoteBytesInRate.mark(r.records.sizeInBytes())
         RemoteLogReadResult(Some(r), None)
       } catch {
         case e: Exception =>
-          brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topic()).failedRemoteReadRequestRate.mark()
+          brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topicPartition().topic()).failedRemoteReadRequestRate.mark()
           error("Error due to", e)
           RemoteLogReadResult(None, Some(e))
       }

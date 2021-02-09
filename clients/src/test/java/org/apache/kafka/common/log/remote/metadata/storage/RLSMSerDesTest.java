@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.metadata.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
@@ -36,7 +37,8 @@ public class RLSMSerDesTest {
 
         // RLSM with context as non-null.
         RemoteLogSegmentMetadata rlsmWithNoContext = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 1000L,
                 2000L,
                 System.currentTimeMillis() - 10000,
@@ -48,7 +50,8 @@ public class RLSMSerDesTest {
 
         // RLSM with context as non-null.
         RemoteLogSegmentMetadata rlsmWithContext = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 2000L,
                 4000L,
                 System.currentTimeMillis() - 10000,
@@ -60,7 +63,8 @@ public class RLSMSerDesTest {
 
         //RLSM marked with deletion
         RemoteLogSegmentMetadata rlsmMarkedDelete = new RemoteLogSegmentMetadata(
-                new RemoteLogSegmentId(new TopicPartition("bar", 0), UUID.randomUUID()),
+                new RemoteLogSegmentId(new TopicIdPartition(UUID.randomUUID(), new TopicPartition("bar", 0))
+                        , UUID.randomUUID()),
                 2000L,
                 4000L,
                 System.currentTimeMillis() - 10000,

@@ -17,9 +17,8 @@
 package kafka.tiered.storage
 
 import java.nio.ByteBuffer
-
 import kafka.utils.nonthreadsafe
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.TopicIdPartition
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentFileset.RemoteLogSegmentFileType.SEGMENT
 import org.apache.kafka.common.log.remote.storage.{LocalTieredStorage, LocalTieredStorageTraverser, RemoteLogSegmentFileset}
 import org.apache.kafka.common.serialization.Deserializer
@@ -41,8 +40,8 @@ final class LocalTieredStorageOutput[K, V](val keyDe: Deserializer[K],
 
   private var currentTopic: String = ""
 
-  override def visitTopicPartition(topicPartition: TopicPartition): Unit = {
-    currentTopic = topicPartition.topic()
+  override def visitTopicPartition(topicPartition: TopicIdPartition): Unit = {
+    currentTopic = topicPartition.topicPartition().topic()
     output += row(topicPartition.toString, ident = "")
   }
 

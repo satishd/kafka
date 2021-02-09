@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 
 /**
@@ -28,11 +29,11 @@ public interface LocalTieredStorageTraverser {
      * Called when a new topic-partition stored on the remote storage is discovered.
      * @param topicPartition The new topic-partition discovered.
      */
-    void visitTopicPartition(TopicPartition topicPartition);
+    void visitTopicPartition(TopicIdPartition topicPartition);
 
     /**
      * Called when a new segment is discovered for a given topic-partition.
-     * This method can only be called after {@link LocalTieredStorageTraverser#visitTopicPartition(TopicPartition)}
+     * This method can only be called after {@link LocalTieredStorageTraverser#visitTopicPartition(TopicIdPartition)}
      * for the topic-partition the segment belongs to.
      */
     void visitSegment(RemoteLogSegmentFileset fileset);

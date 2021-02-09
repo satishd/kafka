@@ -29,7 +29,7 @@ import kafka.server._
 import kafka.server.checkpoints.LazyOffsetCheckpoints
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.common.log.remote.storage._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -224,35 +224,22 @@ class MockRemoteStorageManager extends RemoteStorageManager {
 class MockRemoteLogMetadataManager extends RemoteLogMetadataManager {
   override def putRemoteLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {}
 
-  override def remoteLogSegmentMetadata(topicPartition: TopicPartition, offset: Long, epochForOffset: Int): RemoteLogSegmentMetadata = {
-    null
-  }
-
-  override def earliestLogOffset(tp: TopicPartition, leaderEpoch: Int): Optional[lang.Long] = {
-    Optional.empty()
-  }
-
-  override def highestLogOffset(tp: TopicPartition, leaderEpoch: Int): Optional[lang.Long] = {
-    Optional.empty()
-  }
-
-  override def deleteRemoteLogSegmentMetadata(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {}
-
-  override def listRemoteLogSegments(topicPartition: TopicPartition,
-                                     minOffset: Long): util.Iterator[RemoteLogSegmentMetadata] = Collections.emptyIterator()
-
-  override def onPartitionLeadershipChanges(leaderPartitions: util.Set[TopicPartition],
-                                            followerPartitions: util.Set[TopicPartition]): Unit = {}
-
-  override def onStopPartitions(partitions: util.Set[TopicPartition]): Unit = {}
-
   override def configure(configs: util.Map[String, _]): Unit = {}
 
   override def close(): Unit = {}
 
-  override def updateRemoteLogSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {
-  }
+  override def updateRemoteLogSegmentMetadata(remoteLogSegmentMetadataUpdate: RemoteLogSegmentMetadataUpdate): Unit = {}
 
-  override def updateDeletePartitionState(deletePartitionUpdate: DeletePartitionUpdate): Unit = {
-  }
+  override def updateDeletePartitionState(deletePartitionUpdate: DeletePartitionUpdate): Unit = {}
+
+  override def remoteLogSegmentMetadata(topicIdPartition: TopicIdPartition, offset: Long, epochForOffset: Int): Optional[RemoteLogSegmentMetadata] =
+    Optional.empty()
+
+  override def highestLogOffset(topicIdPartition: TopicIdPartition, leaderEpoch: Int): Optional[lang.Long] = Optional.empty()
+
+  override def listRemoteLogSegments(topicIdPartition: TopicIdPartition, leaderEpoch: Long): util.Iterator[RemoteLogSegmentMetadata] = null
+
+  override def onPartitionLeadershipChanges(leaderPartitions: util.Set[TopicIdPartition], followerPartitions: util.Set[TopicIdPartition]): Unit = {}
+
+  override def onStopPartitions(partitions: util.Set[TopicIdPartition]): Unit = {}
 }

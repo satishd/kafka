@@ -17,7 +17,7 @@
 
 package kafka.server
 
-import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
+import org.apache.kafka.common.TopicIdPartition
 import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
