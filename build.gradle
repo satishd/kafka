@@ -811,6 +811,7 @@ project(':core') {
     testCompile libs.apachedsJdbmPartition
     testCompile libs.junitJupiter
     testCompile libs.slf4jlog4j
+    testCompile libs.hamcrest
     testCompile(libs.jfreechart) {
       exclude group: 'junit', module: 'junit'
     }
