@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.common.log.remote.metadata.storage.RemoteLogMetadataSerdes.*;
@@ -108,6 +109,131 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
 
         RecordMetadata recordMetadata() {
             return recordMetadata;
+        }
+    }
+
+    @Override
+    public synchronized void configure(Map<String, ?> configs) {
+        if (configured) {
+            log.info("configure is already invoked earlier.");
+            return;
+        }
+        log.info("RLMMWithTopicStorage is initializing with configs: {}", configs);
+
+        this.configs = Collections.unmodifiableMap(configs);
+
+        Object propVal = configs.get(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP);
+        noOfMetadataTopicPartitions =
+                (propVal == null) ? DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS : Integer.parseInt(propVal.toString());
+        log.info("No of remote log metadata topic partitions: [{}]", noOfMetadataTopicPartitions);
+
+        logDir = (String) configs.get("log.dir");
+        if (logDir == null || logDir.trim().isEmpty()) {
+            throw new IllegalArgumentException("log.dir can not be null or empty");
+        }
+
+        File metadataLogFile = new File(logDir, COMMITTED_LOG_METADATA_FILE_NAME);
+        committedLogMetadataStore = new CommittedLogMetadataStore(metadataLogFile);
+
+        configured = true;
+
+        initializeResources();
+
+        log.info("RLMMWithTopicStorage is initialized: {}", this);
+    }
+
+    private synchronized void initializeResources() {
+        if (!initialized) {
+            log.info("Initializing all the clients and resources.");
+
+            if (configs.get(BOOTSTRAP_SERVERS_CONFIG) == null) {
+                throw new InvalidConfigurationException("Broker endpoint must be configured for the remote log " +
+                        "metadata manager.");
+            }
+
+            //create clients
+            createAdminClient();
+            createProducer();
+            createConsumer();
+
+            // todo-tier use rocksdb
+            //load the stored data
+            loadMetadataStore();
+
+            initConsumerThread();
+
+            initialized = true;
+        }
+    }
+
+    private void loadMetadataStore() {
+        try {
+            final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
+            for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
+                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
+                        k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
+                idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
+            }
+        } catch (IOException e) {
+            throw new KafkaException("Error occurred while loading remote log metadata file.", e);
+        }
+    }
+
+    private void ensureInitialized() {
+        if (!initialized)
+            throw new KafkaException("Resources required are not yet initialized by invoking initialize() method");
+    }
+
+    private void createAdminClient() {
+        Map<String, Object> props = new HashMap<>(configs);
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
+        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+
+        this.adminClient = AdminClient.create(props);
+    }
+
+    private void createProducer() {
+        Map<String, Object> props = new HashMap<>(configs);
+
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
+        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+
+        this.producer = new KafkaProducer<>(props);
+    }
+
+    private String createClientId(String suffix) {
+        // Added hashCode as part of client-id here to differentiate between multiple runs of broker.
+        // Broker epoch could not be used as it is created only after RemoteLogManager and ReplicaManager are
+        // created.
+        return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
+    }
+
+    private void createConsumer() {
+        Map<String, Object> props = new HashMap<>(configs);
+
+        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, 30 * 1000);
+        props.put(ConsumerConfig.EXCLUDE_INTERNAL_TOPICS_CONFIG, false);
+
+        this.consumer = new KafkaConsumer<>(props);
+    }
+
+    private void initConsumerThread() {
+        try {
+            // start a thread to continuously consume records from topic partitions.
+            consumerTask = new ConsumerTask(consumer, logDir, new RemotePartitionMetadataEventHandlerImpl(), serde);
+            KafkaThread.daemon("RLMM-Consumer-Task", consumerTask).start();
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Error encountered while getting no of partitions of a remote log metadata " +
+                    "topic with name : " + REMOTE_LOG_METADATA_TOPIC_NAME);
         }
     }
 
@@ -210,12 +336,14 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     }
 
     @Override
-    public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition, long offset, int epochForOffset) throws RemoteStorageException {
+    public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition,
+                                                                       long offset,
+                                                                       int epochForOffset) throws RemoteStorageException {
         ensureInitialized();
 
         NavigableMap<Long, RemoteLogSegmentId> remoteLogSegmentIdMap = partitionsWithSegmentIds.get(topicIdPartition);
         if (remoteLogSegmentIdMap == null) {
-            return null;
+            return Optional.empty();
         }
 
         // look for floor entry as the given offset may exist in this entry.
@@ -228,6 +356,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = idWithSegmentMetadata.get(entry.getValue());
         // look forward for the segment which has the target offset, if it does not exist then return the highest
         // offset segment available.
+        //todo-tier check for offset too.
         while (remoteLogSegmentMetadata != null && remoteLogSegmentMetadata.endOffset() < offset) {
             entry = remoteLogSegmentIdMap.higherEntry(entry.getKey());
             if (entry == null) {
@@ -249,11 +378,15 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
 
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicPartition) {
-        return null;
+        return doListRemoteLogSegments(topicPartition, null);
     }
 
     @Override
-    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicPartition, long minOffset) {
+    public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicPartition, long leaderEpoch) {
+        return doListRemoteLogSegments(topicPartition, leaderEpoch);
+    }
+
+    public Iterator<RemoteLogSegmentMetadata> doListRemoteLogSegments(TopicIdPartition topicPartition, Long leaderEpoch) {
         ensureInitialized();
 
         NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicPartition);
@@ -261,10 +394,14 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
             return Collections.emptyIterator();
         }
 
-        return map.tailMap(minOffset, true).values().stream()
+        Stream<RemoteLogSegmentMetadata> metadataStream = map.values().stream()
                 .filter(id -> idWithSegmentMetadata.get(id) != null)
-                .map(remoteLogSegmentId -> idWithSegmentMetadata.get(remoteLogSegmentId))
-                .collect(Collectors.toList()).iterator();
+                .map(remoteLogSegmentId -> idWithSegmentMetadata.get(remoteLogSegmentId));
+
+        if (leaderEpoch != null)
+            metadataStream = metadataStream.filter(metadata -> metadata.segmentLeaderEpochs().containsValue(leaderEpoch));
+
+        return metadataStream.collect(Collectors.toList()).iterator();
     }
 
     @Override
@@ -291,98 +428,8 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         consumerTask.removeAssignmentsForPartitions(partitions);
     }
 
-    private synchronized void initializeResources() {
-        if (!initialized) {
-            log.info("Initializing all the clients and resources.");
-
-            if (configs.get(BOOTSTRAP_SERVERS_CONFIG) == null) {
-                throw new InvalidConfigurationException("Broker endpoint must be configured for the remote log " +
-                        "metadata manager.");
-            }
-
-            //create clients
-            createAdminClient();
-            createProducer();
-            createConsumer();
-
-            // todo-tier use rocksdb
-            //load the stored data
-            loadMetadataStore();
-
-            initConsumerThread();
-
-            initialized = true;
-        }
-    }
-
-    private void ensureInitialized() {
-        if (!initialized)
-            throw new KafkaException("Resources required are not yet initialized by invoking initialize() method");
-    }
-
-    @Override
-    public void close() throws IOException {
-        // close resources
-        try {
-            if (producer != null) producer.close(Duration.ofSeconds(60));
-        } catch (Exception ex) { /* ignore */ }
-        try {
-            if (consumer != null) consumer.close(Duration.ofSeconds(60));
-        } catch (Exception ex) { /* ignore */ }
-        try {
-            if (adminClient != null) adminClient.close(Duration.ofSeconds(60));
-        } catch (Exception ex) { /* ignore */ }
-
-        Utils.closeQuietly(consumerTask, "ConsumerTask");
-        idWithSegmentMetadata = new ConcurrentHashMap<>();
-        partitionsWithSegmentIds = new ConcurrentHashMap<>();
-    }
-
     public int noOfMetadataTopicPartitions() {
         return noOfMetadataTopicPartitions;
-    }
-
-    @Override
-    public synchronized void configure(Map<String, ?> configs) {
-        if (configured) {
-            log.info("configure is already invoked earlier.");
-            return;
-        }
-        log.info("RLMMWithTopicStorage is initializing with configs: {}", configs);
-
-        this.configs = Collections.unmodifiableMap(configs);
-
-        Object propVal = configs.get(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP);
-        noOfMetadataTopicPartitions =
-                (propVal == null) ? DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS : Integer.parseInt(propVal.toString());
-        log.info("No of remote log metadata topic partitions: [{}]", noOfMetadataTopicPartitions);
-
-        logDir = (String) configs.get("log.dir");
-        if (logDir == null || logDir.trim().isEmpty()) {
-            throw new IllegalArgumentException("log.dir can not be null or empty");
-        }
-
-        File metadataLogFile = new File(logDir, COMMITTED_LOG_METADATA_FILE_NAME);
-        committedLogMetadataStore = new CommittedLogMetadataStore(metadataLogFile);
-
-        configured = true;
-
-        initializeResources();
-
-        log.info("RLMMWithTopicStorage is initialized: {}", this);
-    }
-
-    private void loadMetadataStore() {
-        try {
-            final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
-            for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
-                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
-                        k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
-                idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
-            }
-        } catch (IOException e) {
-            throw new KafkaException("Error occurred while loading remote log metadata file.", e);
-        }
     }
 
     public synchronized void doSyncLogMetadataDataFile() throws IOException {
@@ -390,19 +437,6 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
 
         // idWithSegmentMetadata and partitionsWithSegmentIds are not going to be modified while this is being done.
         committedLogMetadataStore.write(idWithSegmentMetadata.values());
-    }
-
-    private void initConsumerThread() {
-        try {
-            // start a thread to continuously consume records from topic partitions.
-            consumerTask = new ConsumerTask(consumer, logDir, new RemotePartitionMetadataEventHandlerImpl(), serde);
-            KafkaThread.daemon("RLMM-Consumer-Task", consumerTask).start();
-        } catch (RuntimeException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException("Error encountered while getting no of partitions of a remote log metadata " +
-                    "topic with name : " + REMOTE_LOG_METADATA_TOPIC_NAME);
-        }
     }
 
     public void doHandleRemoteLogSegmentMetadata(RemoteLogSegmentMetadata metadata) {
@@ -449,44 +483,22 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         return partitionNo;
     }
 
-    private void createAdminClient() {
-        Map<String, Object> props = new HashMap<>(configs);
-        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("admin"));
-        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
-        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+    @Override
+    public void close() throws IOException {
+        // close resources
+        try {
+            if (producer != null) producer.close(Duration.ofSeconds(60));
+        } catch (Exception ex) { /* ignore */ }
+        try {
+            if (consumer != null) consumer.close(Duration.ofSeconds(60));
+        } catch (Exception ex) { /* ignore */ }
+        try {
+            if (adminClient != null) adminClient.close(Duration.ofSeconds(60));
+        } catch (Exception ex) { /* ignore */ }
 
-        this.adminClient = AdminClient.create(props);
-    }
-
-    private void createProducer() {
-        Map<String, Object> props = new HashMap<>(configs);
-
-        props.put(ProducerConfig.CLIENT_ID_CONFIG, createClientId("producer"));
-        props.put(ProducerConfig.ACKS_CONFIG, "all");
-        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
-        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
-        props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
-
-        this.producer = new KafkaProducer<>(props);
-    }
-
-    private String createClientId(String suffix) {
-        // Added hashCode as part of client-id here to differentiate between multiple runs of broker.
-        // Broker epoch could not be used as it is created only after RemoteLogManager and ReplicaManager are
-        // created.
-        return REMOTE_LOG_METADATA_CLIENT_PREFIX + "_" + suffix + configs.get("broker.id") + "_" + hashCode();
-    }
-
-    private void createConsumer() {
-        Map<String, Object> props = new HashMap<>(configs);
-
-        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, createClientId("consumer"));
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, 30 * 1000);
-        props.put(ConsumerConfig.EXCLUDE_INTERNAL_TOPICS_CONFIG, false);
-
-        this.consumer = new KafkaConsumer<>(props);
+        Utils.closeQuietly(consumerTask, "ConsumerTask");
+        idWithSegmentMetadata = new ConcurrentHashMap<>();
+        partitionsWithSegmentIds = new ConcurrentHashMap<>();
     }
 
     private class RemotePartitionMetadataEventHandlerImpl implements RemotePartitionMetadataEventHandler {
