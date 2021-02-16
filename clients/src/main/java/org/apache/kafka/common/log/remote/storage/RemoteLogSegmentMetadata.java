@@ -200,8 +200,4 @@ public class RemoteLogSegmentMetadata implements Serializable {
                 '}';
     }
 
-    public static RemoteLogSegmentId remoteLogSegmentId(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
-        return remoteLogSegmentMetadata != null ? remoteLogSegmentMetadata.remoteLogSegmentId() : null;
-    }
-
 }

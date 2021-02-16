@@ -115,7 +115,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                        brokerId: Int,
                        clusterId: String = "",
                        logDir: String,
-                       brokerTopicStats: BrokerTopicStats) extends Logging with Closeable with KafkaMetricsGroup  {
+                       brokerTopicStats: BrokerTopicStats) extends Logging with Closeable with KafkaMetricsGroup {
   private val leaderOrFollowerTasks: ConcurrentHashMap[TopicIdPartition, RLMTaskWithFuture] =
     new ConcurrentHashMap[TopicIdPartition, RLMTaskWithFuture]()
   private val remoteStorageFetcherThreadPool = new RemoteStorageReaderThreadPool(rlmConfig.remoteLogReaderThreads,
@@ -173,7 +173,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     rlmm
   }
 
-  private def configureRLMM(localBootStrapServers:String): Unit = {
+  private def configureRLMM(localBootStrapServers: String): Unit = {
     val rlmmProps = new util.HashMap[String, Any]()
     rlmConfig.rlmmProps.foreach { case (k, v) => rlmmProps.put(k, v) }
     rlmmProps.put(KafkaConfig.LogDirProp, logDir)
@@ -208,7 +208,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     convertToLeaderOrFollower(rlmTaskWithFuture.rlmTask)
   }
 
-  def onEndpointCreated(serverEndPoint:String): Unit = {
+  def onEndpointCreated(serverEndPoint: String): Unit = {
     // initialize and configure RSM and RLMM
     configureRSM()
     configureRLMM(serverEndPoint)
@@ -238,19 +238,21 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
     val followerTopicPartitions = filterPartitions(partitionsBecomeFollower).map(p => {
       val uuid = new UUID(p.log.get.topicId.getMostSignificantBits, p.log.get.topicId.getLeastSignificantBits)
-      new TopicIdPartition(uuid, p.topicPartition)})
+      new TopicIdPartition(uuid, p.topicPartition)
+    })
 
     val leaderPartitions = filterPartitions(partitionsBecomeLeader)
     val leaderTopicIdPartitionWithEpochs = leaderPartitions.map(p => {
       val uuid = new UUID(p.log.get.topicId.getMostSignificantBits, p.log.get.topicId.getLeastSignificantBits)
-      (p.getLeaderEpoch, new TopicIdPartition(uuid, p.topicPartition))})
+      (p.getLeaderEpoch, new TopicIdPartition(uuid, p.topicPartition))
+    })
 
     debug(s"Effective topic partitions after filtering compact and internal topics, leaders: $leaderTopicIdPartitionWithEpochs " +
       s"and followers: $followerTopicPartitions")
 
     remoteLogMetadataManager.onPartitionLeadershipChanges(leaderTopicIdPartitionWithEpochs.map(x => x._2).asJava, followerTopicPartitions.asJava)
 
-    followerTopicPartitions.foreach { tp => doHandleLeaderOrFollowerPartitions(tp, task => task.convertToFollower())}
+    followerTopicPartitions.foreach { tp => doHandleLeaderOrFollowerPartitions(tp, task => task.convertToFollower()) }
 
     leaderTopicIdPartitionWithEpochs.foreach { partition =>
       doHandleLeaderOrFollowerPartitions(partition._2, task => task.convertToLeader(partition._1))
@@ -261,30 +263,30 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
    * Stops partitions for copying segments, building indexes and deletes the partition in remote storage if delete flag
    * is set as true.
    *
-   * @param topicPartition  topic partition to be stopped.
-   * @param delete          flag to indicate whether the given topic partitions to be deleted or not.
+   * @param topicPartition topic partition to be stopped.
+   * @param delete         flag to indicate whether the given topic partitions to be deleted or not.
    */
   def stopPartitions(topicPartition: TopicPartition, delete: Boolean): Unit = {
-      // unassign topic partitions from RLM leader/follower
-      val rlmTaskWithFuture = leaderOrFollowerTasks.remove(topicPartition)
-      if (rlmTaskWithFuture != null) {
-        rlmTaskWithFuture.cancel()
-      }
+    // unassign topic partitions from RLM leader/follower
+    val rlmTaskWithFuture = leaderOrFollowerTasks.remove(topicPartition)
+    if (rlmTaskWithFuture != null) {
+      rlmTaskWithFuture.cancel()
+    }
 
-      if (delete) {
-        try {
-          // Actual deletion of remote log segments triggered by COntroller with publishing the state
-          // RemotePartitionDeleteState.DELETE_PARTITION_MARKED
-          // We should remove assignments of RLMM for these partitions.
-          fetchLog(topicPartition).map(l => l.topicId.toUUID)
-            .foreach(id => remoteLogMetadataManager.onStopPartitions(Collections.singleton(new TopicIdPartition(id, topicPartition))));
-        } catch {
-          case ex: Exception => error(s"Error occurred while deleting topic partition: $topicPartition", ex)
-        }
+    if (delete) {
+      try {
+        // Actual deletion of remote log segments triggered by COntroller with publishing the state
+        // RemotePartitionDeleteState.DELETE_PARTITION_MARKED
+        // We should remove assignments of RLMM for these partitions.
+        fetchLog(topicPartition).map(l => l.topicId.toUUID)
+          .foreach(id => remoteLogMetadataManager.onStopPartitions(Collections.singleton(new TopicIdPartition(id, topicPartition))));
+      } catch {
+        case ex: Exception => error(s"Error occurred while deleting topic partition: $topicPartition", ex)
       }
+    }
   }
 
-  private def deleteRemoteLogSegment(metadata: RemoteLogSegmentMetadata, leaderEpoch:Int): Unit = {
+  private def deleteRemoteLogSegment(metadata: RemoteLogSegmentMetadata, leaderEpoch: Int): Unit = {
     try {
       //
       remoteLogMetadataManager.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(metadata.remoteLogSegmentId(), time.milliseconds(),
@@ -311,7 +313,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     // remote storage by going through the epochs in current leader-epoch cache in binary-search fashion.
     private var readOffset: Long = {
       val metadatas = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition)
-      if(!metadatas.hasNext) -1 // Corner case when the first segment's base offset is 1 and contains only 1 record.
+      if (!metadatas.hasNext) -1 // Corner case when the first segment's base offset is 1 and contains only 1 record.
       else {
         metadatas.asScala.max(new Ordering[RemoteLogSegmentMetadata]() {
           override def compare(x: RemoteLogSegmentMetadata,
@@ -440,22 +442,22 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         // we do not need to do much for follower here as the replication protocol takes care of updating
         // log-start-offset.
         val remoteLogStartOffset: Option[Long] =
-          if (isLeader()) {
-            // cleanup remote log segments
-            val remoteLogSegmentMetadatas = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition)
-            if(!remoteLogSegmentMetadatas.hasNext) None
-            else {
-              var maxOffset: Long = Long.MinValue
-              val cleanupTs = time.milliseconds() - rlmConfig.remoteLogRetentionMillis
-              remoteLogSegmentMetadatas.asScala.takeWhile(m => m.eventTimestamp() <= cleanupTs)
-                .foreach(m => {
-                  deleteRemoteLogSegment(m, leaderEpoch)
-                  maxOffset = Math.max(m.endOffset(), maxOffset)
-                })
+        if (isLeader()) {
+          // cleanup remote log segments
+          val remoteLogSegmentMetadatas = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition)
+          if (!remoteLogSegmentMetadatas.hasNext) None
+          else {
+            var maxOffset: Long = Long.MinValue
+            val cleanupTs = time.milliseconds() - rlmConfig.remoteLogRetentionMillis
+            remoteLogSegmentMetadatas.asScala.takeWhile(m => m.eventTimestamp() <= cleanupTs)
+              .foreach(m => {
+                deleteRemoteLogSegment(m, leaderEpoch)
+                maxOffset = Math.max(m.endOffset(), maxOffset)
+              })
 
-              if(maxOffset == Long.MinValue) None else Some(maxOffset+1)
-            }
-          } else None
+            if (maxOffset == Long.MinValue) None else Some(maxOffset + 1)
+          }
+        } else None
 
         remoteLogStartOffset.foreach(x => handleLogStartOffsetUpdate(topicIdPartition.topicPartition(), x))
       } catch {
@@ -466,23 +468,18 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     override def run(): Unit = {
       try {
         if (!isCancelled()) {
-          //a. copy log segments to remote store
-          if (isLeader()) copyLogSegmentsToRemote()
-          else fetchLog(topicIdPartition.topicPartition()).foreach { log =>
-            //todo-tier leader epoch to be computed here
-            val offset = remoteLogMetadataManager.highestLogOffset(topicIdPartition, 0)
-            if (offset.isPresent) log.updateRemoteIndexHighestOffset(offset.get())
+          if (isLeader()) {
+            //a. copy log segments to remote store
+            copyLogSegmentsToRemote()
+            //b. cleanup/delete expired remote segments
+            handleExpiredRemoteLogSegments()
           }
-
-          //b. cleanup/delete expired remote segments
-          handleExpiredRemoteLogSegments()
         }
       } catch {
         case ex: InterruptedException =>
           warn(s"Current thread for topic-partition $topicIdPartition is interrupted, this should not be rescheduled ", ex)
         case ex: Exception =>
-          warn(
-            s"Current task for topic-partition $topicIdPartition received error but it will be scheduled for next iteration: ", ex)
+          warn(s"Current task for topic-partition $topicIdPartition received error but it will be scheduled for next iteration: ", ex)
       }
     }
 
@@ -491,268 +488,271 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
   }
 
-  def lookupPositionForOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Int = {
-    indexCache.lookupOffset(remoteLogSegmentMetadata, offset)
-  }
+    def lookupPositionForOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long): Int = {
+      indexCache.lookupOffset(remoteLogSegmentMetadata, offset)
+    }
 
-  def read(remoteStorageFetchInfo: RemoteStorageFetchInfo): FetchDataInfo = {
-    val fetchMaxBytes  = remoteStorageFetchInfo.fetchMaxByes
-    val tp = remoteStorageFetchInfo.topicIdPartition
-    val fetchInfo: PartitionData = remoteStorageFetchInfo.fetchInfo
+    def read(remoteStorageFetchInfo: RemoteStorageFetchInfo): FetchDataInfo = {
+      val fetchMaxBytes = remoteStorageFetchInfo.fetchMaxByes
+      val tp = remoteStorageFetchInfo.topicIdPartition
+      val fetchInfo: PartitionData = remoteStorageFetchInfo.fetchInfo
 
-    val includeAbortedTxns = remoteStorageFetchInfo.fetchIsolation == FetchTxnCommitted
+      val includeAbortedTxns = remoteStorageFetchInfo.fetchIsolation == FetchTxnCommitted
 
-    val offset = fetchInfo.fetchOffset
-    val maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes)
+      val offset = fetchInfo.fetchOffset
+      val maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes)
 
-    // get the epoch for the requested  offset from local leader epoch cache
-    // val epoch = fetchLog(tp).map(log => log.leaderEpochCache.map(cache => cache.epochForOffset()))
-    val epochForOffset:Int = 0
-    val rlsMetadata = fetchRemoteLogSegmentMetadata(tp, offset, epochForOffset)
+      // get the epoch for the requested  offset from local leader epoch cache
+      // val epoch = fetchLog(tp).map(log => log.leaderEpochCache.map(cache => cache.epochForOffset()))
+      val epochForOffset: Int = 0
+      val rlsMetadata = fetchRemoteLogSegmentMetadata(tp, offset, epochForOffset)
 
-    val startPos = lookupPositionForOffset(rlsMetadata, offset)
-    var remoteSegInputStream: InputStream = null
-    try {
-      // Search forward for the position of the last offset that is greater than or equal to the target offset
-      remoteSegInputStream = remoteLogStorageManager.fetchLogSegmentData(rlsMetadata, startPos, Int.MaxValue)
-      val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
+      val startPos = lookupPositionForOffset(rlsMetadata, offset)
+      var remoteSegInputStream: InputStream = null
+      try {
+        // Search forward for the position of the last offset that is greater than or equal to the target offset
+        remoteSegInputStream = remoteLogStorageManager.fetchLogSegmentData(rlsMetadata, startPos, Int.MaxValue)
+        val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
 
-      def findFirstBatch(): RecordBatch = {
-        var nextBatch: RecordBatch = null
+        def findFirstBatch(): RecordBatch = {
+          var nextBatch: RecordBatch = null
 
-        def iterateNextBatch(): RecordBatch = {
-          nextBatch = remoteLogInputStream.nextBatch()
+          def iterateNextBatch(): RecordBatch = {
+            nextBatch = remoteLogInputStream.nextBatch()
+            nextBatch
+          }
+          // Look for the batch which has the desired offset
+          // we will always have a batch in that segment as it is a non-compacted topic. For compacted topics, we may need
+          //to read from the subsequent segments if there is no batch available for the desired offset in the current
+          //segment. That means, desired offset is more than last offset of the current segment and immediate available
+          //offset exists in the next segment which can be higher than the desired offset.
+          while (iterateNextBatch() != null && nextBatch.lastOffset < offset) {
+          }
           nextBatch
         }
-        // Look for the batch which has the desired offset
-        // we will always have a batch in that segment as it is a non-compacted topic. For compacted topics, we may need
-        //to read from the subsequent segments if there is no batch available for the desired offset in the current
-        //segment. That means, desired offset is more than last offset of the current segment and immediate available
-        //offset exists in the next segment which can be higher than the desired offset.
-        while (iterateNextBatch() != null && nextBatch.lastOffset < offset) {
+
+        val firstBatch = findFirstBatch()
+
+        if (firstBatch == null)
+          return FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.EMPTY,
+            abortedTransactions = if (includeAbortedTxns) Some(List.empty) else None)
+
+        val updatedFetchSize =
+          if (remoteStorageFetchInfo.minOneMessage && firstBatch.sizeInBytes() > maxBytes) firstBatch.sizeInBytes()
+          else maxBytes
+
+        val buffer = ByteBuffer.allocate(updatedFetchSize)
+        var remainingBytes = updatedFetchSize
+
+        firstBatch.writeTo(buffer)
+        remainingBytes -= firstBatch.sizeInBytes()
+
+        if (remainingBytes > 0) {
+          // input stream is read till (startPos - 1) while getting the batch of records earlier.
+          // read the input stream until min of (EOF stream or buffer's remaining capacity).
+          Utils.readFully(remoteSegInputStream, buffer)
         }
-        nextBatch
+        buffer.flip()
+
+        val abortedTxns = if (includeAbortedTxns) Some(collectAbortedTransactions(rlsMetadata, firstBatch.baseOffset(), updatedFetchSize)) else None
+        FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.readableRecords(buffer), abortedTransactions = abortedTxns)
+      } finally {
+        Utils.closeQuietly(remoteSegInputStream, "RemoteLogSegmentInputStream")
       }
-
-      val firstBatch = findFirstBatch()
-
-      if (firstBatch == null)
-        return FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.EMPTY,
-          abortedTransactions = if(includeAbortedTxns) Some(List.empty) else None)
-
-      val updatedFetchSize =
-        if (remoteStorageFetchInfo.minOneMessage && firstBatch.sizeInBytes() > maxBytes) firstBatch.sizeInBytes()
-        else maxBytes
-
-      val buffer = ByteBuffer.allocate(updatedFetchSize)
-      var remainingBytes = updatedFetchSize
-
-      firstBatch.writeTo(buffer)
-      remainingBytes -= firstBatch.sizeInBytes()
-
-      if(remainingBytes > 0) {
-        // input stream is read till (startPos - 1) while getting the batch of records earlier.
-        // read the input stream until min of (EOF stream or buffer's remaining capacity).
-        Utils.readFully(remoteSegInputStream, buffer)
-      }
-      buffer.flip()
-
-      val abortedTxns = if(includeAbortedTxns) Some(collectAbortedTransactions(rlsMetadata, firstBatch.baseOffset(), updatedFetchSize)) else None
-      FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.readableRecords(buffer), abortedTransactions = abortedTxns)
-    } finally {
-      Utils.closeQuietly(remoteSegInputStream, "RemoteLogSegmentInputStream")
-    }
-  }
-
-  private def collectAbortedTransactions(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset:Long,
-                                         fetchSize:Int): List[AbortedTransaction] = {
-    // TxnIndexSearchResult will be useful whether to search through the next segments or not.
-    indexCache.collectAbortedTransaction(remoteLogSegmentMetadata, offset, fetchSize).abortedTransactions
-      .map(_.asAbortedTransaction)
-  }
-
-  private def fetchRemoteLogSegmentMetadata(tp: TopicIdPartition, offset: Long,
-                                            epochForOffset: Int): RemoteLogSegmentMetadata = {
-    val remoteLogSegmentMetadata = remoteLogMetadataManager.remoteLogSegmentMetadata(tp, offset, epochForOffset)
-    if (remoteLogSegmentMetadata == null) throw new OffsetOutOfRangeException(
-      s"Received request for offset $offset for partition $tp, which does not exist in remote tier")
-
-    remoteLogSegmentMetadata.get()
-  }
-
-  def lookupTimestamp(rlsMetadata: RemoteLogSegmentMetadata, timestamp: Long, startingOffset: Long): Option[TimestampAndOffset] = {
-    val startPos = indexCache.lookupTimestamp(rlsMetadata, timestamp, startingOffset)
-
-    var remoteSegInputStream: InputStream = null
-    try {
-      // Search forward for the position of the last offset that is greater than or equal to the target offset
-      remoteSegInputStream = remoteLogStorageManager.fetchLogSegmentData(rlsMetadata, startPos, Int.MaxValue)
-      val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
-      var batch: RecordBatch = null
-      def nextBatch(): RecordBatch = {
-        batch = remoteLogInputStream.nextBatch()
-        batch
-      }
-      while (nextBatch() != null) {
-        if (batch.maxTimestamp >= timestamp && batch.lastOffset >= startingOffset) {
-          batch.iterator.asScala.foreach(record => {
-            if (record.timestamp >= timestamp && record.offset >= startingOffset)
-              return Some(new TimestampAndOffset(record.timestamp, record.offset, maybeLeaderEpoch(batch.partitionLeaderEpoch)))
-          })
-        }
-      }
-      None
-    } finally {
-      Utils.closeQuietly(remoteSegInputStream, "RemoteLogSegmentInputStream")
-    }
-  }
-
-  private def maybeLeaderEpoch(leaderEpoch: Int): Optional[Integer] = {
-    if (leaderEpoch == RecordBatch.NO_PARTITION_LEADER_EPOCH)
-      Optional.empty()
-    else
-      Optional.of(leaderEpoch)
-  }
-
-  /**
-   * Search the message offset in the remote storage based on timestamp and offset.
-   *
-   * This method returns an option of TimestampOffset. The returned value is determined using the following ordered list of rules:
-   *
-   * - If there is no messages in the remote storage, return None
-   * - If all the messages in the remote storage have smaller offsets, return None
-   * - If all the messages in the remote storage have smaller timestamps, return None
-   * - If all the messages in the remote storage have larger timestamps, or no message in the remote storage has a timestamp
-   * the returned offset will be max(the earliest offset in the remote storage, startingOffset) and the timestamp will
-   * be Message.NoTimestamp.
-   * - Otherwise, return an option of TimestampOffset. The offset is the offset of the first message whose timestamp
-   * is greater than or equals to the target timestamp and whose offset is greater than or equals to the startingOffset.
-   *
-   * @param timestamp      The timestamp to search for.
-   * @param startingOffset The starting offset to search.
-   * @return the timestamp and offset of the first message that meets the requirements. None will be returned if there is no such message.
-   */
-  def findOffsetByTimestamp(tp: TopicIdPartition, timestamp: Long, startingOffset: Long): Option[TimestampAndOffset] = {
-    //todo-tier Here also, we do not need to go through all the remote log segments to find the segments
-    // containing the timestamp. We should find the  epoch for the startingOffset and then  traverse  through those
-    // offsets and subsequent leader epochs to find the target timestamp/offset.
-    remoteLogMetadataManager.listRemoteLogSegments(tp).asScala.foreach(rlsMetadata =>
-      if (rlsMetadata.maxTimestamp() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
-        val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
-        if (timestampOffset.isDefined)
-          return timestampOffset
-      }
-    )
-
-    None
-  }
-
-  /**
-   * A remote log read task returned by asyncRead(). The caller of asyncRead() can use this object to cancel a
-   * pending task or check if the task is done.
-   */
-  case class AsyncReadTask(future: Future[Unit]) {
-    def cancel(mayInterruptIfRunning: Boolean): Boolean = {
-      val r = future.cancel(mayInterruptIfRunning)
-      if (r) {
-        // Removed the cancelled task from task queue
-        remoteStorageFetcherThreadPool.purge()
-      }
-      r
     }
 
-    def isCancelled: Boolean = future.isCancelled
-
-    def isDone: Boolean = future.isDone
-  }
-
-  /**
-   * Submit a remote log read task.
-   *
-   * This method returns immediately. The read operation is executed in a thread pool.
-   * The callback will be called when the task is done.
-   *
-   * @throws RejectedExecutionException if the task cannot be accepted for execution (task queue is full)
-   */
-  def asyncRead(fetchInfo: RemoteStorageFetchInfo, callback: (RemoteLogReadResult) => Unit): AsyncReadTask = {
-    AsyncReadTask(remoteStorageFetcherThreadPool.submit(new RemoteLogReader(fetchInfo, this, brokerTopicStats, callback)))
-  }
-
-  /**
-   * Stops all the threads and releases all the resources.
-   */
-  def close(): Unit = {
-    if (closed)
-      warn("Trying to close an already closed RemoteLogManager")
-    else this synchronized {
-      Utils.closeQuietly(remoteLogStorageManager, "RemoteLogStorageManager")
-      Utils.closeQuietly(remoteLogMetadataManager, "RemoteLogMetadataManager")
-      leaderOrFollowerTasks.values().forEach(new Consumer[RLMTaskWithFuture] {
-        override def accept(taskWithFuture: RLMTaskWithFuture): Unit = taskWithFuture.cancel()
-      })
-      rlmScheduledThreadPool.shutdown()
-      closed = true
+    private def collectAbortedTransactions(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, offset: Long,
+                                           fetchSize: Int): List[AbortedTransaction] = {
+      // TxnIndexSearchResult will be useful whether to search through the next segments or not.
+      indexCache.collectAbortedTransaction(remoteLogSegmentMetadata, offset, fetchSize).abortedTransactions
+        .map(_.asAbortedTransaction)
     }
-  }
 
-  case class RLMTaskWithFuture(rlmTask: RLMTask, future: Future[_]) {
-    def cancel(): Unit = {
-      rlmTask.cancel()
+    private def fetchRemoteLogSegmentMetadata(tp: TopicIdPartition, offset: Long,
+                                              epochForOffset: Int): RemoteLogSegmentMetadata = {
+      val remoteLogSegmentMetadata = remoteLogMetadataManager.remoteLogSegmentMetadata(tp, offset, epochForOffset)
+      if (remoteLogSegmentMetadata == null) throw new OffsetOutOfRangeException(
+        s"Received request for offset $offset for partition $tp, which does not exist in remote tier")
+
+      remoteLogSegmentMetadata.get()
+    }
+
+    def lookupTimestamp(rlsMetadata: RemoteLogSegmentMetadata, timestamp: Long, startingOffset: Long): Option[TimestampAndOffset] = {
+      val startPos = indexCache.lookupTimestamp(rlsMetadata, timestamp, startingOffset)
+
+      var remoteSegInputStream: InputStream = null
       try {
-        future.cancel(true)
-      } catch {
-        case ex: Exception => error(s"Error occurred while canceling the task: $rlmTask", ex)
+        // Search forward for the position of the last offset that is greater than or equal to the target offset
+        remoteSegInputStream = remoteLogStorageManager.fetchLogSegmentData(rlsMetadata, startPos, Int.MaxValue)
+        val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
+        var batch: RecordBatch = null
+
+        def nextBatch(): RecordBatch = {
+          batch = remoteLogInputStream.nextBatch()
+          batch
+        }
+
+        while (nextBatch() != null) {
+          if (batch.maxTimestamp >= timestamp && batch.lastOffset >= startingOffset) {
+            batch.iterator.asScala.foreach(record => {
+              if (record.timestamp >= timestamp && record.offset >= startingOffset)
+                return Some(new TimestampAndOffset(record.timestamp, record.offset, maybeLeaderEpoch(batch.partitionLeaderEpoch)))
+            })
+          }
+        }
+        None
+      } finally {
+        Utils.closeQuietly(remoteSegInputStream, "RemoteLogSegmentInputStream")
       }
     }
-  }
 
-}
+    private def maybeLeaderEpoch(leaderEpoch: Int): Optional[Integer] = {
+      if (leaderEpoch == RecordBatch.NO_PARTITION_LEADER_EPOCH)
+        Optional.empty()
+      else
+        Optional.of(leaderEpoch)
+    }
 
-case class RemoteLogManagerConfig(remoteLogStorageEnable: Boolean,
-                                  remoteLogStorageManagerClass: String,
-                                  remoteLogStorageManagerClassPath: String,
-                                  rsmProps: Map[String, Any] = Map.empty,
-                                  remoteLogRetentionBytes: Long,
-                                  remoteLogRetentionMillis: Long,
-                                  remoteLogReaderThreads: Int,
-                                  remoteLogReaderMaxPendingTasks: Int,
-                                  remoteLogManagerThreadPoolSize: Int,
-                                  remoteLogManagerTaskIntervalMs: Long,
-                                  remoteLogMetadataManagerClass: String = "",
-                                  remoteLogMetadataManagerClassPath: String = "",
-                                  rlmmProps: Map[String, Any] = Map.empty,
-                                  listenerName: Option[String] = None)
+    /**
+     * Search the message offset in the remote storage based on timestamp and offset.
+     *
+     * This method returns an option of TimestampOffset. The returned value is determined using the following ordered list of rules:
+     *
+     * - If there is no messages in the remote storage, return None
+     * - If all the messages in the remote storage have smaller offsets, return None
+     * - If all the messages in the remote storage have smaller timestamps, return None
+     * - If all the messages in the remote storage have larger timestamps, or no message in the remote storage has a timestamp
+     * the returned offset will be max(the earliest offset in the remote storage, startingOffset) and the timestamp will
+     * be Message.NoTimestamp.
+     * - Otherwise, return an option of TimestampOffset. The offset is the offset of the first message whose timestamp
+     * is greater than or equals to the target timestamp and whose offset is greater than or equals to the startingOffset.
+     *
+     * @param timestamp      The timestamp to search for.
+     * @param startingOffset The starting offset to search.
+     * @return the timestamp and offset of the first message that meets the requirements. None will be returned if there is no such message.
+     */
+    def findOffsetByTimestamp(tp: TopicIdPartition, timestamp: Long, startingOffset: Long): Option[TimestampAndOffset] = {
+      //todo-tier Here also, we do not need to go through all the remote log segments to find the segments
+      // containing the timestamp. We should find the  epoch for the startingOffset and then  traverse  through those
+      // offsets and subsequent leader epochs to find the target timestamp/offset.
+      remoteLogMetadataManager.listRemoteLogSegments(tp).asScala.foreach(rlsMetadata =>
+        if (rlsMetadata.maxTimestamp() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
+          val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
+          if (timestampOffset.isDefined)
+            return timestampOffset
+        }
+      )
 
-object RemoteLogManager {
-  def REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "remote.log.storage."
-  def REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX = "remote.log.metadata."
+      None
+    }
 
-  /**
-   * Property name for cluster id.
-   */
-  val CLUSTER_ID = "cluster.id"
+    /**
+     * A remote log read task returned by asyncRead(). The caller of asyncRead() can use this object to cancel a
+     * pending task or check if the task is done.
+     */
+    case class AsyncReadTask(future: Future[Unit]) {
+      def cancel(mayInterruptIfRunning: Boolean): Boolean = {
+        val r = future.cancel(mayInterruptIfRunning)
+        if (r) {
+          // Removed the cancelled task from task queue
+          remoteStorageFetcherThreadPool.purge()
+        }
+        r
+      }
 
-  def DefaultConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable, null, null, Map.empty, Defaults.RemoteLogRetentionBytes, Defaults.RemoteLogRetentionMillis, Defaults.RemoteLogReaderThreads, Defaults.RemoteLogReaderMaxPendingTasks, Defaults.RemoteLogManagerThreadPoolSize, Defaults.RemoteLogManagerTaskIntervalMs, Defaults.RemoteLogMetadataManager, Defaults.RemoteLogMetadataManagerClassPath, rlmmProps = Map.empty)
+      def isCancelled: Boolean = future.isCancelled
 
-  def createRemoteLogManagerConfig(config: KafkaConfig): RemoteLogManagerConfig = {
-    var rsmProps = Map[String, Any]()
-    var rlmmProps = Map[String, Any]()
-    config.props.forEach(new BiConsumer[Any, Any] {
-      override def accept(key: Any, value: Any): Unit = {
-        key match {
-          case key: String if key.startsWith(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX) =>
-            rsmProps += (key.toString -> value)
-          case key: String if key.startsWith(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX) =>
-            rlmmProps += (key.toString -> value)
-          case _ =>
+      def isDone: Boolean = future.isDone
+    }
+
+    /**
+     * Submit a remote log read task.
+     *
+     * This method returns immediately. The read operation is executed in a thread pool.
+     * The callback will be called when the task is done.
+     *
+     * @throws RejectedExecutionException if the task cannot be accepted for execution (task queue is full)
+     */
+    def asyncRead(fetchInfo: RemoteStorageFetchInfo, callback: (RemoteLogReadResult) => Unit): AsyncReadTask = {
+      AsyncReadTask(remoteStorageFetcherThreadPool.submit(new RemoteLogReader(fetchInfo, this, brokerTopicStats, callback)))
+    }
+
+    /**
+     * Stops all the threads and releases all the resources.
+     */
+    def close(): Unit = {
+      if (closed)
+        warn("Trying to close an already closed RemoteLogManager")
+      else this synchronized {
+        Utils.closeQuietly(remoteLogStorageManager, "RemoteLogStorageManager")
+        Utils.closeQuietly(remoteLogMetadataManager, "RemoteLogMetadataManager")
+        leaderOrFollowerTasks.values().forEach(new Consumer[RLMTaskWithFuture] {
+          override def accept(taskWithFuture: RLMTaskWithFuture): Unit = taskWithFuture.cancel()
+        })
+        rlmScheduledThreadPool.shutdown()
+        closed = true
+      }
+    }
+
+    case class RLMTaskWithFuture(rlmTask: RLMTask, future: Future[_]) {
+      def cancel(): Unit = {
+        rlmTask.cancel()
+        try {
+          future.cancel(true)
+        } catch {
+          case ex: Exception => error(s"Error occurred while canceling the task: $rlmTask", ex)
         }
       }
-    })
+    }
 
-    RemoteLogManagerConfig(config.remoteLogStorageEnable, config.remoteLogStorageManager,
-      config.remoteLogStorageManagerClassPath, rsmProps.toMap, config.remoteLogRetentionBytes, config.remoteLogRetentionMillis, config.remoteLogReaderThreads,
-      config.remoteLogReaderMaxPendingTasks, config.remoteLogManagerThreadPoolSize,
-      config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager, config.remoteLogMetadataManagerClassPath,
-      rlmmProps.toMap, Option(config.remoteLogMetadataManagerListenerName))
   }
-}
+
+  case class RemoteLogManagerConfig(remoteLogStorageEnable: Boolean,
+                                    remoteLogStorageManagerClass: String,
+                                    remoteLogStorageManagerClassPath: String,
+                                    rsmProps: Map[String, Any] = Map.empty,
+                                    remoteLogRetentionBytes: Long,
+                                    remoteLogRetentionMillis: Long,
+                                    remoteLogReaderThreads: Int,
+                                    remoteLogReaderMaxPendingTasks: Int,
+                                    remoteLogManagerThreadPoolSize: Int,
+                                    remoteLogManagerTaskIntervalMs: Long,
+                                    remoteLogMetadataManagerClass: String = "",
+                                    remoteLogMetadataManagerClassPath: String = "",
+                                    rlmmProps: Map[String, Any] = Map.empty,
+                                    listenerName: Option[String] = None)
+
+  object RemoteLogManager {
+    def REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "remote.log.storage."
+
+    def REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX = "remote.log.metadata."
+
+    /**
+     * Property name for cluster id.
+     */
+    val CLUSTER_ID = "cluster.id"
+
+    def DefaultConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable, null, null, Map.empty, Defaults.RemoteLogRetentionBytes, Defaults.RemoteLogRetentionMillis, Defaults.RemoteLogReaderThreads, Defaults.RemoteLogReaderMaxPendingTasks, Defaults.RemoteLogManagerThreadPoolSize, Defaults.RemoteLogManagerTaskIntervalMs, Defaults.RemoteLogMetadataManager, Defaults.RemoteLogMetadataManagerClassPath, rlmmProps = Map.empty)
+
+    def createRemoteLogManagerConfig(config: KafkaConfig): RemoteLogManagerConfig = {
+      var rsmProps = Map[String, Any]()
+      var rlmmProps = Map[String, Any]()
+      config.props.forEach(new BiConsumer[Any, Any] {
+        override def accept(key: Any, value: Any): Unit = {
+          key match {
+            case key: String if key.startsWith(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX) =>
+              rsmProps += (key.toString -> value)
+            case key: String if key.startsWith(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX) =>
+              rlmmProps += (key.toString -> value)
+            case _ =>
+          }
+        }
+      })
+
+      RemoteLogManagerConfig(config.remoteLogStorageEnable, config.remoteLogStorageManager,
+        config.remoteLogStorageManagerClassPath, rsmProps.toMap, config.remoteLogRetentionBytes, config.remoteLogRetentionMillis, config.remoteLogReaderThreads,
+        config.remoteLogReaderMaxPendingTasks, config.remoteLogManagerThreadPoolSize,
+        config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager, config.remoteLogMetadataManagerClassPath,
+        rlmmProps.toMap, Option(config.remoteLogMetadataManagerListenerName))
+    }
+  }

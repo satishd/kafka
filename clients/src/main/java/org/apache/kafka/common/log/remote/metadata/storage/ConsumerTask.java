@@ -199,9 +199,10 @@ class ConsumerTask implements Runnable, Closeable {
             remotePartitionMetadataEventHandler.handleRemoteLogSegmentMetadata(remoteLogSegmentMetadata);
         } else if (apiKey == REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY) {
             RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate = (RemoteLogSegmentMetadataUpdate) remoteLogMetadataContext.payload();
-        } if (apiKey == REMOTE_PARTITION_DELETE_API_KEY) {
+            remotePartitionMetadataEventHandler.handleRemoteLogSegmentMetadataUpdate(remoteLogSegmentMetadataUpdate);
+        } else if (apiKey == REMOTE_PARTITION_DELETE_API_KEY) {
             RemotePartitionDeleteMetadata remotePartitionDeleteMetadata = (RemotePartitionDeleteMetadata) remoteLogMetadataContext.payload();
-
+            remotePartitionMetadataEventHandler.handleRemotePartitionDeleteMetadata(remotePartitionDeleteMetadata);
         } else {
             throw new IllegalArgumentException(String.format("Unknown api key [%s] received", apiKey));
         }

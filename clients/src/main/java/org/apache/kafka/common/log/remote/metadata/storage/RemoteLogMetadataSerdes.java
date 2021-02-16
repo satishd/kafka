@@ -66,12 +66,12 @@ public class RemoteLogMetadataSerdes {
         return transformToBytes(remoteLogMetadataContext.apiKey(), remoteLogMetadataContext.version(), struct);
     }
 
-    private static byte[] transformToBytes(short apiKey, short version, Struct struct) {
+    private static byte[] transformToBytes(byte apiKey, byte version, Struct struct) {
         int size = struct.sizeOf();
         ByteBuffer byteBuffer;
-        byteBuffer = ByteBuffer.allocate(2 + 2 + size);
-        byteBuffer.putShort(apiKey);
-        byteBuffer.putShort(version);
+        byteBuffer = ByteBuffer.allocate(1 + 1 + size);
+        byteBuffer.put(apiKey);
+        byteBuffer.put(version);
         struct.writeTo(byteBuffer);
 
         return byteBuffer.array();

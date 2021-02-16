@@ -30,6 +30,8 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.internals.Topic;
 import org.apache.kafka.common.log.remote.storage.*;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
@@ -85,7 +87,9 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     protected int noOfMetadataTopicPartitions;
     private ConcurrentMap<RemoteLogSegmentId, RemoteLogSegmentMetadata> idWithSegmentMetadata =
             new ConcurrentHashMap<>();
-    private Map<TopicIdPartition, NavigableMap<Long, RemoteLogSegmentId>> partitionsWithSegmentIds =
+    private Map<TopicIdPartition, NavigableMap<Long, RemoteLogSegmentId>> partitionsWithOffsetSegmentIds =
+            new ConcurrentHashMap<>();
+    private Map<TopicIdPartition, ConcurrentMap<Integer, RemoteLogSegmentId>> partitionsWithLeaderEpochSegmentIds =
             new ConcurrentHashMap<>();
     private KafkaProducer<byte[], byte[]> producer;
     private AdminClient adminClient;
@@ -170,8 +174,10 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         try {
             final Collection<RemoteLogSegmentMetadata> remoteLogSegmentMetadatas = committedLogMetadataStore.read();
             for (RemoteLogSegmentMetadata entry : remoteLogSegmentMetadatas) {
-                partitionsWithSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
+                partitionsWithOffsetSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
                         k -> new ConcurrentSkipListMap<>()).put(entry.startOffset(), entry.remoteLogSegmentId());
+                partitionsWithLeaderEpochSegmentIds.computeIfAbsent(entry.remoteLogSegmentId().topicIdPartition(),
+                        k -> new ConcurrentHashMap<>()).put(entry.leaderEpoch(), entry.remoteLogSegmentId());
                 idWithSegmentMetadata.put(entry.remoteLogSegmentId(), entry);
             }
         } catch (IOException e) {
@@ -201,6 +207,8 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 1);
         props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, Integer.MAX_VALUE);
         props.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 5000);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
 
         this.producer = new KafkaProducer<>(props);
     }
@@ -220,6 +228,8 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, 30 * 1000);
         props.put(ConsumerConfig.EXCLUDE_INTERNAL_TOPICS_CONFIG, false);
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
 
         this.consumer = new KafkaConsumer<>(props);
     }
@@ -341,7 +351,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
                                                                        int epochForOffset) throws RemoteStorageException {
         ensureInitialized();
 
-        NavigableMap<Long, RemoteLogSegmentId> remoteLogSegmentIdMap = partitionsWithSegmentIds.get(topicIdPartition);
+        NavigableMap<Long, RemoteLogSegmentId> remoteLogSegmentIdMap = partitionsWithOffsetSegmentIds.get(topicIdPartition);
         if (remoteLogSegmentIdMap == null) {
             return Optional.empty();
         }
@@ -371,7 +381,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     public Optional<Long> highestLogOffset(TopicIdPartition topicIdPartition, int leaderEpoch) throws RemoteStorageException {
         ensureInitialized();
 
-        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicIdPartition);
+        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithOffsetSegmentIds.get(topicIdPartition);
 
         return map == null || map.isEmpty() ? Optional.empty() : Optional.of(map.lastEntry().getKey());
     }
@@ -389,7 +399,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     public Iterator<RemoteLogSegmentMetadata> doListRemoteLogSegments(TopicIdPartition topicPartition, Long leaderEpoch) {
         ensureInitialized();
 
-        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds.get(topicPartition);
+        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithOffsetSegmentIds.get(topicPartition);
         if (map == null) {
             return Collections.emptyIterator();
         }
@@ -442,7 +452,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     public void doHandleRemoteLogSegmentMetadata(RemoteLogSegmentMetadata metadata) {
         ensureInitialized();
         TopicIdPartition tp = metadata.remoteLogSegmentId().topicIdPartition();
-        final NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithSegmentIds
+        final NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithOffsetSegmentIds
                 .computeIfAbsent(tp, topicPartition -> new ConcurrentSkipListMap<>());
         if (metadata.state() == RemoteLogSegmentState.DELETE_SEGMENT_FINISHED) {
             idWithSegmentMetadata.remove(metadata.remoteLogSegmentId());
@@ -472,6 +482,12 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
     private void doHandleRemotePartitionDeleteMetadata(RemotePartitionDeleteMetadata remotePartitionDeleteMetadata) {
         //todo-tier let partition remover handle this!!
         // RemotePartitionRemover will subscribe to the local tier metadata partitions and process them.
+        NavigableMap<Long, RemoteLogSegmentId> map = partitionsWithOffsetSegmentIds.remove(remotePartitionDeleteMetadata.topicIdPartition());
+        if(map != null) {
+            for (RemoteLogSegmentId id : map.values()) {
+                idWithSegmentMetadata.remove(id);
+            }
+        }
     }
 
     public int metadataPartitionFor(TopicIdPartition tp) {
@@ -498,7 +514,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager {
 
         Utils.closeQuietly(consumerTask, "ConsumerTask");
         idWithSegmentMetadata = new ConcurrentHashMap<>();
-        partitionsWithSegmentIds = new ConcurrentHashMap<>();
+        partitionsWithOffsetSegmentIds = new ConcurrentHashMap<>();
     }
 
     private class RemotePartitionMetadataEventHandlerImpl implements RemotePartitionMetadataEventHandler {
