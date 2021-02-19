@@ -106,4 +106,5 @@ public class RemoteLogSegmentMetadataUpdate implements Serializable {
                ", state=" + state +
                '}';
     }
+
 }

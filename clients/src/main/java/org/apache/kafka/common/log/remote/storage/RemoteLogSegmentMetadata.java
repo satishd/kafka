@@ -20,7 +20,9 @@ import org.apache.kafka.common.annotation.InterfaceStability;
 
 import java.io.Serializable;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 /**
  * It describes the metadata about a topic partition's remote log segment in the remote storage. This is uniquely
@@ -64,7 +66,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
     /**
      * LeaderEpoch vs offset for messages with in this segment.
      */
-    private final Map<Integer, Long> segmentLeaderEpochs;
+    private final NavigableMap<Integer, Long> segmentLeaderEpochs;
 
     /**
      * Size of the segment in bytes.
@@ -104,7 +106,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
         this.leaderEpoch = leaderEpoch;
         this.maxTimestamp = maxTimestamp;
         this.eventTimestamp = eventTimestamp;
-        this.segmentLeaderEpochs = segmentLeaderEpochs;
+        this.segmentLeaderEpochs = new ConcurrentSkipListMap<>(segmentLeaderEpochs);
         this.state = state;
         this.segmentSizeInBytes = segmentSizeInBytes;
     }
@@ -154,7 +156,7 @@ public class RemoteLogSegmentMetadata implements Serializable {
     /**
      * @return Map of leader epoch vs offset for the records available in this segment.
      */
-    public Map<Integer, Long> segmentLeaderEpochs() {
+    public NavigableMap<Integer, Long> segmentLeaderEpochs() {
         return segmentLeaderEpochs;
     }
 

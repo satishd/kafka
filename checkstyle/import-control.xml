@@ -56,6 +56,7 @@
     <allow pkg="org.apache.kafka.common.annotation" />
     <allow pkg="org.apache.kafka.common.config" exact-match="true" />
     <allow pkg="org.apache.kafka.common.internals" exact-match="true" />
+    <allow pkg="org.apache.kafka.common.log.remote.storage" />
     <allow pkg="org.apache.kafka.test" />
 
     <subpackage name="acl">
