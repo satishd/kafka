@@ -30,23 +30,16 @@ public class RemotePartitionDeleteMetadata {
 
     private final TopicIdPartition topicIdPartition;
     private final RemotePartitionDeleteState state;
-    private final long eventTimestamp;
+    private final long eventTimestampMs;
     private final int brokerId;
 
-    /**
-     *
-     * @param topicIdPartition
-     * @param state
-     * @param eventTimestamp
-     * @param brokerId
-     */
     public RemotePartitionDeleteMetadata(TopicIdPartition topicIdPartition,
                                          RemotePartitionDeleteState state,
-                                         long eventTimestamp,
+                                         long eventTimestampMs,
                                          int brokerId) {
         this.topicIdPartition = Objects.requireNonNull(topicIdPartition);
         this.state = Objects.requireNonNull(state);
-        this.eventTimestamp = eventTimestamp;
+        this.eventTimestampMs = eventTimestampMs;
         this.brokerId = brokerId;
     }
 
@@ -65,10 +58,10 @@ public class RemotePartitionDeleteMetadata {
     }
 
     /**
-     * @return Epoch time at which this event is occurred.
+     * @return Epoch time in milli seconds at which this event is occurred.
      */
-    public long eventTimestamp() {
-        return eventTimestamp;
+    public long eventTimestampMs() {
+        return eventTimestampMs;
     }
 
     /**
@@ -83,7 +76,7 @@ public class RemotePartitionDeleteMetadata {
         return "RemotePartitionDeleteMetadata{" +
                "topicPartition=" + topicIdPartition +
                ", state=" + state +
-               ", eventTimestamp=" + eventTimestamp +
+               ", eventTimestampMs=" + eventTimestampMs +
                ", brokerId=" + brokerId +
                '}';
     }
@@ -97,7 +90,7 @@ public class RemotePartitionDeleteMetadata {
             return false;
         }
         RemotePartitionDeleteMetadata that = (RemotePartitionDeleteMetadata) o;
-        return eventTimestamp == that.eventTimestamp &&
+        return eventTimestampMs == that.eventTimestampMs &&
                brokerId == that.brokerId &&
                Objects.equals(topicIdPartition, that.topicIdPartition) &&
                state == that.state;
@@ -105,6 +98,6 @@ public class RemotePartitionDeleteMetadata {
 
     @Override
     public int hashCode() {
-        return Objects.hash(topicIdPartition, state, eventTimestamp, brokerId);
+        return Objects.hash(topicIdPartition, state, eventTimestampMs, brokerId);
     }
 }
