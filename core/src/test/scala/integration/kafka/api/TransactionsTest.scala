@@ -61,10 +61,8 @@ class TransactionsTest extends KafkaServerTestHarness {
   @Before
   override def setUp(): Unit = {
     super.setUp()
-    val topicConfig = new Properties()
-    topicConfig.put(KafkaConfig.MinInSyncReplicasProp, 2.toString)
-    createTopic(topic1, numPartitions, numServers, topicConfig)
-    createTopic(topic2, numPartitions, numServers, topicConfig)
+    createTopic(topic1, numPartitions, numServers, topicProps())
+    createTopic(topic2, numPartitions, numServers, topicProps())
 
     for (_ <- 0 until transactionalProducerCount)
       createTransactionalProducer("transactional-producer")
@@ -754,7 +752,7 @@ class TransactionsTest extends KafkaServerTestHarness {
     producer.flush()
   }
 
-  private def serverProps() = {
+  def serverProps(): Properties = {
     val serverProps = new Properties()
     serverProps.put(KafkaConfig.AutoCreateTopicsEnableProp, false.toString)
     // Set a smaller value for the number of partitions for the __consumer_offsets topic
@@ -769,6 +767,12 @@ class TransactionsTest extends KafkaServerTestHarness {
     serverProps.put(KafkaConfig.GroupInitialRebalanceDelayMsProp, "0")
     serverProps.put(KafkaConfig.TransactionsAbortTimedOutTransactionCleanupIntervalMsProp, "200")
     serverProps
+  }
+
+  def topicProps(): Properties = {
+    val topicProps = new Properties()
+    topicProps.put(KafkaConfig.MinInSyncReplicasProp, 2.toString)
+    topicProps
   }
 
   private def createReadCommittedConsumer(group: String = "group",
