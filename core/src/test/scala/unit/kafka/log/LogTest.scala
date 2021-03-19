@@ -1357,9 +1357,9 @@ class LogTest {
 
   @Test
   def testSegmentDeletionDisabledBeforeUploadToRemoteTier(): Unit = {
-    val logConfig = LogTest.createLogConfig(indexIntervalBytes = 1, segmentIndexBytes = 12,
-      retentionBytes = 1, fileDeleteDelayMs = 0)
-    val log = createLog(logDir, logConfig)
+    val logConfig = LogTest.createLogConfig(indexIntervalBytes = 1, segmentIndexBytes = 12, retentionBytes = 1,
+      fileDeleteDelayMs = 0)
+    val log = createLog(logDir, logConfig, remoteLogEnable = true)
     val pid = 1L
     val epoch = 0.toShort
 
@@ -1380,7 +1380,7 @@ class LogTest {
   def testSegmentDeletionEnabledAfterUploadToRemoteTier(): Unit = {
     val logConfig = LogTest.createLogConfig(indexIntervalBytes = 1, segmentIndexBytes = 12,
       retentionBytes = 1, fileDeleteDelayMs = 0)
-    val log = createLog(logDir, logConfig)
+    val log = createLog(logDir, logConfig, remoteLogEnable = true)
     val pid = 1L
     val epoch = 0.toShort
 
@@ -4735,9 +4735,10 @@ class LogTest {
                         time: Time = mockTime,
                         maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
                         producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
+                        remoteLogEnable: Boolean = false,
                         lastShutdownClean: Boolean = true): Log = {
     LogTest.createLog(dir, config, brokerTopicStats, scheduler, time, logStartOffset, recoveryPoint,
-      maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs, lastShutdownClean)
+      maxProducerIdExpirationMs, producerIdExpirationCheckIntervalMs, remoteLogEnable, lastShutdownClean)
   }
 
   private def createLogWithOffsetOverflow(logConfig: LogConfig): (Log, LogSegment) = {
@@ -4803,6 +4804,7 @@ object LogTest {
                 recoveryPoint: Long = 0L,
                 maxProducerIdExpirationMs: Int = 60 * 60 * 1000,
                 producerIdExpirationCheckIntervalMs: Int = LogManager.ProducerIdExpirationCheckIntervalMs,
+                remoteLogEnable: Boolean = false,
                 lastShutdownClean: Boolean = true): Log = {
     Log(dir = dir,
       config = config,
@@ -4814,6 +4816,7 @@ object LogTest {
       maxProducerIdExpirationMs = maxProducerIdExpirationMs,
       producerIdExpirationCheckIntervalMs = producerIdExpirationCheckIntervalMs,
       logDirFailureChannel = new LogDirFailureChannel(10),
+      remoteLogEnable = remoteLogEnable,
       lastShutdownClean = lastShutdownClean)
   }
 

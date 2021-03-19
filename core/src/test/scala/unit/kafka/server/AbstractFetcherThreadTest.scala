@@ -505,7 +505,8 @@ class AbstractFetcherThreadTest {
     fetcher.setLeaderState(partition, leaderState)
 
     assertEquals(3L, replicaState.logEndOffset)
-    assertEquals(Option(Fetching), fetcher.fetchState(partition).map(_.state))
+    val expectedState = if (truncateOnFetch) Option(Fetching) else Option(Truncating)
+    assertEquals(expectedState, fetcher.fetchState(partition).map(_.state))
 
     fetcher.doWork()
     // verify that the offset moved to tiered store error triggered and respective states are truncated to expected.

@@ -847,7 +847,7 @@ object KafkaConfig {
     "classloader which searches this class path before the Kafka broker class path. The syntax of this parameter is same" +
     "with the standard Java class path string."
   val RemoteLogMetadataManagerListenerNameDoc = "Listener name of the local broker to which it should get connected if " +
-    "needed by RemoteLogMetadataManager implementation. When this is configured all other requried properties can be " +
+    "needed by RemoteLogMetadataManager implementation. When this is configured all other required properties can be " +
     "passed as properties with prefix of 'remote.log.metadata.manager.listener.'"
   val RemoteLogRetentionMillisDoc = "Remote log retention in milli seconds, after which remote log segment is deleted."
   val RemoteLogRetentionBytesDoc = "Remote log size retention in bytes, after which remote log segment is deleted."

@@ -76,7 +76,7 @@ public class RLMMWithTopicStorage implements RemoteLogMetadataManager, RemoteLog
     public static final String REMOTE_LOG_METADATA_TOPIC_NAME = Topic.REMOTE_LOG_METADATA_TOPIC_NAME;
     public static final String REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP =
             "remote.log.metadata.topic.replication.factor";
-    public static final String REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP = "remote.log.metadata.topic.partitions";
+    public static final String REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP = "remote.log.metadata.topic.num.partitions";
     public static final String REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP =
             "remote.log.metadata.topic.retention.ms";
     public static final int DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS = 50;

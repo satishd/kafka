@@ -461,9 +461,9 @@ object ConsoleConsumer extends Logging {
 }
 
 class DefaultMessageFormatter extends MessageFormatter {
+  var printTimestamp = false
   var printKey = false
   var printValue = true
-  var printTimestamp = false
   var printPartition = false
   var printOffset = false
   var printHeaders = false
@@ -511,13 +511,6 @@ class DefaultMessageFormatter extends MessageFormatter {
     }
 
     import consumerRecord._
-
-    def writeOffset():Unit = {
-      output.write(consumerRecord.offset().toString.getBytes("UTF-8"))
-      output.write(":".getBytes("UTF-8"))
-    }
-
-    writeOffset()
 
     if (printTimestamp) {
       if (timestampType != TimestampType.NO_TIMESTAMP_TYPE)

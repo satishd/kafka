@@ -428,7 +428,9 @@ class ReplicaFetcherThread(name: String,
     val tmpFile = new File(dir, "leader-epoch-checkpoint" + TmpFileSuffix)
     Files.copy(stream, tmpFile.toPath)
     val epochEntries = new LeaderEpochCheckpointFile(tmpFile).checkpoint.read().toList
-    tmpFile.delete()
+    if (!tmpFile.delete()) {
+      logger.warn("Unable to delete the temporary leader epoch checkpoint file: {}", tmpFile.getAbsolutePath)
+    }
     epochEntries
   }
 }

@@ -1721,41 +1721,35 @@ class Log(@volatile private var _dir: File,
         val epochOptional = Optional.ofNullable(latestEpochOpt.orNull)
         Some(new TimestampAndOffset(RecordBatch.NO_TIMESTAMP, logEndOffset, epochOptional))
       } else {
-        // We need to search the first segment whose largest timestamp is >= the target timestamp if there is one.
-        val targetSeg = segmentsCopy.find(_.largestTimestamp >= targetTimestamp)
-        targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, logStartOffset))
-      }
+        var isFirstSegment = false
+        val targetSeg: Option[LogSegment] = {
+          // Get all the segments whose largest timestamp is smaller than target timestamp
+          val earlierSegs = segmentsCopy.takeWhile(_.largestTimestamp < targetTimestamp)
+          // We need to search the first segment whose largest timestamp is greater than the target timestamp if there is one.
+          if (earlierSegs.length < segmentsCopy.length) {
+            isFirstSegment = earlierSegs.isEmpty
+            Some(segmentsCopy(earlierSegs.length))
+          } else {
+            None
+          }
+        }
 
-      var isFirstSegment = false
-      val targetSeg:Option[LogSegment] = {
-        // Get all the segments whose largest timestamp is smaller than target timestamp
-        val earlierSegs = segmentsCopy.takeWhile(_.largestTimestamp < targetTimestamp)
-        // We need to search the first segment whose largest timestamp is greater than the target timestamp if there is one.
-        if (earlierSegs.length < segmentsCopy.length) {
-          isFirstSegment = earlierSegs.isEmpty
-          Some(segmentsCopy(earlierSegs.length))
-        } else
-          None
-      }
+        if (isFirstSegment && remoteLogManager.isDefined) {
+          val localOffset = targetSeg.get.findOffsetByTimestamp(targetTimestamp, localLogStartOffset)
+          val remoteOffset = remoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset)
 
-      if (isFirstSegment && remoteLogManager.isDefined) {
-        val localOffset = targetSeg.get.findOffsetByTimestamp(targetTimestamp, logStartOffset)
-        val remoteOffset = remoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset)
-
-        if (localOffset.isEmpty)
-          remoteOffset
-        else if (remoteOffset.isEmpty)
-          localOffset
-        else if (localOffset.get.offset <= remoteOffset.get.offset)
-          localOffset
-        else
-          remoteOffset
-      } else {
-        targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, logStartOffset))
+          if (localOffset.isEmpty)
+            remoteOffset
+          else if (remoteOffset.isEmpty)
+            localOffset
+          else if (localOffset.get.offset <= remoteOffset.get.offset)
+            localOffset
+          else
+            remoteOffset
+        } else {
+          targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, logStartOffset))
+        }
       }
-      // We need to search the first segment whose largest timestamp is >= the target timestamp if there is one.
-//      val targetSeg = segmentsCopy.find(_.largestTimestamp >= targetTimestamp)
-//      targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, logStartOffset))
     }
   }
 
