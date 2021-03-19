@@ -38,6 +38,7 @@ public class InmemoryRemoteStorageManagerTest {
 
     private static final TopicPartition TP = new TopicPartition("foo", 1);
     private static final File DIR = TestUtils.tempDirectory("inmem-rsm-");
+    public static final Random RANDOM = new Random();
 
     @Test
     public void testCopyLogSegment() throws Exception {
@@ -219,7 +220,7 @@ public class InmemoryRemoteStorageManagerTest {
     }
 
     private LogSegmentData createLogSegmentData(int segSize) throws Exception {
-        int prefix = Math.abs(new Random().nextInt());
+        int prefix = Math.abs(RANDOM.nextInt());
         File segment = new File(DIR, prefix + ".seg");
         Files.write(segment.toPath(), TestUtils.randomBytes(segSize));
 

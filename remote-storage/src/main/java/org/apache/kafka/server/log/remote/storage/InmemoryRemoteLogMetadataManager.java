@@ -38,7 +38,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
     private final ConcurrentMap<TopicIdPartition, RemotePartitionDeleteMetadata> idToPartitionDeleteMetadata =
             new ConcurrentHashMap<>();
 
-    private final ConcurrentMap<TopicIdPartition, RemoteLogMetadataCache> partitionToRemoteLogMetadataCache =
+    private final ConcurrentMap<TopicIdPartition, RemoteLogMetadataCache> idToRemoteLogMetadataCache =
             new ConcurrentHashMap<>();
 
     @Override
@@ -47,19 +47,11 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         log.debug("Adding remote log segment : [{}]", remoteLogSegmentMetadata);
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
 
-        // this method is allowed only to add remote log segment with the initial state(which is RemoteLogSegmentState.COPY_SEGMENT_STARTED)
-        // but not to update the existing remote log segment metadata.
-        if (remoteLogSegmentMetadata.state() != RemoteLogSegmentState.COPY_SEGMENT_STARTED) {
-            throw new IllegalArgumentException("Given remoteLogSegmentMetadata should have state as " + RemoteLogSegmentState.COPY_SEGMENT_STARTED
-                    + " but it contains state as: " + remoteLogSegmentMetadata.state());
-        }
-
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
 
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache
-                .computeIfAbsent(remoteLogSegmentId.topicIdPartition(), id -> new RemoteLogMetadataCache());
-
-        remoteLogMetadataCache.addToInProgress(remoteLogSegmentMetadata);
+        idToRemoteLogMetadataCache
+                .computeIfAbsent(remoteLogSegmentId.topicIdPartition(), id -> new RemoteLogMetadataCache())
+                .addCopyInProgressSegment(remoteLogSegmentMetadata);
     }
 
     @Override
@@ -68,19 +60,11 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         log.debug("Updating remote log segment: [{}]", metadataUpdate);
         Objects.requireNonNull(metadataUpdate, "metadataUpdate can not be null");
 
-        RemoteLogSegmentState targetState = metadataUpdate.state();
-        // Callers should use putRemoteLogSegmentMetadata to add RemoteLogSegmentMetadata with state as
-        // RemoteLogSegmentState.COPY_SEGMENT_STARTED.
-        if (targetState == RemoteLogSegmentState.COPY_SEGMENT_STARTED) {
-            throw new IllegalArgumentException("Given remoteLogSegmentMetadata should not have the state as: "
-                                               + RemoteLogSegmentState.COPY_SEGMENT_STARTED);
-        }
-
         RemoteLogSegmentId remoteLogSegmentId = metadataUpdate.remoteLogSegmentId();
         TopicIdPartition topicIdPartition = remoteLogSegmentId.topicIdPartition();
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache.get(topicIdPartition);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
-            throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
+            throw new RemoteResourceNotFoundException("No existing metadata found for partition: " + topicIdPartition);
         }
 
         remoteLogMetadataCache.updateRemoteLogSegmentMetadata(metadataUpdate);
@@ -93,7 +77,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache.get(topicIdPartition);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No metadata found for the given partition: " + topicIdPartition);
         }
@@ -106,12 +90,12 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
                                            int leaderEpoch) throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache.get(topicIdPartition);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
         }
 
-        return remoteLogMetadataCache.highestLogOffset(leaderEpoch);    
+        return remoteLogMetadataCache.leaderEpochEndOffset(leaderEpoch);
     }
 
     @Override
@@ -133,7 +117,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
 
         if (targetState == RemotePartitionDeleteState.DELETE_PARTITION_FINISHED) {
             // remove the association for the partition.
-            partitionToRemoteLogMetadataCache.remove(topicIdPartition);
+            idToRemoteLogMetadataCache.remove(topicIdPartition);
             idToPartitionDeleteMetadata.remove(topicIdPartition);
         }
     }
@@ -141,7 +125,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition)
             throws RemoteStorageException {
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache.get(topicIdPartition);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
         }
@@ -154,7 +138,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = partitionToRemoteLogMetadataCache.get(topicIdPartition);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
         }

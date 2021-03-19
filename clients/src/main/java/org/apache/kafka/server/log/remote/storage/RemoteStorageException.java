@@ -33,4 +33,10 @@ public class RemoteStorageException extends Exception {
         super(message, cause);
     }
 
+    public RemoteStorageException() {
+    }
+
+    public RemoteStorageException(Throwable cause) {
+        super(cause);
+    }
 }

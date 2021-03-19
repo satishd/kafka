@@ -34,11 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InmemoryRemoteStorageManager implements RemoteStorageManager {
     private static final Logger log = LoggerFactory.getLogger(InmemoryRemoteStorageManager.class);
 
-    // map of key to log data, which can be segment or any of its indexes.
+    // Map of key to log data, which can be segment or any of its indexes.
     private Map<String, byte[]> keyToLogData = new ConcurrentHashMap<>();
-
-    public InmemoryRemoteStorageManager() {
-    }
 
     static String generateKeyForSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
         return remoteLogSegmentMetadata.remoteLogSegmentId().id().toString() + ".segment";
@@ -61,20 +58,25 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
         log.debug("copying log segment and indexes for : {}", remoteLogSegmentMetadata);
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
         Objects.requireNonNull(logSegmentData, "logSegmentData can not be null");
+
+        if (keyToLogData.containsKey(generateKeyForSegment(remoteLogSegmentMetadata))) {
+            throw new RemoteStorageException();
+        }
+
         try {
             keyToLogData.put(generateKeyForSegment(remoteLogSegmentMetadata),
                     Files.readAllBytes(logSegmentData.logSegment().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Offset),
-                    Files.readAllBytes(logSegmentData.offsetIndex().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Timestamp),
-                    Files.readAllBytes(logSegmentData.timeIndex().toPath()));
             keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Transaction),
                     Files.readAllBytes(logSegmentData.txnIndex().toPath()));
             keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.LeaderEpoch),
                     logSegmentData.leaderEpochIndex().array());
             keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.ProducerSnapshot),
                     Files.readAllBytes(logSegmentData.producerSnapshotIndex().toPath()));
-        } catch (IOException e) {
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Offset),
+                    Files.readAllBytes(logSegmentData.offsetIndex().toPath()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Timestamp),
+                    Files.readAllBytes(logSegmentData.timeIndex().toPath()));
+        } catch (Exception e) {
             throw new RemoteStorageException(e.getMessage(), e);
         }
         log.debug("copied log segment and indexes for : {} successfully.", remoteLogSegmentMetadata);
@@ -167,5 +169,6 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void configure(Map<String, ?> configs) {
+        // Intentionally left blank here as nothing to be initialized here.
     }
 }
