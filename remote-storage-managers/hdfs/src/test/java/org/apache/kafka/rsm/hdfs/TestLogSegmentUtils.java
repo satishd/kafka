@@ -6,14 +6,14 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.LEADER_EPOCH_FILE_NAME;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.LOG_FILE_NAME;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.OFFSET_INDEX_FILE_NAME;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.PRODUCER_SNAPSHOT_FILE_NAME;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.TIME_INDEX_FILE_NAME;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.TXN_INDEX_FILE_NAME;
-
 public class TestLogSegmentUtils {
+
+    public static final String LOG_FILE_NAME = "log";
+    public static final String OFFSET_INDEX_FILE_NAME = "index";
+    public static final String TIME_INDEX_FILE_NAME = "time";
+    public static final String LEADER_EPOCH_FILE_NAME = "leader-epoch-checkpoint";
+    public static final String TXN_INDEX_FILE_NAME = "txn";
+    public static final String PRODUCER_SNAPSHOT_FILE_NAME = "snapshot";
 
     public static LogSegmentData createLogSegmentData(File logDir,
                                                       int startOffset,

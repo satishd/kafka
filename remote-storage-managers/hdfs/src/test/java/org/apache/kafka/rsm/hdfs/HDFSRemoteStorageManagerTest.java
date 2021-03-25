@@ -72,6 +72,7 @@ public class HDFSRemoteStorageManagerTest {
         Configuration conf = new Configuration();
         conf.set(MiniDFSCluster.HDFS_MINIDFS_BASEDIR, remoteDir.getAbsolutePath());
         MiniDFSCluster.Builder builder = new MiniDFSCluster.Builder(conf);
+        builder.clusterId("test_mini_dfs_cluster");
         hdfsCluster = builder.build();
         String hdfsURI = "hdfs://localhost:" + hdfsCluster.getNameNodePort() + "/";
         hdfs = FileSystem.newInstance(new URI(hdfsURI), conf);

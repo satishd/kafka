@@ -50,19 +50,12 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
-    public static final String LOG_FILE_NAME = "log";
-    public static final String OFFSET_INDEX_FILE_NAME = "index";
-    public static final String TIME_INDEX_FILE_NAME = "time";
-    public static final String LEADER_EPOCH_FILE_NAME = "leader-epoch-checkpoint";
-    public static final String TXN_INDEX_FILE_NAME = "txn";
-    public static final String PRODUCER_SNAPSHOT_FILE_NAME = "snapshot";
-
-    private URI fsURI = null;
-    private String baseDir = null;
-    private Configuration hadoopConf = null;
-    private final ThreadLocal<FileSystem> fs = new ThreadLocal<>();
+    private URI fsURI;
+    private String baseDir;
+    private Configuration hadoopConf;
     private int cacheLineSize;
     private LRUCache readCache;
+    private final ThreadLocal<FileSystem> fs = new ThreadLocal<>();
 
     /**
      * Initialize this instance with the given configs
