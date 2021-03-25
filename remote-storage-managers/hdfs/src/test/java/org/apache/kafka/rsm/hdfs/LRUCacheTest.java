@@ -16,14 +16,15 @@
  */
 package org.apache.kafka.rsm.hdfs;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class LRUCacheTest {
+
     @Test
     public void testLRUCache() {
         LRUCache cache = new LRUCache(1000);

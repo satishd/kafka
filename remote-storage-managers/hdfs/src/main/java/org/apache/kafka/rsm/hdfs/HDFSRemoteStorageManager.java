@@ -17,8 +17,10 @@
 package org.apache.kafka.rsm.hdfs;
 
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.kafka.common.log.remote.storage.LogSegmentData;
@@ -26,84 +28,115 @@ import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.common.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.common.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.common.utils.Utils;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.util.Map;
+
+import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
+import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
+
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.OFFSET_INDEX;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.SEGMENT;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TIMESTAMP_INDEX;
+import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTION_INDEX;
 
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
-    private static final String LOG_FILE_NAME = "log";
-    private static final String OFFSET_INDEX_FILE_NAME = "index";
-    private static final String TIME_INDEX_FILE_NAME = "timeindex";
+    public static final String LOG_FILE_NAME = "log";
+    public static final String OFFSET_INDEX_FILE_NAME = "index";
+    public static final String TIME_INDEX_FILE_NAME = "time";
+    public static final String LEADER_EPOCH_FILE_NAME = "leader-epoch-checkpoint";
+    public static final String TXN_INDEX_FILE_NAME = "txn";
+    public static final String PRODUCER_SNAPSHOT_FILE_NAME = "snapshot";
 
     private URI fsURI = null;
     private String baseDir = null;
     private Configuration hadoopConf = null;
-    private ThreadLocal<FileSystem> fs = new ThreadLocal<>();
+    private final ThreadLocal<FileSystem> fs = new ThreadLocal<>();
     private int cacheLineSize;
     private LRUCache readCache;
 
+    /**
+     * Initialize this instance with the given configs
+     *
+     * @param configs Key-Value pairs of configuration parameters
+     */
     @Override
-    public void copyLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata, LogSegmentData logSegmentData) throws RemoteStorageException {
+    public void configure(Map<String, ?> configs) {
+        HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
+
+        fsURI = URI.create(conf.getString(HDFSRemoteStorageManagerConfig.HDFS_URI_PROP));
+        baseDir = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP);
+        cacheLineSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP) * 1048576;
+        long cacheSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP) * 1048576L;
+        if (cacheSize < cacheLineSize) {
+            throw new IllegalArgumentException(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP +
+                    " is larger than " + HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP);
+        }
+        readCache = new LRUCache(cacheSize);
+
+        // Loads configuration from hadoop configuration files in class path
+        hadoopConf = new Configuration();
+    }
+
+    @Override
+    public void copyLogSegment(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
         try {
-            String desDir = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
+            final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
+            final FSDataOutputStream fsOut = getFS().create(dirPath);
 
-            File logFile = logSegmentData.logSegment();
-            File offsetIdxFile = logSegmentData.offsetIndex();
-            File tsIdxFile = logSegmentData.timeIndex();
-
-            FileSystem fs = getFS();
-            fs.mkdirs(new Path(desDir));
-
-            // copy local files to remote temporary directory
-            copyFile(fs, logFile, getPath(desDir, LOG_FILE_NAME));
-            copyFile(fs, offsetIdxFile, getPath(desDir, OFFSET_INDEX_FILE_NAME));
-            copyFile(fs, tsIdxFile, getPath(desDir, TIME_INDEX_FILE_NAME));
+            final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
+            byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
+            fsOut.write(serializedHeader, 0, serializedHeader.length);
+            uploadFile(segmentData.offsetIndex(), fsOut, false);
+            uploadFile(segmentData.timeIndex(), fsOut, false);
+            uploadFile(segmentData.leaderEpochCheckpoint(), fsOut, false);
+            uploadFile(segmentData.producerIdSnapshotIndex(), fsOut, false);
+            uploadFile(segmentData.txnIndex(), fsOut, false);
+            uploadFile(segmentData.logSegment(), fsOut, true);
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
         }
     }
 
-    private void copyFile(FileSystem fs, File localFile, Path path) throws IOException {
-        fs.copyFromLocalFile(new Path(localFile.getAbsolutePath()), path);
-        // keep the original mtime. we will use the mtime to calculate retention time
-        fs.setTimes(path, localFile.lastModified(), System.currentTimeMillis());
+    @Override
+    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata metadata,
+                                           Long startPosition,
+                                           Long endPosition) throws RemoteStorageException {
+        return fetchData(metadata, SEGMENT, startPosition, endPosition);
     }
 
     @Override
-    public InputStream fetchLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, Long startPosition, Long endPosition) throws RemoteStorageException {
-        try {
-            String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-            Path logFile = getPath(path, LOG_FILE_NAME);
-            return new CachedInputStream(logFile, startPosition, endPosition);
-        } catch (Exception e) {
-            throw new RemoteStorageException("Failed to fetch remote log segment", e);
-        }
+    public InputStream fetchOffsetIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return fetchData(metadata, OFFSET_INDEX, 0, Long.MAX_VALUE);
     }
 
     @Override
-    public InputStream fetchOffsetIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        try {
-            String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-            Path indexFile = getPath(path, OFFSET_INDEX_FILE_NAME);
-            return new CachedInputStream(indexFile, 0, Long.MAX_VALUE);
-        } catch (Exception e) {
-            throw new RemoteStorageException("Failed to fetch offset index from remote storage", e);
-        }
+    public InputStream fetchTimestampIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return fetchData(metadata, TIMESTAMP_INDEX, 0, Long.MAX_VALUE);
     }
 
     @Override
-    public InputStream fetchTimestampIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        try {
-            String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-            Path timeindexFile = getPath(path, TIME_INDEX_FILE_NAME);
-            return new CachedInputStream(timeindexFile, 0, Long.MAX_VALUE);
-        } catch (Exception e) {
-            throw new RemoteStorageException("Failed to fetch timestamp index from remote storage", e);
-        }
+    public InputStream fetchTransactionIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return fetchData(metadata, TRANSACTION_INDEX, 0, Long.MAX_VALUE);
+    }
+
+    @Override
+    public InputStream fetchProducerSnapshotIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return fetchData(metadata, PRODUCER_SNAPSHOT, 0, Long.MAX_VALUE);
+    }
+
+    @Override
+    public InputStream fetchLeaderEpochIndex(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return fetchData(metadata, LEADER_EPOCH_CHECKPOINT, 0, Long.MAX_VALUE);
     }
 
     @Override
@@ -111,30 +144,118 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         boolean delete;
         try {
             String path = getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId());
-
             delete = getFS().delete(new Path(path), true);
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                     remoteLogSegmentMetadata.remoteLogSegmentId(), e);
         }
-
         if (!delete) {
-            throw new RemoteStorageException("Failed to delete remote log segment with id:" +
+            throw new RemoteStorageException("Failed to delete remote log segment with id: " +
                     remoteLogSegmentMetadata.remoteLogSegmentId());
         }
     }
 
-    private class CachedInputStream extends InputStream {
-        private Path logFile;
-        private long currentPos;
-        private long fileLen;
-        private FSDataInputStream inputStream;
+    @Override
+    public void close() {
+        Utils.closeQuietly(fs.get(), "Hadoop file system");
+    }
 
-        CachedInputStream(Path logFile, long currentPos, long endPos) throws IOException {
-            this.logFile = logFile;
-            this.currentPos = currentPos;
+    @VisibleForTesting
+    void setLRUCache(final LRUCache cache) {
+        this.readCache = cache;
+    }
+
+    private void uploadFile(final File localSrc,
+                            final FSDataOutputStream out,
+                            final boolean closeStream) throws IOException {
+        if (localSrc != null && localSrc.exists()) {
+            final int bufferSize = hadoopConf.getInt(IO_FILE_BUFFER_SIZE_KEY, IO_FILE_BUFFER_SIZE_DEFAULT);
+            final byte[] buf = new byte[bufferSize];
+            try (final FileInputStream fis = new FileInputStream(localSrc)) {
+                int bytesRead = fis.read(buf);
+                while (bytesRead >= 0) {
+                    out.write(buf, 0, bytesRead);
+                    bytesRead = fis.read(buf);
+                }
+            }
+            if (closeStream && out != null) {
+                out.flush();
+                Utils.closeAll(out);
+            }
+        }
+    }
+
+    private InputStream fetchData(RemoteLogSegmentMetadata metadata,
+                                  LogSegmentDataHeader.FileType fileType,
+                                  long startPosition,
+                                  long endPosition) throws RemoteStorageException {
+        try {
+            Path dataFilePath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
+            return new CachedInputStream(dataFilePath, fileType, startPosition, addExact(endPosition, 1L));
+        } catch (Exception e) {
+            throw new RemoteStorageException(
+                    String.format("Failed to fetch %s file from remote storage", fileType), e);
+        }
+    }
+
+    private FileSystem getFS() throws IOException {
+        if (fs.get() == null) {
+            fs.set(FileSystem.newInstance(fsURI, hadoopConf));
+        }
+        return fs.get();
+    }
+
+    private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
+        return baseDir + "/" + remoteLogSegmentId.topicPartition() + "/" + remoteLogSegmentId.id();
+    }
+
+    private long addExact(long base, long increment) {
+        try {
+            base = Math.addExact(base, increment);
+        } catch (final ArithmeticException swallow) {
+            base = Long.MAX_VALUE;
+        }
+        return base;
+    }
+
+    private class CachedInputStream extends InputStream {
+        private final Path dataPath;
+        private final long fileLen;
+        private long currentPos;
+        private FSDataInputStream inputStream;
+        private final boolean fullFetch;
+
+        /**
+         * Input Stream which caches the data to serve them locally on repeated reads.
+         * @param dataPath   path of the data file.
+         * @param fileType   type of the file.
+         * @param currentPos current position to read from the stream, inclusive.
+         * @param endPos     to read upto the end position, exclusive.
+         * @throws IOException IO problems
+         */
+        CachedInputStream(Path dataPath,
+                          LogSegmentDataHeader.FileType fileType,
+                          long currentPos,
+                          long endPos) throws IOException {
+            this.dataPath = dataPath;
+
             FileSystem fs = getFS();
-            fileLen = Math.min(fs.getFileStatus(logFile).getLen(), endPos);
+            // Sends a remote fetch to read the file header.
+            inputStream = fs.open(dataPath);
+            byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
+            inputStream.readFully(0, buffer);
+
+            LogSegmentDataHeader.DataPosition dataPosition = LogSegmentDataHeader
+                    .deserialize(ByteBuffer.wrap(buffer))
+                    .getDataPosition(fileType);
+            this.currentPos = addExact(currentPos, dataPosition.getPos());
+            endPos = addExact(endPos, dataPosition.getPos());
+
+            long actualFileLength = fs.getFileStatus(dataPath).getLen();
+            fileLen = (dataPosition.getLength() == Integer.MAX_VALUE) ?
+                    Math.min(endPos, actualFileLength) :
+                    Math.min(endPos, dataPosition.getPos() + dataPosition.getLength());
+            fullFetch = (fileLen == actualFileLength);
         }
 
         @Override
@@ -167,7 +288,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
 
         @Override
-        public int available() throws IOException {
+        public int available() {
             long available = fileLen - currentPos;
             if (available > Integer.MAX_VALUE)
                 return Integer.MAX_VALUE;
@@ -178,75 +299,24 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         private byte[] getCachedData(long position) throws IOException {
             long pos = (position / cacheLineSize) * cacheLineSize;
 
-            byte[] data = readCache.get(logFile.toString(), pos);
+            byte[] data = readCache.get(dataPath.toString(), pos);
             if (data != null)
                 return data;
 
-            if (inputStream == null) {
-                FileSystem fs = getFS();
-                inputStream = fs.open(logFile);
-            }
             long dataLength = Math.min(cacheLineSize, fileLen - pos);
             data = new byte[(int) dataLength];
             inputStream.readFully(pos, data);
-            readCache.put(logFile.toString(), pos, data);
+            // To avoid intermediate results being stored in cache, save only full fetch request results.
+            if (fullFetch || dataLength == cacheLineSize) {
+                readCache.put(dataPath.toString(), pos, data);
+            }
             return data;
         }
 
         @Override
         public void close() throws IOException {
-            if (inputStream != null) {
-                inputStream.close();
-                inputStream = null;
-            }
+            Utils.closeAll(inputStream);
+            inputStream = null;
         }
-    }
-
-    @Override
-    public void close() {
-        if (fs.get() != null) {
-            try {
-                fs.get().close();
-            } catch (IOException e) {
-            }
-        }
-    }
-
-    /**
-     * Initialize this instance with the given configs
-     *
-     * @param configs Key-Value pairs of configuration parameters
-     */
-    @Override
-    public void configure(Map<String, ?> configs) {
-        HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
-
-        fsURI = URI.create(conf.getString(HDFSRemoteStorageManagerConfig.HDFS_URI_PROP));
-        baseDir = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP);
-        cacheLineSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP) * 1048576;
-        long cacheSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP) * 1048576L;
-        if (cacheSize < cacheLineSize) {
-            throw new IllegalArgumentException(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP +
-                " is larger than " + HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP);
-        }
-        readCache = new LRUCache(cacheSize);
-
-        hadoopConf = new Configuration(); // Load configuration from hadoop configuration files in class path
-    }
-
-    private FileSystem getFS() throws IOException {
-        if (fs.get() == null) {
-            fs.set(FileSystem.newInstance(fsURI, hadoopConf));
-        }
-
-        return fs.get();
-    }
-
-    private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
-        return baseDir + "/" + remoteLogSegmentId.topicPartition() + "/" + remoteLogSegmentId.id();
-    }
-
-    private Path getPath(String dirPath, String fileName) {
-        return new Path(dirPath + "/" + fileName);
     }
 }

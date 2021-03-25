@@ -17,6 +17,7 @@
 package org.apache.kafka.common.log.remote.storage;
 
 import java.io.File;
+import java.util.Objects;
 
 public class LogSegmentData {
 
@@ -59,5 +60,30 @@ public class LogSegmentData {
 
     public File leaderEpochCheckpoint() {
         return leaderEpochCheckpoint;
+    }
+
+    @Override
+    public String toString() {
+        return "LogSegmentData{" +
+                "logSegment=" + logSegment +
+                ", offsetIndex=" + offsetIndex +
+                ", timeIndex=" + timeIndex +
+                ", txnIndex=" + txnIndex +
+                ", producerIdSnapshotIndex=" + producerIdSnapshotIndex +
+                ", leaderEpochCheckpoint=" + leaderEpochCheckpoint +
+                '}';
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        LogSegmentData that = (LogSegmentData) o;
+        return Objects.equals(logSegment, that.logSegment) && Objects.equals(offsetIndex, that.offsetIndex) && Objects.equals(timeIndex, that.timeIndex) && Objects.equals(txnIndex, that.txnIndex) && Objects.equals(producerIdSnapshotIndex, that.producerIdSnapshotIndex) && Objects.equals(leaderEpochCheckpoint, that.leaderEpochCheckpoint);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(logSegment, offsetIndex, timeIndex, txnIndex, producerIdSnapshotIndex, leaderEpochCheckpoint);
     }
 }
