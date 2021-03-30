@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * This class is an implementation of {@link RemoteLogMetadataManager} backed by inmemory store.
+ * This class is an implementation of {@link RemoteLogMetadataManager} backed by in-memory store.
  */
 public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManager {
     private static final Logger log = LoggerFactory.getLogger(InmemoryRemoteLogMetadataManager.class);
@@ -62,12 +62,18 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
 
         RemoteLogSegmentId remoteLogSegmentId = metadataUpdate.remoteLogSegmentId();
         TopicIdPartition topicIdPartition = remoteLogSegmentId.topicIdPartition();
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
+
+        remoteLogMetadataCache.updateRemoteLogSegmentMetadata(metadataUpdate);
+    }
+
+    private RemoteLogMetadataCache getRemoteLogMetadataCache(TopicIdPartition topicIdPartition)
+            throws RemoteResourceNotFoundException {
         RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No existing metadata found for partition: " + topicIdPartition);
         }
-
-        remoteLogMetadataCache.updateRemoteLogSegmentMetadata(metadataUpdate);
+        return remoteLogMetadataCache;
     }
 
     @Override
@@ -77,10 +83,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
-        if (remoteLogMetadataCache == null) {
-            throw new RemoteResourceNotFoundException("No metadata found for the given partition: " + topicIdPartition);
-        }
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
 
         return remoteLogMetadataCache.remoteLogSegmentMetadata(epochForOffset, offset);
     }
@@ -90,10 +93,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
                                            int leaderEpoch) throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
-        if (remoteLogMetadataCache == null) {
-            throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
-        }
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
 
         return remoteLogMetadataCache.leaderEpochEndOffset(leaderEpoch);
     }

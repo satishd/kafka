@@ -190,64 +190,56 @@ public class RemoteLogMetadataCache {
                                                            RemoteLogSegmentMetadata existingMetadata) {
         log.debug("Adding remote log segment metadata to leader epoch mappings with update: [{}]", metadataUpdate);
 
-        RemoteLogSegmentId remoteLogSegmentId = existingMetadata.remoteLogSegmentId();
-        // Add the segment epochs mapping as the segment is copied successfully.
-        Map<Integer, Long> leaderEpochToOffset = existingMetadata.segmentLeaderEpochs();
-        for (Map.Entry<Integer, Long> entry : leaderEpochToOffset.entrySet()) {
-            Integer leaderEpoch = entry.getKey();
-            Long offset = entry.getValue();
-            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.get(leaderEpoch);
-
-            if (remoteLogLeaderEpochState == null) {
-                throw new IllegalStateException(
-                        "RemoteLogLeaderEpochState does not exist for the leader epoch: " + leaderEpoch);
-            } else {
-                remoteLogLeaderEpochState.handleSegmentWithCopySegmentFinishedState(offset, remoteLogSegmentId,
-                        leaderEpochEndOffset(leaderEpoch, existingMetadata));
-            }
-        }
+        doHandleSegmentStateTransitionForLeaderEpochs(existingMetadata,
+                RemoteLogLeaderEpochState::handleSegmentWithCopySegmentFinishedState);
 
         // put the entry with the updated metadata.
-        idToSegmentMetadata.put(remoteLogSegmentId, existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
+        idToSegmentMetadata.put(existingMetadata.remoteLogSegmentId(),
+                existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
     }
 
     private void handleSegmentWithDeleteSegmentStartedState(RemoteLogSegmentMetadataUpdate metadataUpdate,
                                                             RemoteLogSegmentMetadata existingMetadata) {
         log.debug("Cleaning up the state for : [{}]", metadataUpdate);
-        RemoteLogSegmentId remoteLogSegmentId = metadataUpdate.remoteLogSegmentId();
-        // Remove this segment's leader epoch entries and its mappings when it is moved to DELETE_SEGMENT_STARTED state
-        Map<Integer, Long> leaderEpochs = existingMetadata.segmentLeaderEpochs();
         // Go through all the leader epochs with in this segment and remove the associated mapping of this segment
-        for (Map.Entry<Integer, Long> epochToOffset : leaderEpochs.entrySet()) {
-            Integer leaderEpoch = epochToOffset.getKey();
-            Long offset = epochToOffset.getValue();
-
-            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.get(leaderEpoch);
-            remoteLogLeaderEpochState.handleSegmentWithDeleteSegmentStartedState(offset, remoteLogSegmentId,
-                    leaderEpochEndOffset(leaderEpoch, existingMetadata));
-        }
+        doHandleSegmentStateTransitionForLeaderEpochs(existingMetadata,
+                RemoteLogLeaderEpochState::handleSegmentWithDeleteSegmentStartedState);
 
         // put the entry with the updated metadata.
-        idToSegmentMetadata.put(remoteLogSegmentId, existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
+        idToSegmentMetadata.put(existingMetadata.remoteLogSegmentId(),
+                existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
     }
 
     private void handleSegmentWithDeleteSegmentFinishedState(RemoteLogSegmentMetadataUpdate metadataUpdate,
                                                              RemoteLogSegmentMetadata existingMetadata) {
-        log.debug("Removing the entry : [{}]", metadataUpdate);
+        log.debug("Removing the entry as it reached the terminal state: [{}]", metadataUpdate);
 
         // Remove the given metadata from unreferenced  as it is already deleted.
-        RemoteLogSegmentId remoteLogSegmentId = existingMetadata.remoteLogSegmentId();
-        Map<Integer, Long> leaderEpochs = existingMetadata.segmentLeaderEpochs();
-        for (Integer leaderEpoch : leaderEpochs.keySet()) {
-            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.get(leaderEpoch);
-
-            remoteLogLeaderEpochState.handleSegmentWithDeleteSegmentFinishedState(existingMetadata.startOffset(),
-                    remoteLogSegmentId, leaderEpochEndOffset(leaderEpoch, existingMetadata));
-        }
+        doHandleSegmentStateTransitionForLeaderEpochs(existingMetadata,
+                RemoteLogLeaderEpochState::handleSegmentWithDeleteSegmentFinishedState);
 
         // Remove the segment's id to metadata mapping because this segment is considered as deleted and it cleared all
         // the state of this segment in the cache.
-        idToSegmentMetadata.remove(remoteLogSegmentId);
+        idToSegmentMetadata.remove(existingMetadata.remoteLogSegmentId());
+    }
+
+    private void doHandleSegmentStateTransitionForLeaderEpochs(RemoteLogSegmentMetadata existingMetadata,
+                                                               RemoteLogLeaderEpochState.Action action) {
+        RemoteLogSegmentId remoteLogSegmentId = existingMetadata.remoteLogSegmentId();
+        Map<Integer, Long> leaderEpochToOffset = existingMetadata.segmentLeaderEpochs();
+        for (Map.Entry<Integer, Long> entry : leaderEpochToOffset.entrySet()) {
+            Integer leaderEpoch = entry.getKey();
+            Long startOffset = entry.getValue();
+            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.get(leaderEpoch);
+
+            if (remoteLogLeaderEpochState == null) {
+                throw new IllegalStateException("RemoteLogLeaderEpochState does not exist for the leader epoch: "
+                                                + leaderEpoch);
+            } else {
+                long leaderEpochEndOffset = leaderEpochEndOffset(leaderEpoch, existingMetadata);
+                action.accept(remoteLogLeaderEpochState, startOffset, remoteLogSegmentId, leaderEpochEndOffset);
+            }
+        }
     }
 
     private long leaderEpochEndOffset(Integer leaderEpoch, RemoteLogSegmentMetadata segmentMetadata) {

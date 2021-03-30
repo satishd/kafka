@@ -29,7 +29,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * This class is an implementation of {@link RemoteStorageManager} backed by inmemory store.
+ * This class is an implementation of {@link RemoteStorageManager} backed by in-memory store.
  */
 public class InmemoryRemoteStorageManager implements RemoteStorageManager {
     private static final Logger log = LoggerFactory.getLogger(InmemoryRemoteStorageManager.class);

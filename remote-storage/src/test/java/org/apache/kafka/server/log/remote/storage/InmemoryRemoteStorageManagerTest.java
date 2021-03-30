@@ -48,11 +48,11 @@ public class InmemoryRemoteStorageManagerTest {
         // Copy all the segment data.
         rsm.copyLogSegmentData(rlsm, logSegmentData);
 
-        // Check that the segment data exists in inmemory RSM.
+        // Check that the segment data exists in in-memory RSM.
         boolean containsSegment = rsm.containsKey(InmemoryRemoteStorageManager.generateKeyForSegment(rlsm));
         Assertions.assertTrue(containsSegment);
 
-        // Check that the indexes exist in inmemory RSM.
+        // Check that the indexes exist in in-memory RSM.
         for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
             boolean containsIndex = rsm.containsKey(InmemoryRemoteStorageManager.generateKeyForIndex(rlsm, indexType));
             Assertions.assertTrue(containsIndex);
@@ -145,7 +145,7 @@ public class InmemoryRemoteStorageManagerTest {
         }
         expectedSegRangeBytes.rewind();
 
-        // Fetch from inmemory RSM for the same range
+        // Fetch from in-memory RSM for the same range
         ByteBuffer fetchedSegRangeBytes = ByteBuffer.allocate(len);
         try (InputStream segmentRangeStream = rsm.fetchLogSegment(rlsm, startPos, startPos + len - 1)) {
             Utils.readFully(segmentRangeStream, fetchedSegRangeBytes);
