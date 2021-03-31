@@ -60,7 +60,8 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
         Objects.requireNonNull(logSegmentData, "logSegmentData can not be null");
 
         if (keyToLogData.containsKey(generateKeyForSegment(remoteLogSegmentMetadata))) {
-            throw new RemoteStorageException();
+            throw new RemoteStorageException("It already contains the segment for the given id: " +
+                                             remoteLogSegmentMetadata.remoteLogSegmentId());
         }
 
         try {
@@ -77,7 +78,7 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
             keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Timestamp),
                     Files.readAllBytes(logSegmentData.timeIndex().toPath()));
         } catch (Exception e) {
-            throw new RemoteStorageException(e.getMessage(), e);
+            throw new RemoteStorageException(e);
         }
         log.debug("copied log segment and indexes for : {} successfully.", remoteLogSegmentMetadata);
     }
@@ -106,7 +107,7 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
         }
 
         if (endPosition < startPosition) {
-            throw new IllegalArgumentException("end position must be greater than start position");
+            throw new IllegalArgumentException("end position must be greater than or equal to start position");
         }
 
         String key = generateKeyForSegment(remoteLogSegmentMetadata);
@@ -123,8 +124,8 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
                                                + " must be less than the length of the segment: " + segment.length);
         }
 
-        // check for boundaries like given end position is more than the length, length should never be more than the
-        // existing segment size.
+        // If the given (endPosition + 1) is more than the segment length then the segment length is taken into account.
+        // Computed length should never be more than the existing segment size.
         int length = Math.min(segment.length - 1, endPosition) - startPosition + 1;
         log.debug("Length of the segment to be sent: [{}], for segment: [{}]", length, remoteLogSegmentMetadata);
 
@@ -164,6 +165,8 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void close() throws IOException {
+        // Clearing the references to the map and assigning empty immutable map.
+        // Practically, this instance will not be used once it is closed.
         keyToLogData = Collections.emptyMap();
     }
 

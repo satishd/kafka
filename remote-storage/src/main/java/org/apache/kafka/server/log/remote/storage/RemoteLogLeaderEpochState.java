@@ -93,7 +93,7 @@ class RemoteLogLeaderEpochState {
             unreferencedSegmentIds.add(oldEntry);
         }
 
-        // update the highest offset entry for this leader epoch as we added a new mapping.
+        // Update the highest offset entry for this leader epoch as we added a new mapping.
         updateHighestLogOffset(leaderEpochEndOffset);
     }
 
@@ -121,6 +121,7 @@ class RemoteLogLeaderEpochState {
     }
 
     void handleSegmentWithCopySegmentStartedState(RemoteLogSegmentId remoteLogSegmentId) {
+        // Add this to unreferenced set of segments for the respective leader epoch.
         unreferencedSegmentIds.add(remoteLogSegmentId);
     }
 

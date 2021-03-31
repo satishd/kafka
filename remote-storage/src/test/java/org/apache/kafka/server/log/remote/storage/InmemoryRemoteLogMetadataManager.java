@@ -21,13 +21,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * This class is an implementation of {@link RemoteLogMetadataManager} backed by in-memory store.
@@ -35,11 +35,10 @@ import java.util.concurrent.ConcurrentMap;
 public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManager {
     private static final Logger log = LoggerFactory.getLogger(InmemoryRemoteLogMetadataManager.class);
 
-    private final ConcurrentMap<TopicIdPartition, RemotePartitionDeleteMetadata> idToPartitionDeleteMetadata =
+    private Map<TopicIdPartition, RemotePartitionDeleteMetadata> idToPartitionDeleteMetadata =
             new ConcurrentHashMap<>();
 
-    private final ConcurrentMap<TopicIdPartition, RemoteLogMetadataCache> idToRemoteLogMetadataCache =
-            new ConcurrentHashMap<>();
+    private Map<TopicIdPartition, RemoteLogMetadataCache> idToRemoteLogMetadataCache = new ConcurrentHashMap<>();
 
     @Override
     public void addRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata)
@@ -60,11 +59,8 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         log.debug("Updating remote log segment: [{}]", metadataUpdate);
         Objects.requireNonNull(metadataUpdate, "metadataUpdate can not be null");
 
-        RemoteLogSegmentId remoteLogSegmentId = metadataUpdate.remoteLogSegmentId();
-        TopicIdPartition topicIdPartition = remoteLogSegmentId.topicIdPartition();
-        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
-
-        remoteLogMetadataCache.updateRemoteLogSegmentMetadata(metadataUpdate);
+        getRemoteLogMetadataCache(metadataUpdate.remoteLogSegmentId().topicIdPartition())
+                .updateRemoteLogSegmentMetadata(metadataUpdate);
     }
 
     private RemoteLogMetadataCache getRemoteLogMetadataCache(TopicIdPartition topicIdPartition)
@@ -73,29 +69,26 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         if (remoteLogMetadataCache == null) {
             throw new RemoteResourceNotFoundException("No existing metadata found for partition: " + topicIdPartition);
         }
+
         return remoteLogMetadataCache;
     }
 
     @Override
     public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition,
-                                                                       long offset,
-                                                                       int epochForOffset)
+                                                                       int epochForOffset,
+                                                                       long offset)
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
-
-        return remoteLogMetadataCache.remoteLogSegmentMetadata(epochForOffset, offset);
+        return getRemoteLogMetadataCache(topicIdPartition).remoteLogSegmentMetadata(epochForOffset, offset);
     }
 
     @Override
-    public Optional<Long> highestLogOffset(TopicIdPartition topicIdPartition,
-                                           int leaderEpoch) throws RemoteStorageException {
+    public Optional<Long> highestOffsetForEpoch(TopicIdPartition topicIdPartition,
+                                                int leaderEpoch) throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
-
-        return remoteLogMetadataCache.leaderEpochEndOffset(leaderEpoch);
+        return getRemoteLogMetadataCache(topicIdPartition).highestOffsetForEpoch(leaderEpoch);
     }
 
     @Override
@@ -125,12 +118,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition)
             throws RemoteStorageException {
-        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
-        if (remoteLogMetadataCache == null) {
-            throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
-        }
-
-        return remoteLogMetadataCache.listAllRemoteLogSegments();
+        return getRemoteLogMetadataCache(topicIdPartition).listAllRemoteLogSegments();
     }
 
     @Override
@@ -138,12 +126,7 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
-        if (remoteLogMetadataCache == null) {
-            throw new RemoteResourceNotFoundException("No metadata found for partition: " + topicIdPartition);
-        }
-
-        return remoteLogMetadataCache.listRemoteLogSegments(leaderEpoch);
+        return getRemoteLogMetadataCache(topicIdPartition).listRemoteLogSegments(leaderEpoch);
     }
 
     @Override
@@ -161,9 +144,14 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
 
     @Override
     public void close() throws IOException {
+        // Clearing the references to the map and assigning empty immutable maps.
+        // Practically, this instance will not be used once it is closed.
+        idToPartitionDeleteMetadata = Collections.emptyMap();
+        idToRemoteLogMetadataCache = Collections.emptyMap();
     }
 
     @Override
     public void configure(Map<String, ?> configs) {
+        // Intentionally left blank here as nothing to be initialized here.
     }
 }

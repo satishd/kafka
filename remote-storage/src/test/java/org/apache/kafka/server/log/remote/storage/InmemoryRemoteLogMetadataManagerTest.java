@@ -22,166 +22,165 @@ import org.apache.kafka.common.Uuid;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import static org.apache.kafka.server.log.remote.storage.TestUtils.sameElementsWithOrder;
+import static org.apache.kafka.server.log.remote.storage.TestUtils.sameElementsWithoutOrder;
 
 public class InmemoryRemoteLogMetadataManagerTest {
 
     private static final TopicIdPartition TP0 = new TopicIdPartition(Uuid.randomUuid(),
             new TopicPartition("foo", 0));
     private static final int SEG_SIZE = 1024 * 1024;
-    private static final int BROKER_ID = 0;
+    private static final int BROKER_ID_0 = 0;
+    private static final int BROKER_ID_1 = 1;
 
     @Test
-    public void testRLMMFetchSegment() throws Exception {
+    public void testSegmentsWithDifferentStates() throws Exception {
         InmemoryRemoteLogMetadataManager rlmm = new InmemoryRemoteLogMetadataManager();
-        int brokerId = 0;
-        // Create remote log segment metadata and add them to RLMM.
 
-        // segment 0
-        // 0-100
-        // leader epochs (0,0), (1,20), (2,80)
-        Map<Integer, Long> seg0LeaderEpochs = new HashMap<>();
-        seg0LeaderEpochs.put(0, 0L);
-        seg0LeaderEpochs.put(1, 20L);
-        seg0LeaderEpochs.put(2, 80L);
-        RemoteLogSegmentId segIdStart0End100 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart0End100 = new RemoteLogSegmentMetadata(segIdStart0End100, 0L, 100L, -1L, BROKER_ID,
+        // Add segments with different states and check rlmm.remoteLogSegmentMetadata(tp, leaderEpoch, offset)
+        // rlmm.listRemoteLogSegments(tp, leaderEpoch), and rlmm.listRemoteLogSegments(tp).
+
+        // =============================================================================================================
+        // 1.Create a segment with state COPY_SEGMENT_STARTED, and check for searching that segment and listing the
+        // segments.
+        // =============================================================================================================
+        Map<Integer, Long> seg0LeaderEpochs = Collections.singletonMap(0, 0L);
+        RemoteLogSegmentId seg0Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata segCopyInProgress = new RemoteLogSegmentMetadata(seg0Id, 0L, 50L, -1L, BROKER_ID_0,
                 System.currentTimeMillis(), SEG_SIZE, seg0LeaderEpochs);
-        rlmm.addRemoteLogSegmentMetadata(segMetadataStart0End100);
+        rlmm.addRemoteLogSegmentMetadata(segCopyInProgress);
 
-        // We should not get this as the segment is still getting copied and it is not yet considered successful until
-        // it reaches RemoteLogSegmentState.COPY_SEGMENT_FINISHED.
-        Assertions.assertFalse(rlmm.remoteLogSegmentMetadata(TP0, 40, 1).isPresent());
+        // This segment should not be available as the state is not reached to COPY_SEGMENT_FINISHED.
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset0Epoch0 = rlmm.remoteLogSegmentMetadata(TP0, 0, 0);
+        Assertions.assertFalse(segMetadataForOffset0Epoch0.isPresent());
 
-        RemoteLogSegmentMetadataUpdate segMetadataStart0End100Update = new RemoteLogSegmentMetadataUpdate(segIdStart0End100,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, brokerId);
-        rlmm.updateRemoteLogSegmentMetadata(segMetadataStart0End100Update);
+        // rlmm.listRemoteLogSegments(tp, 0) should contain the above segment.
+        List<RemoteLogSegmentMetadata> expectedSegments1 = Collections.singletonList(segCopyInProgress);
+        Assertions.assertTrue(sameElementsWithOrder(rlmm.listRemoteLogSegments(TP0, 0),
+                expectedSegments1.iterator()));
+        // rlmm.listRemoteLogSegments(tp) should contain the above segment.
+        Assertions.assertTrue(sameElementsWithoutOrder(rlmm.listRemoteLogSegments(TP0), expectedSegments1.iterator()));
 
-        // segment 1
-        // 100 - 200
-        // no changes in leadership with in this segment
-        // leader epochs (2, 101)
-        Map<Integer, Long> seg1LeaderEpochs = new HashMap<>();
-        seg1LeaderEpochs.put(2, 101L);
-        RemoteLogSegmentId segIdStart101End200 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart101End200 = new RemoteLogSegmentMetadata(segIdStart101End200, 101L, 200L, -1L, BROKER_ID,
+        // =============================================================================================================
+        // 2.Create a segment and move it to state COPY_SEGMENT_FINISHED. and check for searching that segment and
+        // listing the segments.
+        // =============================================================================================================
+        Map<Integer, Long> seg1LeaderEpochs = Collections.singletonMap(0, 101L);
+        RemoteLogSegmentId seg1Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata seg1 = new RemoteLogSegmentMetadata(seg1Id, 101L, 200L, -1L, BROKER_ID_0,
                 System.currentTimeMillis(), SEG_SIZE, seg1LeaderEpochs);
-        rlmm.addRemoteLogSegmentMetadata(segMetadataStart101End200);
-        RemoteLogSegmentMetadataUpdate segMetadataStart101End200Update = new RemoteLogSegmentMetadataUpdate(segIdStart101End200,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, brokerId);
-        rlmm.updateRemoteLogSegmentMetadata(segMetadataStart101End200Update);
+        rlmm.addRemoteLogSegmentMetadata(seg1);
+        RemoteLogSegmentMetadataUpdate seg1Update = new RemoteLogSegmentMetadataUpdate(seg1Id,
+                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
+        rlmm.updateRemoteLogSegmentMetadata(seg1Update);
+        RemoteLogSegmentMetadata segCopyFinished = seg1.createRemoteLogSegmentWithUpdates(seg1Update);
 
-        // segment 2
-        // 201 - 300
-        // moved to epoch 3 in between
-        // leader epochs (2, 201), (3, 240)
-        Map<Integer, Long> seg2LeaderEpochs = new HashMap<>();
-        seg2LeaderEpochs.put(2, 201L);
-        seg2LeaderEpochs.put(3, 240L);
-        RemoteLogSegmentId segIdStart101End300 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart101End300 = new RemoteLogSegmentMetadata(segIdStart101End300, 201L, 300L, -1L, 3,
-                System.currentTimeMillis(), SEG_SIZE, seg2LeaderEpochs);
-        rlmm.addRemoteLogSegmentMetadata(segMetadataStart101End300);
-        RemoteLogSegmentMetadataUpdate segMetadataStart101End300Update = new RemoteLogSegmentMetadataUpdate(segIdStart101End300,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, brokerId);
-        rlmm.updateRemoteLogSegmentMetadata(segMetadataStart101End300Update);
+        // Search should return the above segment.
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset150 = rlmm.remoteLogSegmentMetadata(TP0, 0, 150);
+        Assertions.assertEquals(seg1.createRemoteLogSegmentWithUpdates(seg1Update),
+                segMetadataForOffset150.orElse(null));
 
-        // segment 3
-        // 250 - 400
-        // leader epochs (3, 250), (4, 370)
-        Map<Integer, Long> seg3leaderEpochs = new HashMap<>();
-        seg3leaderEpochs.put(3, 250L);
-        seg3leaderEpochs.put(4, 370L);
-        RemoteLogSegmentId segIdStart250End400 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetFooTp0s250e400 = new RemoteLogSegmentMetadata(segIdStart250End400, 250L, 400L, -1L, BROKER_ID,
+        // rlmm.listRemoteLogSegments(0) should not contain the above segment.
+        List<RemoteLogSegmentMetadata> expectedSegments2 = Arrays.asList(segCopyInProgress, segCopyFinished);
+        Assertions.assertTrue(sameElementsWithOrder(rlmm.listRemoteLogSegments(TP0, 0),
+                expectedSegments2.iterator()));
+        // But rlmm.listRemoteLogSegments() should contain both the segments.
+        Assertions.assertTrue(sameElementsWithoutOrder(rlmm.listRemoteLogSegments(TP0), expectedSegments2.iterator()));
+
+        // =============================================================================================================
+        // 3.Create a segment and move it to state DELETE_SEGMENT_STARTED, and check for searching that segment and
+        // listing the segments.
+        // =============================================================================================================
+        Map<Integer, Long> seg2leaderEpochs = Collections.singletonMap(0, 201L);
+        RemoteLogSegmentId seg2Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata seg2 = new RemoteLogSegmentMetadata(seg2Id, 201L, 300L, -1L, BROKER_ID_0,
+                System.currentTimeMillis(), SEG_SIZE, seg2leaderEpochs);
+        rlmm.addRemoteLogSegmentMetadata(seg2);
+        RemoteLogSegmentMetadataUpdate seg2Update = new RemoteLogSegmentMetadataUpdate(seg2Id,
+                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1);
+        rlmm.updateRemoteLogSegmentMetadata(seg2Update);
+        RemoteLogSegmentMetadata segDeleteStarted = seg2.createRemoteLogSegmentWithUpdates(seg2Update);
+
+        // Search should not return the above segment as their leader epoch state is cleared.
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset250Epoch0 = rlmm.remoteLogSegmentMetadata(TP0, 0, 250);
+        Assertions.assertFalse(segMetadataForOffset250Epoch0.isPresent());
+
+        // rlmm.listRemoteLogSegments(0) should contain the above segment.
+        List<RemoteLogSegmentMetadata> expectedSegments3 = Arrays.asList(segCopyInProgress, segCopyFinished,
+                segDeleteStarted);
+        Assertions.assertTrue(sameElementsWithOrder(rlmm.listRemoteLogSegments(TP0, 0), expectedSegments3.iterator()));
+        // But rlmm.listRemoteLogSegments() should contain all the segments.
+        Assertions.assertTrue(sameElementsWithoutOrder(rlmm.listRemoteLogSegments(TP0), expectedSegments3.iterator()));
+
+        // =============================================================================================================
+        // 4.Create a segment and move it to state DELETE_SEGMENT_FINISHED, and check for searching that segment and
+        // listing the segments.
+        // =============================================================================================================
+        Map<Integer, Long> seg3leaderEpochs = Collections.singletonMap(0, 301L);
+        RemoteLogSegmentId seg3Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata seg3 = new RemoteLogSegmentMetadata(seg3Id, 301L, 400L, -1L, BROKER_ID_0,
                 System.currentTimeMillis(), SEG_SIZE, seg3leaderEpochs);
-        rlmm.addRemoteLogSegmentMetadata(segMetFooTp0s250e400);
-        RemoteLogSegmentMetadataUpdate segMetadataStart250End400Update = new RemoteLogSegmentMetadataUpdate(segIdStart250End400,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, brokerId);
-        rlmm.updateRemoteLogSegmentMetadata(segMetadataStart250End400Update);
+        rlmm.addRemoteLogSegmentMetadata(seg3);
+        RemoteLogSegmentMetadataUpdate seg3Update1 = new RemoteLogSegmentMetadataUpdate(seg3Id,
+                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1);
+        rlmm.updateRemoteLogSegmentMetadata(seg3Update1);
 
-        //////////////////////////////////////////////////////////////////////////////////////////
-        //  Search for RLMM.remoteLogSegmentMetadata(TP, offset, leaderEpoch)  for different
-        // epochs and offsets
-        //////////////////////////////////////////////////////////////////////////////////////////
+        // Search should not return the above segment as their leader epoch state is cleared.
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset350Epoch0 = rlmm.remoteLogSegmentMetadata(TP0, 0, 350);
+        Assertions.assertFalse(segMetadataForOffset350Epoch0.isPresent());
 
-        // Search for offset 40, epoch 1
-        Optional<RemoteLogSegmentMetadata> segmentForOffset40Epoch1 = rlmm.remoteLogSegmentMetadata(TP0, 40, 1);
-        Assertions.assertEquals(
-                Optional.of(segMetadataStart0End100.createRemoteLogSegmentWithUpdates(segMetadataStart0End100Update)),
-                segmentForOffset40Epoch1);
+        RemoteLogSegmentMetadataUpdate seg3Update2 = new RemoteLogSegmentMetadataUpdate(seg3Id,
+                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, BROKER_ID_1);
+        rlmm.updateRemoteLogSegmentMetadata(seg3Update2);
 
-        // Search for offset 110, epoch 2
-        Optional<RemoteLogSegmentMetadata> segmentForOffset110Epoch2 = rlmm.remoteLogSegmentMetadata(TP0, 110, 2);
-        Assertions.assertEquals(
-                Optional.of(segMetadataStart101End200.createRemoteLogSegmentWithUpdates(segMetadataStart101End200Update)),
-                segmentForOffset110Epoch2);
+        List<RemoteLogSegmentMetadata> expectedSegments4 = Arrays.asList(segCopyInProgress, segCopyFinished,
+                segDeleteStarted);
+        // rlmm.listRemoteLogSegments(tp, 0) should not contain the above segment.
+        Assertions.assertTrue(sameElementsWithOrder(rlmm.listRemoteLogSegments(TP0, 0), expectedSegments4.iterator()));
+        // But rlmm.listRemoteLogSegments(tp) should not contain both the segments as it should have been removed.
+        Assertions.assertTrue(sameElementsWithoutOrder(rlmm.listRemoteLogSegments(TP0), expectedSegments4.iterator()));
 
-        // Search for offset 110, epoch 1, and it should not exist
-        Optional<RemoteLogSegmentMetadata> segmentForOffset110Epoch1 = rlmm.remoteLogSegmentMetadata(TP0, 110, 1);
-        Assertions.assertFalse(segmentForOffset110Epoch1.isPresent());
+        // Search for highest offset for leader epoch 0.
+        Optional<Long> highestOffsetForEpoch0 = rlmm.highestOffsetForEpoch(TP0, 0);
+        Assertions.assertEquals(Optional.of(400L), highestOffsetForEpoch0);
 
-        // Search for offset 240, epoch 3
-        Optional<RemoteLogSegmentMetadata> segmentForOffset240Epoch3 = rlmm.remoteLogSegmentMetadata(TP0, 240, 3);
-        Assertions.assertEquals(
-                Optional.of(segMetadataStart101End300.createRemoteLogSegmentWithUpdates(segMetadataStart101End300Update)),
-                segmentForOffset240Epoch3);
+        // Search for highest offset for leader epoch 1, that does not exist.
+        Optional<Long> highestOffsetForEpoch1 = rlmm.highestOffsetForEpoch(TP0, 1);
+        Assertions.assertFalse(highestOffsetForEpoch1.isPresent());
+    }
 
-        // Search for offset 250, epoch 3
-        Optional<RemoteLogSegmentMetadata> segmentForOffset250Epoch3 = rlmm.remoteLogSegmentMetadata(TP0, 250, 3);
-        Assertions.assertEquals(
-                Optional.of(segMetFooTp0s250e400.createRemoteLogSegmentWithUpdates(segMetadataStart250End400Update)),
-                segmentForOffset250Epoch3);
+    public void testFetchSegments() throws Exception {
+        InmemoryRemoteLogMetadataManager rlmm = new InmemoryRemoteLogMetadataManager();
 
-        //search for highest offset for leader epoch 3
-        Optional<Long> highestOffsetForEpoch3 = rlmm.highestLogOffset(TP0, 3);
-        Assertions.assertEquals(Optional.of(369L), highestOffsetForEpoch3);
+        // This is a basic test and it doe snot cover all the scenarios. InmemoryRemoteLogMetadataManager is used only
+        // in integration tests but not for production.
 
-        // Search for offset 375, epoch 4
-        Optional<RemoteLogSegmentMetadata> segmentForOffset375Epoch4 = rlmm.remoteLogSegmentMetadata(TP0, 375, 4);
-        Assertions.assertEquals(
-                Optional.of(segMetFooTp0s250e400.createRemoteLogSegmentWithUpdates(segMetadataStart250End400Update)),
-                segmentForOffset375Epoch4);
+        // 1.Create a segment with state COPY_SEGMENT_STARTED, and this segment should not be available.
+        Map<Integer, Long> seg1LeaderEpochs = Collections.singletonMap(0, 101L);
+        RemoteLogSegmentId seg1Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata seg1 = new RemoteLogSegmentMetadata(seg1Id, 101L, 200L, -1L, BROKER_ID_0,
+                System.currentTimeMillis(), SEG_SIZE, seg1LeaderEpochs);
+        rlmm.addRemoteLogSegmentMetadata(seg1);
 
-        // Search for offset 401, epoch 4
-        Optional<RemoteLogSegmentMetadata> segmentForOffset401Epoch4 = rlmm.remoteLogSegmentMetadata(TP0, 401, 4);
-        Assertions.assertFalse(segmentForOffset401Epoch4.isPresent());
+        // Search should not return the above segment.
+        Assertions.assertFalse(rlmm.remoteLogSegmentMetadata(TP0, 0, 150).isPresent());
 
-        //////////////////////////////////////////////////////////////////////////////////////////
-        //  Search for RLMM.highestLogOffset(TP, leaderEpoch)  for all the leader epochs
-        //////////////////////////////////////////////////////////////////////////////////////////
+        // 2.Move that segment to COPY_SEGMENT_FINISHED state and this segment should be available.
+        RemoteLogSegmentMetadataUpdate seg1Update = new RemoteLogSegmentMetadataUpdate(seg1Id,
+                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
+        rlmm.updateRemoteLogSegmentMetadata(seg1Update);
+        RemoteLogSegmentMetadata segCopyFinished = seg1.createRemoteLogSegmentWithUpdates(seg1Update);
 
-        //search for highest offset for leader epoch 0
-        Optional<Long> highestOffsetForEpoch0 = rlmm.highestLogOffset(TP0, 0);
-        Assertions.assertEquals(Optional.of(19L), highestOffsetForEpoch0);
-
-        //search for highest offset for leader epoch 1
-        Optional<Long> highestOffsetForEpoch1 = rlmm.highestLogOffset(TP0, 1);
-        Assertions.assertEquals(Optional.of(79L), highestOffsetForEpoch1);
-
-        //search for highest offset for leader epoch 2
-        Optional<Long> highestOffsetForEpoch2 = rlmm.highestLogOffset(TP0, 2);
-        Assertions.assertEquals(Optional.of(239L), highestOffsetForEpoch2);
-
-        //search for highest offset for leader epoch 4
-        Optional<Long> highestOffsetForEpoch4 = rlmm.highestLogOffset(TP0, 4);
-        Assertions.assertEquals(Optional.of(400L), highestOffsetForEpoch4);
-
-        // Update segment with state as DELETE_SEGMENT_STARTED.
-        // It should not be available when we search for that segment.
-        RemoteLogSegmentMetadataUpdate rlsmUpdate = new RemoteLogSegmentMetadataUpdate(segIdStart0End100,
-                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, 0);
-        rlmm.updateRemoteLogSegmentMetadata(rlsmUpdate);
-
-        Assertions.assertFalse(rlmm.remoteLogSegmentMetadata(TP0, 10, 0).isPresent());
-
-        // Update segment with state as DELETE_SEGMENT_FINISHED.
-        // It should not be available when we search for that segment.
-        rlmm.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(segIdStart0End100, System.currentTimeMillis(),
-                RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, 0));
-        Assertions.assertFalse(rlmm.remoteLogSegmentMetadata(TP0, 10, 0).isPresent());
+        // Search should return the above segment.
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset150 = rlmm.remoteLogSegmentMetadata(TP0, 0, 150);
+        Assertions.assertEquals(Optional.of(segCopyFinished), segMetadataForOffset150);
     }
 
     @Test
@@ -199,40 +198,47 @@ public class InmemoryRemoteLogMetadataManagerTest {
         seg0leaderEpochs.put(2, 50L);
         seg0leaderEpochs.put(3, 80L);
         RemoteLogSegmentId segIdStart0End100 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart0End100 = new RemoteLogSegmentMetadata(segIdStart0End100, 0L, 100L, -1L, BROKER_ID,
-                System.currentTimeMillis(), SEG_SIZE, seg0leaderEpochs);
+        RemoteLogSegmentMetadata segMetadataStart0End100 = new RemoteLogSegmentMetadata(segIdStart0End100, 0L, 100L,
+                -1L, BROKER_ID_0, System.currentTimeMillis(), SEG_SIZE, seg0leaderEpochs);
         rlmm.addRemoteLogSegmentMetadata(segMetadataStart0End100);
-        RemoteLogSegmentMetadataUpdate segMetadataStart0End100Update = new RemoteLogSegmentMetadataUpdate(segIdStart0End100,
+        RemoteLogSegmentMetadataUpdate segMetadataStart0End100Update = new RemoteLogSegmentMetadataUpdate(
+                segIdStart0End100,
                 System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 0);
         rlmm.updateRemoteLogSegmentMetadata(segMetadataStart0End100Update);
 
-        RemoteLogSegmentMetadata expectedSegMetadataStart0End100 = segMetadataStart0End100.createRemoteLogSegmentWithUpdates(segMetadataStart0End100Update);
+        RemoteLogSegmentMetadata expectedSegMetadataStart0End100 = segMetadataStart0End100
+                .createRemoteLogSegmentWithUpdates(segMetadataStart0End100Update);
 
         // Check that the seg exists in RLMM
-        Optional<RemoteLogSegmentMetadata> segMetadataForOffset30Epoch1 = rlmm.remoteLogSegmentMetadata(TP0, 30L, 1);
+        Optional<RemoteLogSegmentMetadata> segMetadataForOffset30Epoch1 = rlmm.remoteLogSegmentMetadata(TP0, 1, 30L);
         Assertions.assertEquals(Optional.of(expectedSegMetadataStart0End100), segMetadataForOffset30Epoch1);
 
         // Mark the partition for deletion. RLMM should clear all its internal state for that partition.
-        rlmm.putRemotePartitionDeleteMetadata(createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_MARKED));
+        rlmm.putRemotePartitionDeleteMetadata(
+                createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_MARKED));
 
-        Optional<RemoteLogSegmentMetadata> segMetadataForStart0End100AfterDelMark = rlmm.remoteLogSegmentMetadata(TP0, 30L, 1);
+        Optional<RemoteLogSegmentMetadata> segMetadataForStart0End100AfterDelMark = rlmm.remoteLogSegmentMetadata(TP0,
+                1, 30L);
         Assertions.assertEquals(Optional.of(expectedSegMetadataStart0End100), segMetadataForStart0End100AfterDelMark);
 
         // Set the partition deletion state as started. Partition and segments should still be accessible as they are not
         // yet deleted.
-        rlmm.putRemotePartitionDeleteMetadata(createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_STARTED));
+        rlmm.putRemotePartitionDeleteMetadata(
+                createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_STARTED));
 
-        Optional<RemoteLogSegmentMetadata> segMetadataForStart0End100AfterDelStart = rlmm.remoteLogSegmentMetadata(TP0, 30L, 1);
+        Optional<RemoteLogSegmentMetadata> segMetadataForStart0End100AfterDelStart = rlmm.remoteLogSegmentMetadata(TP0,
+                1, 30L);
         Assertions.assertEquals(Optional.of(expectedSegMetadataStart0End100), segMetadataForStart0End100AfterDelStart);
 
         // Set the partition deletion state as finished. RLMM should clear all its internal state for that partition.
-        rlmm.putRemotePartitionDeleteMetadata(createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_FINISHED));
+        rlmm.putRemotePartitionDeleteMetadata(
+                createRemotePartitionDeleteMetadata(RemotePartitionDeleteState.DELETE_PARTITION_FINISHED));
 
         Assertions.assertThrows(RemoteResourceNotFoundException.class,
-            () -> rlmm.remoteLogSegmentMetadata(TP0, 30L, 1));
+                () -> rlmm.remoteLogSegmentMetadata(TP0, 1, 30L));
     }
 
     private RemotePartitionDeleteMetadata createRemotePartitionDeleteMetadata(RemotePartitionDeleteState state) {
-        return new RemotePartitionDeleteMetadata(TP0, state, System.currentTimeMillis(), BROKER_ID);
+        return new RemotePartitionDeleteMetadata(TP0, state, System.currentTimeMillis(), BROKER_ID_0);
     }
 }
