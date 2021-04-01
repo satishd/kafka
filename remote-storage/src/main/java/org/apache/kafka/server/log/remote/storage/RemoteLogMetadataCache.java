@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -154,8 +155,9 @@ public class RemoteLogMetadataCache {
     public void updateRemoteLogSegmentMetadata(RemoteLogSegmentMetadataUpdate metadataUpdate)
             throws RemoteResourceNotFoundException {
         log.debug("Updating remote log segment metadata: [{}]", metadataUpdate);
-        RemoteLogSegmentState targetState = metadataUpdate.state();
+        Objects.requireNonNull(metadataUpdate, "metadataUpdate can not be null");
 
+        RemoteLogSegmentState targetState = metadataUpdate.state();
         RemoteLogSegmentId remoteLogSegmentId = metadataUpdate.remoteLogSegmentId();
         RemoteLogSegmentMetadata existingMetadata = idToSegmentMetadata.get(remoteLogSegmentId);
         if (existingMetadata == null) {
@@ -195,7 +197,7 @@ public class RemoteLogMetadataCache {
 
         // Put the entry with the updated metadata.
         idToSegmentMetadata.put(existingMetadata.remoteLogSegmentId(),
-                existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
+                existingMetadata.createWithUpdates(metadataUpdate));
     }
 
     private void handleSegmentWithDeleteSegmentStartedState(RemoteLogSegmentMetadataUpdate metadataUpdate,
@@ -207,7 +209,7 @@ public class RemoteLogMetadataCache {
 
         // Put the entry with the updated metadata.
         idToSegmentMetadata.put(existingMetadata.remoteLogSegmentId(),
-                existingMetadata.createRemoteLogSegmentWithUpdates(metadataUpdate));
+                existingMetadata.createWithUpdates(metadataUpdate));
     }
 
     private void handleSegmentWithDeleteSegmentFinishedState(RemoteLogSegmentMetadataUpdate metadataUpdate,
@@ -299,6 +301,7 @@ public class RemoteLogMetadataCache {
      */
     public void addCopyInProgressSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
         log.debug("Adding to in-progress state: [{}]", remoteLogSegmentMetadata);
+        Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
 
         // This method is allowed only to add remote log segment with the initial state(which is RemoteLogSegmentState.COPY_SEGMENT_STARTED)
         // but not to update the existing remote log segment metadata.

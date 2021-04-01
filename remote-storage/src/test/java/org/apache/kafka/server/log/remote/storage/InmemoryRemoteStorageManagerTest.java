@@ -78,28 +78,28 @@ public class InmemoryRemoteStorageManagerTest {
 
         // Check segment data exists for the copied segment.
         try (InputStream segmentStream = rsm.fetchLogSegment(segmentMetadata, 0)) {
-            checkContentSame(segmentStream, logSegmentData.logSegment().toPath());
+            checkContentSame(segmentStream, logSegmentData.logSegment());
         }
 
         // Check all segment indexes exist for the copied segment.
-        try (InputStream offsetIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.Offset)) {
-            checkContentSame(offsetIndexStream, logSegmentData.offsetIndex().toPath());
+        try (InputStream offsetIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.OFFSET)) {
+            checkContentSame(offsetIndexStream, logSegmentData.offsetIndex());
         }
 
-        try (InputStream timestampIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.Timestamp)) {
-            checkContentSame(timestampIndexStream, logSegmentData.timeIndex().toPath());
+        try (InputStream timestampIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.TIMESTAMP)) {
+            checkContentSame(timestampIndexStream, logSegmentData.timeIndex());
         }
 
-        try (InputStream txnIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.Transaction)) {
-            checkContentSame(txnIndexStream, logSegmentData.txnIndex().toPath());
+        try (InputStream txnIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+            checkContentSame(txnIndexStream, logSegmentData.txnIndex());
         }
 
         try (InputStream producerSnapshotStream = rsm
-                .fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.ProducerSnapshot)) {
-            checkContentSame(producerSnapshotStream, logSegmentData.producerSnapshotIndex().toPath());
+                .fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.PRODUCER_SNAPSHOT)) {
+            checkContentSame(producerSnapshotStream, logSegmentData.producerSnapshotIndex());
         }
 
-        try (InputStream leaderEpochIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.LeaderEpoch)) {
+        try (InputStream leaderEpochIndexStream = rsm.fetchIndex(segmentMetadata, RemoteStorageManager.IndexType.LEADER_EPOCH)) {
             ByteBuffer leaderEpochIndex = logSegmentData.leaderEpochIndex();
             Assertions.assertEquals(leaderEpochIndex,
                     readAsByteBuffer(leaderEpochIndexStream, leaderEpochIndex.array().length));
@@ -112,7 +112,7 @@ public class InmemoryRemoteStorageManagerTest {
         RemoteLogSegmentMetadata segmentMetadata = createRemoteLogSegmentMetadata();
         int segSize = 100;
         LogSegmentData logSegmentData = createLogSegmentData(segSize);
-        Path path = logSegmentData.logSegment().toPath();
+        Path path = logSegmentData.logSegment();
 
         // Copy the segment
         rsm.copyLogSegmentData(segmentMetadata, logSegmentData);
@@ -183,7 +183,7 @@ public class InmemoryRemoteStorageManagerTest {
 
         // Check that the copied segment exists in rsm and it is same.
         try (InputStream segmentStream = rsm.fetchLogSegment(segmentMetadata, 0)) {
-            checkContentSame(segmentStream, logSegmentData.logSegment().toPath());
+            checkContentSame(segmentStream, logSegmentData.logSegment());
         }
 
         // Delete segment and check that it does not exist in RSM.
@@ -221,20 +221,20 @@ public class InmemoryRemoteStorageManagerTest {
 
     private LogSegmentData createLogSegmentData(int segSize) throws Exception {
         int prefix = Math.abs(RANDOM.nextInt());
-        File segment = new File(DIR, prefix + ".seg");
-        Files.write(segment.toPath(), TestUtils.randomBytes(segSize));
+        Path segment = new File(DIR, prefix + ".seg").toPath();
+        Files.write(segment, TestUtils.randomBytes(segSize));
 
-        File offsetIndex = new File(DIR, prefix + ".oi");
-        Files.write(offsetIndex.toPath(), TestUtils.randomBytes(10));
+        Path offsetIndex = new File(DIR, prefix + ".oi").toPath();
+        Files.write(offsetIndex, TestUtils.randomBytes(10));
 
-        File timeIndex = new File(DIR, prefix + ".ti");
-        Files.write(timeIndex.toPath(), TestUtils.randomBytes(10));
+        Path timeIndex = new File(DIR, prefix + ".ti").toPath();
+        Files.write(timeIndex, TestUtils.randomBytes(10));
 
-        File txnIndex = new File(DIR, prefix + ".txni");
-        Files.write(txnIndex.toPath(), TestUtils.randomBytes(10));
+        Path txnIndex = new File(DIR, prefix + ".txni").toPath();
+        Files.write(txnIndex, TestUtils.randomBytes(10));
 
-        File producerSnapshotIndex = new File(DIR, prefix + ".psi");
-        Files.write(producerSnapshotIndex.toPath(), TestUtils.randomBytes(10));
+        Path producerSnapshotIndex = new File(DIR, prefix + ".psi").toPath();
+        Files.write(producerSnapshotIndex, TestUtils.randomBytes(10));
 
         ByteBuffer leaderEpochIndex = ByteBuffer.wrap(TestUtils.randomBytes(10));
         return new LogSegmentData(segment, offsetIndex, timeIndex, txnIndex, producerSnapshotIndex, leaderEpochIndex);

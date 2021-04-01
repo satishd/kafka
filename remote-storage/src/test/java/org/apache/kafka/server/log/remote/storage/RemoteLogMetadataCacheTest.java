@@ -19,19 +19,23 @@ package org.apache.kafka.server.log.remote.storage;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
-import static org.apache.kafka.server.log.remote.storage.TestUtils.sameElementsWithoutOrder;
-
 public class RemoteLogMetadataCacheTest {
+    private static final Logger log = LoggerFactory.getLogger(RemoteLogMetadataCacheTest.class);
 
     private static final TopicIdPartition TP0 = new TopicIdPartition(Uuid.randomUuid(),
             new TopicPartition("foo", 0));
@@ -61,27 +65,18 @@ public class RemoteLogMetadataCacheTest {
         Assertions.assertFalse(cache.remoteLogSegmentMetadata(40, 1).isPresent());
 
         RemoteLogSegmentMetadataUpdate segMetadataStart0End100Update = new RemoteLogSegmentMetadataUpdate(
-                segIdStart0End100,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
+                segIdStart0End100, System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
         cache.updateRemoteLogSegmentMetadata(segMetadataStart0End100Update);
-        RemoteLogSegmentMetadata updatedSegment0 = segMetadataStart0End100
-                .createRemoteLogSegmentWithUpdates(segMetadataStart0End100Update);
+        RemoteLogSegmentMetadata segment0Metadata = segMetadataStart0End100
+                .createWithUpdates(segMetadataStart0End100Update);
 
         // segment 1
         // 101 - 200
         // no changes in leadership with in this segment
         // leader epochs (2, 101)
-        Map<Integer, Long> seg1LeaderEpochs = new HashMap<>();
-        seg1LeaderEpochs.put(2, 101L);
-        RemoteLogSegmentId segIdStart101End200 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart101End200 = new RemoteLogSegmentMetadata(segIdStart101End200, 101L,
-                200L, -1L, BROKER_ID_0, System.currentTimeMillis(), SEG_SIZE, seg1LeaderEpochs);
-        cache.addCopyInProgressSegment(segMetadataStart101End200);
-        RemoteLogSegmentMetadataUpdate segMetadataStart101End200Update = new RemoteLogSegmentMetadataUpdate(
-                segIdStart101End200, System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
-        cache.updateRemoteLogSegmentMetadata(segMetadataStart101End200Update);
-        RemoteLogSegmentMetadata updatedSegment1 = segMetadataStart101End200
-                .createRemoteLogSegmentWithUpdates(segMetadataStart101End200Update);
+        Map<Integer, Long> seg1LeaderEpochs = Collections.singletonMap(2, 101L);
+        RemoteLogSegmentMetadata segment1Metadata = createSegmentUpdateWithState(cache, seg1LeaderEpochs, 101L, 200L,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
 
         // segment 2
         // 201 - 300
@@ -90,17 +85,8 @@ public class RemoteLogMetadataCacheTest {
         Map<Integer, Long> seg2LeaderEpochs = new HashMap<>();
         seg2LeaderEpochs.put(2, 201L);
         seg2LeaderEpochs.put(3, 240L);
-        RemoteLogSegmentId segIdStart101End300 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetadataStart101End300 = new RemoteLogSegmentMetadata(segIdStart101End300, 201L,
-                300L, -1L, 3,
-                System.currentTimeMillis(), SEG_SIZE, seg2LeaderEpochs);
-        cache.addCopyInProgressSegment(segMetadataStart101End300);
-        RemoteLogSegmentMetadataUpdate segMetadataStart101End300Update = new RemoteLogSegmentMetadataUpdate(
-                segIdStart101End300,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
-        cache.updateRemoteLogSegmentMetadata(segMetadataStart101End300Update);
-        RemoteLogSegmentMetadata updatedSegment2 = segMetadataStart101End300
-                .createRemoteLogSegmentWithUpdates(segMetadataStart101End300Update);
+        RemoteLogSegmentMetadata segment2Metadata = createSegmentUpdateWithState(cache, seg2LeaderEpochs, 201L, 300L,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
 
         // segment 3
         // 250 - 400
@@ -108,17 +94,8 @@ public class RemoteLogMetadataCacheTest {
         Map<Integer, Long> seg3leaderEpochs = new HashMap<>();
         seg3leaderEpochs.put(3, 250L);
         seg3leaderEpochs.put(4, 370L);
-        RemoteLogSegmentId segIdStart250End400 = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segMetFooTp0s250e400 = new RemoteLogSegmentMetadata(segIdStart250End400, 250L, 400L,
-                -1L,
-                BROKER_ID_0, System.currentTimeMillis(), SEG_SIZE, seg3leaderEpochs);
-        cache.addCopyInProgressSegment(segMetFooTp0s250e400);
-        RemoteLogSegmentMetadataUpdate segMetadataStart250End400Update = new RemoteLogSegmentMetadataUpdate(
-                segIdStart250End400,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
-        cache.updateRemoteLogSegmentMetadata(segMetadataStart250End400Update);
-        RemoteLogSegmentMetadata updatedSegment3 = segMetFooTp0s250e400
-                .createRemoteLogSegmentWithUpdates(segMetadataStart250End400Update);
+        RemoteLogSegmentMetadata segment3Metadata = createSegmentUpdateWithState(cache, seg3leaderEpochs, 250L, 400L,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
 
         //////////////////////////////////////////////////////////////////////////////////////////
         // Four segments are added with different boundaries and leader epochs.
@@ -126,188 +103,269 @@ public class RemoteLogMetadataCacheTest {
         // epochs and offsets
         //////////////////////////////////////////////////////////////////////////////////////////
 
-        // Search for offset 40, epoch 1
-        Optional<RemoteLogSegmentMetadata> segmentForOffset40Epoch1 = cache.remoteLogSegmentMetadata(1, 40);
-        Assertions.assertEquals(Optional.of(updatedSegment0), segmentForOffset40Epoch1);
+        HashMap<EpochOffset, RemoteLogSegmentMetadata> expectedEpochOffsetToSegmentMetadata = new HashMap<>();
+        // Existing metadata entries.
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(1, 40), segment0Metadata);
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(2, 110), segment1Metadata);
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(3, 240), segment2Metadata);
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(3, 250), segment3Metadata);
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(4, 375), segment3Metadata);
 
-        // Search for offset 110, epoch 2
-        Optional<RemoteLogSegmentMetadata> segmentForOffset110Epoch2 = cache.remoteLogSegmentMetadata(2, 110);
-        Assertions.assertEquals(Optional.of(updatedSegment1), segmentForOffset110Epoch2);
+        // Non existing metadata entries.
+        // Search for offset 110, epoch 1, and it should not exist.
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(1, 110), null);
+        // Search for non existing offset 401, epoch 4.
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(4, 401), null);
+        // Search for non existing epoch 5.
+        expectedEpochOffsetToSegmentMetadata.put(new EpochOffset(5, 301), null);
 
-        // Search for offset 110, epoch 1, and it should not exist
-        Optional<RemoteLogSegmentMetadata> segmentForOffset110Epoch1 = cache.remoteLogSegmentMetadata(1, 110);
-        Assertions.assertFalse(segmentForOffset110Epoch1.isPresent());
-
-        // Search for offset 240, epoch 3
-        Optional<RemoteLogSegmentMetadata> segmentForOffset240Epoch3 = cache.remoteLogSegmentMetadata(3, 240);
-        Assertions.assertEquals(Optional.of(updatedSegment2), segmentForOffset240Epoch3);
-
-        // Search for offset 250, epoch 3
-        Optional<RemoteLogSegmentMetadata> segmentForOffset250Epoch3 = cache.remoteLogSegmentMetadata(3, 250);
-        Assertions.assertEquals(Optional.of(updatedSegment3), segmentForOffset250Epoch3);
-
-        // Search for offset 375, epoch 4
-        Optional<RemoteLogSegmentMetadata> segmentForOffset375Epoch4 = cache.remoteLogSegmentMetadata(4, 375);
-        Assertions.assertEquals(Optional.of(updatedSegment3), segmentForOffset375Epoch4);
-
-        // Search for offset 401, epoch 4
-        Optional<RemoteLogSegmentMetadata> segmentForOffset401Epoch4 = cache.remoteLogSegmentMetadata(4, 401);
-        Assertions.assertFalse(segmentForOffset401Epoch4.isPresent());
+        for (Map.Entry<EpochOffset, RemoteLogSegmentMetadata> entry : expectedEpochOffsetToSegmentMetadata.entrySet()) {
+            EpochOffset epochOffset = entry.getKey();
+            Optional<RemoteLogSegmentMetadata> segmentMetadata = cache.remoteLogSegmentMetadata(epochOffset.epoch, epochOffset.offset);
+            RemoteLogSegmentMetadata expectedSegmentMetadata = entry.getValue();
+            log.info("Searching for {} , result: {}, expected: {} ", epochOffset, segmentMetadata,
+                    expectedSegmentMetadata);
+            if (expectedSegmentMetadata != null) {
+                Assertions.assertEquals(Optional.of(expectedSegmentMetadata), segmentMetadata);
+            } else {
+                Assertions.assertFalse(segmentMetadata.isPresent());
+            }
+        }
 
         // Update segment with state as DELETE_SEGMENT_STARTED.
         // It should not be available when we search for that segment.
-        cache.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(segIdStart0End100,
+        cache.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(segment0Metadata.remoteLogSegmentId(),
                 System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1));
-        Assertions.assertFalse(cache.remoteLogSegmentMetadata(10, 0).isPresent());
+        Assertions.assertFalse(cache.remoteLogSegmentMetadata(0, 10).isPresent());
 
         // Update segment with state as DELETE_SEGMENT_FINISHED.
         // It should not be available when we search for that segment.
-        cache.updateRemoteLogSegmentMetadata(
-                new RemoteLogSegmentMetadataUpdate(segIdStart0End100, System.currentTimeMillis(),
-                        RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, BROKER_ID_1));
-        Assertions.assertFalse(cache.remoteLogSegmentMetadata(10, 0).isPresent());
+        cache.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(segment0Metadata.remoteLogSegmentId(),
+                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, BROKER_ID_1));
+        Assertions.assertFalse(cache.remoteLogSegmentMetadata(0, 10).isPresent());
 
         //////////////////////////////////////////////////////////////////////////////////////////
         //  Search for cache.highestLogOffset(leaderEpoch) for all the leader epochs
         //////////////////////////////////////////////////////////////////////////////////////////
 
-        //search for highest offset for leader epoch 0
-        Optional<Long> highestOffsetForEpoch0 = cache.highestOffsetForEpoch(0);
-        Assertions.assertEquals(Optional.of(19L), highestOffsetForEpoch0);
+        Map<Integer, Long> expectedEpochToHighestOffset = new HashMap<>();
+        expectedEpochToHighestOffset.put(0, 19L);
+        expectedEpochToHighestOffset.put(1, 79L);
+        expectedEpochToHighestOffset.put(2, 239L);
+        expectedEpochToHighestOffset.put(3, 369L);
+        expectedEpochToHighestOffset.put(4, 400L);
 
-        //search for highest offset for leader epoch 1
-        Optional<Long> highestOffsetForEpoch1 = cache.highestOffsetForEpoch(1);
-        Assertions.assertEquals(Optional.of(79L), highestOffsetForEpoch1);
+        for (Map.Entry<Integer, Long> entry : expectedEpochToHighestOffset.entrySet()) {
+            Integer epoch = entry.getKey();
+            Long expectedOffset = entry.getValue();
+            Optional<Long> offset = cache.highestOffsetForEpoch(epoch);
+            log.info("Fetching highest offset for epoch: {} , returned: {} , expected: {}", epoch, offset, expectedOffset);
+            Assertions.assertEquals(Optional.of(expectedOffset), offset);
+        }
 
-        //search for highest offset for leader epoch 2
-        Optional<Long> highestOffsetForEpoch2 = cache.highestOffsetForEpoch(2);
-        Assertions.assertEquals(Optional.of(239L), highestOffsetForEpoch2);
+        // Search for non existing leader epoch
+        Optional<Long> highestOffsetForEpoch5 = cache.highestOffsetForEpoch(5);
+        Assertions.assertFalse(highestOffsetForEpoch5.isPresent());
+    }
 
-        //search for highest offset for leader epoch 3
-        Optional<Long> highestOffsetForEpoch3 = cache.highestOffsetForEpoch(3);
-        Assertions.assertEquals(Optional.of(369L), highestOffsetForEpoch3);
+    private RemoteLogSegmentMetadata createSegmentUpdateWithState(RemoteLogMetadataCache cache,
+                                                                  Map<Integer, Long> segmentLeaderEpochs,
+                                                                  long startOffset,
+                                                                  long endOffset,
+                                                                  RemoteLogSegmentState state)
+            throws RemoteResourceNotFoundException {
+        RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata segMetadata = new RemoteLogSegmentMetadata(segmentId, startOffset, endOffset, -1L,
+                BROKER_ID_0, System.currentTimeMillis(), SEG_SIZE, segmentLeaderEpochs);
+        cache.addCopyInProgressSegment(segMetadata);
 
-        //search for highest offset for leader epoch 4
-        Optional<Long> highestOffsetForEpoch4 = cache.highestOffsetForEpoch(4);
-        Assertions.assertEquals(Optional.of(400L), highestOffsetForEpoch4);
+        RemoteLogSegmentMetadataUpdate segMetadataUpdate = new RemoteLogSegmentMetadataUpdate(
+                segmentId, System.currentTimeMillis(), state, BROKER_ID_0);
+        cache.updateRemoteLogSegmentMetadata(segMetadataUpdate);
+
+        return segMetadata.createWithUpdates(segMetadataUpdate);
     }
 
     @Test
-    public void testCacheSegmentsWithDifferentStates() throws Exception {
+    public void testCacheSegmentWithCopySegmentStartedState() {
         RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
 
-        // Add segments with different states and check cache.remoteLogSegmentMetadata(int leaderEpoch, long offset)
-        // cache.listRemoteLogSegments(int leaderEpoch), and cache.listAllRemoteLogSegments().
-
-        // =============================================================================================================
-        // 1.Create a segment with state COPY_SEGMENT_STARTED, and check for searching that segment and listing the
+        // Create a segment with state COPY_SEGMENT_STARTED, and check for searching that segment and listing the
         // segments.
-        // ==============================================================================================================
-        Map<Integer, Long> seg0LeaderEpochs = Collections.singletonMap(0, 0L);
-        RemoteLogSegmentId seg0Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata segCopyInProgress = new RemoteLogSegmentMetadata(seg0Id, 0L, 50L, -1L, BROKER_ID_0,
-                System.currentTimeMillis(), SEG_SIZE, seg0LeaderEpochs);
-        cache.addCopyInProgressSegment(segCopyInProgress);
+        RemoteLogSegmentId segmentId = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+        RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId, 0L, 50L, -1L, BROKER_ID_0,
+                System.currentTimeMillis(), SEG_SIZE, Collections.singletonMap(0, 0L));
+        cache.addCopyInProgressSegment(segmentMetadata);
 
         // This segment should not be available as the state is not reached to COPY_SEGMENT_FINISHED.
         Optional<RemoteLogSegmentMetadata> segMetadataForOffset0Epoch0 = cache.remoteLogSegmentMetadata(0, 0);
         Assertions.assertFalse(segMetadataForOffset0Epoch0.isPresent());
 
-        // cache.listRemoteLogSegments(0) should contain the above segment.
-        List<RemoteLogSegmentMetadata> expectedSegments1 = Collections.singletonList(segCopyInProgress);
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listRemoteLogSegments(0), expectedSegments1.iterator()));
-        // cache.listRemoteLogSegments() should contain the above segment.
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listAllRemoteLogSegments(), expectedSegments1.iterator()));
+        // cache.listRemoteLogSegments APIs should contain the above segment.
+        checkListSegments(cache, 0, segmentMetadata);
+    }
 
-        // =============================================================================================================
-        // 2.Create a segment and move it to state COPY_SEGMENT_FINISHED. and check for searching that segment and
+    @Test
+    public void testCacheSegmentWithCopySegmentFinishedState() throws Exception {
+        RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
+
+        // Create a segment and move it to state COPY_SEGMENT_FINISHED. and check for searching that segment and
         // listing the segments.
-        // ==============================================================================================================
-        Map<Integer, Long> seg1LeaderEpochs = Collections.singletonMap(0, 101L);
-        RemoteLogSegmentId seg1Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata seg1 = new RemoteLogSegmentMetadata(seg1Id, 101L, 200L, -1L, BROKER_ID_0,
-                System.currentTimeMillis(), SEG_SIZE, seg1LeaderEpochs);
-        cache.addCopyInProgressSegment(seg1);
-        RemoteLogSegmentMetadataUpdate seg1Update = new RemoteLogSegmentMetadataUpdate(seg1Id,
-                System.currentTimeMillis(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, BROKER_ID_0);
-        cache.updateRemoteLogSegmentMetadata(seg1Update);
-        RemoteLogSegmentMetadata segCopyFinished = seg1.createRemoteLogSegmentWithUpdates(seg1Update);
+        RemoteLogSegmentMetadata segCopyFinished = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 101L),
+                101L, 200L, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
 
         // Search should return the above segment.
         Optional<RemoteLogSegmentMetadata> segMetadataForOffset150 = cache.remoteLogSegmentMetadata(0, 150);
-        Assertions
-                .assertEquals(seg1.createRemoteLogSegmentWithUpdates(seg1Update), segMetadataForOffset150.orElse(null));
+        Assertions.assertEquals(Optional.of(segCopyFinished), segMetadataForOffset150);
 
-        // cache.listRemoteLogSegments(0) should not contain the above segment.
-        List<RemoteLogSegmentMetadata> expectedSegments2 = Arrays.asList(segCopyInProgress, segCopyFinished);
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listRemoteLogSegments(0),
-                expectedSegments2.iterator()));
-        // But cache.listRemoteLogSegments() should contain both the segments.
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listAllRemoteLogSegments(),
-                expectedSegments2.iterator()));
+        // cache.listRemoteLogSegments should contain the above segments.
+        checkListSegments(cache, 0, segCopyFinished);
+    }
 
-        // =============================================================================================================
-        // 3.Create a segment and move it to state DELETE_SEGMENT_STARTED, and check for searching that segment and
+    @Test
+    public void testCacheSegmentWithDeleteSegmentStartedState() throws Exception {
+        RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
+
+        // Create a segment and move it to state DELETE_SEGMENT_STARTED, and check for searching that segment and
         // listing the segments.
-        // ==============================================================================================================
-        Map<Integer, Long> seg2leaderEpochs = Collections.singletonMap(0, 201L);
-        RemoteLogSegmentId seg2Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata seg2 = new RemoteLogSegmentMetadata(seg2Id, 201L, 300L, -1L, BROKER_ID_0,
-                System.currentTimeMillis(), SEG_SIZE, seg2leaderEpochs);
-        cache.addCopyInProgressSegment(seg2);
-        RemoteLogSegmentMetadataUpdate seg2Update = new RemoteLogSegmentMetadataUpdate(seg2Id,
-                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1);
-        cache.updateRemoteLogSegmentMetadata(seg2Update);
-        RemoteLogSegmentMetadata segDeleteStarted = seg2.createRemoteLogSegmentWithUpdates(seg2Update);
+        RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 201L),
+                201L, 300L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
 
         // Search should not return the above segment as their leader epoch state is cleared.
         Optional<RemoteLogSegmentMetadata> segMetadataForOffset250Epoch0 = cache.remoteLogSegmentMetadata(0, 250);
         Assertions.assertFalse(segMetadataForOffset250Epoch0.isPresent());
 
-        // cache.listRemoteLogSegments(0) should contain the above segment.
-        List<RemoteLogSegmentMetadata> expectedSegments3 = Arrays.asList(segCopyInProgress, segCopyFinished,
-                segDeleteStarted);
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listRemoteLogSegments(0),
-                expectedSegments3.iterator()));
-        // But cache.listRemoteLogSegments() should contain all the segments.
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listAllRemoteLogSegments(),
-                expectedSegments3.iterator()));
+        checkListSegments(cache, 0, segmentMetadata);
+    }
 
-        // =============================================================================================================
-        // 4.Create a segment and move it to state DELETE_SEGMENT_FINISHED, and check for searching that segment and
+    @Test
+    public void testCacheSegmentsWithDeleteSegmentFinishedState() throws Exception {
+        RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
+
+        // Create a segment and move it to state DELETE_SEGMENT_FINISHED, and check for searching that segment and
         // listing the segments.
-        // ==============================================================================================================
-        Map<Integer, Long> seg3leaderEpochs = Collections.singletonMap(0, 301L);
-        RemoteLogSegmentId seg3Id = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
-        RemoteLogSegmentMetadata seg3 = new RemoteLogSegmentMetadata(seg3Id, 301L, 400L, -1L, BROKER_ID_0,
-                System.currentTimeMillis(), SEG_SIZE, seg3leaderEpochs);
-        cache.addCopyInProgressSegment(seg3);
-        RemoteLogSegmentMetadataUpdate seg3Update1 = new RemoteLogSegmentMetadataUpdate(seg3Id,
-                System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1);
-        cache.updateRemoteLogSegmentMetadata(seg3Update1);
+        RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 301L),
+                301L, 400L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
 
         // Search should not return the above segment as their leader epoch state is cleared.
-        Optional<RemoteLogSegmentMetadata> segMetadataForOffset350Epoch0 = cache.remoteLogSegmentMetadata(0, 350);
-        Assertions.assertFalse(segMetadataForOffset350Epoch0.isPresent());
+        Assertions.assertFalse(cache.remoteLogSegmentMetadata(0, 350).isPresent());
 
-        RemoteLogSegmentMetadataUpdate seg3Update2 = new RemoteLogSegmentMetadataUpdate(seg3Id,
+        RemoteLogSegmentMetadataUpdate segmentMetadataUpdate = new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(),
                 System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, BROKER_ID_1);
-        cache.updateRemoteLogSegmentMetadata(seg3Update2);
+        cache.updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
 
-        List<RemoteLogSegmentMetadata> expectedSegments4 = Arrays.asList(segCopyInProgress, segCopyFinished,
-                segDeleteStarted);
-        // cache.listRemoteLogSegments(0) should not contain the above segment.
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listRemoteLogSegments(0),
-                expectedSegments4.iterator()));
-        // But cache.listRemoteLogSegments() should not contain both the segments as it should have been removed.
-        Assertions.assertTrue(sameElementsWithoutOrder(cache.listAllRemoteLogSegments(), expectedSegments4.iterator()));
+        // listRemoteLogSegments(0) and listRemoteLogSegments() should not contain the above segment.
+        Assertions.assertFalse(cache.listRemoteLogSegments(0).hasNext());
+        Assertions.assertFalse(cache.listAllRemoteLogSegments().hasNext());
+    }
 
-        // Search for highest offset for leader epoch 0.
-        Optional<Long> highestOffsetForEpoch0 = cache.highestOffsetForEpoch(0);
-        Assertions.assertEquals(Optional.of(400L), highestOffsetForEpoch0);
+    @Test
+    public void testCacheListSegments() throws Exception {
+        RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
 
-        // Search for highest offset for leader epoch 1, that does not exist.
-        Optional<Long> highestOffsetForEpoch1 = cache.highestOffsetForEpoch(1);
-        Assertions.assertFalse(highestOffsetForEpoch1.isPresent());
+        // Create a few segments and add them to the cache.
+        RemoteLogSegmentMetadata segment0 = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 0L), 0, 100,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        RemoteLogSegmentMetadata segment1 = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 101L), 101, 200,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        Map<Integer, Long> segment2LeaderEpochs = new HashMap<>();
+        segment2LeaderEpochs.put(0, 201L);
+        segment2LeaderEpochs.put(1, 301L);
+        RemoteLogSegmentMetadata segment2 = createSegmentUpdateWithState(cache, segment2LeaderEpochs, 201, 400,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+
+        // listRemoteLogSegments(0) and listAllRemoteLogSegments() should contain all the above segments.
+        List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch0 = Arrays.asList(segment0, segment1, segment2);
+        Assertions.assertTrue(TestUtils.sameElementsWithOrder(cache.listRemoteLogSegments(0),
+                expectedSegmentsForEpoch0.iterator()));
+        Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(cache.listAllRemoteLogSegments(),
+                expectedSegmentsForEpoch0.iterator()));
+
+        // listRemoteLogSegments(0) should contain only segment2.
+        List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch1 = Collections.singletonList(segment2);
+        Assertions.assertTrue(TestUtils.sameElementsWithOrder(cache.listRemoteLogSegments(1),
+                expectedSegmentsForEpoch1.iterator()));
+    }
+
+    @Test
+    public void testAPIsWithInvalidArgs() throws Exception {
+        RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
+
+        Assertions.assertThrows(NullPointerException.class, () -> cache.addCopyInProgressSegment(null));
+        Assertions.assertThrows(NullPointerException.class, () -> cache.updateRemoteLogSegmentMetadata(null));
+
+        // Check for invalid state updates to addCopyInProgressSegment method.
+        for (RemoteLogSegmentState state : RemoteLogSegmentState.values()) {
+            if (state != RemoteLogSegmentState.COPY_SEGMENT_STARTED) {
+                RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(
+                        new RemoteLogSegmentId(TP0, Uuid.randomUuid()), 0, 100L,
+                        -1L, BROKER_ID_0, System.currentTimeMillis(), SEG_SIZE, Collections.singletonMap(0, 0L));
+                RemoteLogSegmentMetadata updatedMetadata = segmentMetadata
+                        .createWithUpdates(new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(),
+                                System.currentTimeMillis(), state, BROKER_ID_1));
+                Assertions.assertThrows(IllegalArgumentException.class, () ->
+                        cache.addCopyInProgressSegment(updatedMetadata));
+            }
+        }
+
+        // Check for updating non existing segment-id.
+        Assertions.assertThrows(RemoteResourceNotFoundException.class, () -> {
+            RemoteLogSegmentId nonExistingId = new RemoteLogSegmentId(TP0, Uuid.randomUuid());
+            cache.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(nonExistingId,
+                    System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, BROKER_ID_1));
+        });
+
+        // Check for invalid state transition.
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(cache, Collections.singletonMap(0, 0L), 0,
+                    100, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+            cache.updateRemoteLogSegmentMetadata(new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(),
+                    System.currentTimeMillis(), RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, BROKER_ID_1));
+        });
+    }
+
+    private void checkListSegments(RemoteLogMetadataCache cache, int leaderEpoch, RemoteLogSegmentMetadata expectedSegment) {
+        // cache.listRemoteLogSegments(leaderEpoch) should contain the above segment.
+        Iterator<RemoteLogSegmentMetadata> segmentsIter = cache.listRemoteLogSegments(leaderEpoch);
+        Assertions.assertTrue(segmentsIter.hasNext() && Objects.equals(segmentsIter.next(), expectedSegment));
+
+        // cache.listAllRemoteLogSegments() should contain the above segment.
+        Iterator<RemoteLogSegmentMetadata> allSegmentsIter = cache.listAllRemoteLogSegments();
+        Assertions.assertTrue(allSegmentsIter.hasNext() && Objects.equals(allSegmentsIter.next(), expectedSegment));
+    }
+
+    private static class EpochOffset {
+        final int epoch;
+        final long offset;
+
+        private EpochOffset(int epoch, long offset) {
+            this.epoch = epoch;
+            this.offset = offset;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            EpochOffset that = (EpochOffset) o;
+            return epoch == that.epoch && offset == that.offset;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(epoch, offset);
+        }
+
+        @Override
+        public String toString() {
+            return "EpochOffset{" +
+                   "epoch=" + epoch +
+                   ", offset=" + offset +
+                   '}';
+        }
     }
 }

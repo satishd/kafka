@@ -66,17 +66,17 @@ public class InmemoryRemoteStorageManager implements RemoteStorageManager {
 
         try {
             keyToLogData.put(generateKeyForSegment(remoteLogSegmentMetadata),
-                    Files.readAllBytes(logSegmentData.logSegment().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Transaction),
-                    Files.readAllBytes(logSegmentData.txnIndex().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.LeaderEpoch),
+                    Files.readAllBytes(logSegmentData.logSegment()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.TRANSACTION),
+                    Files.readAllBytes(logSegmentData.txnIndex()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.LEADER_EPOCH),
                     logSegmentData.leaderEpochIndex().array());
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.ProducerSnapshot),
-                    Files.readAllBytes(logSegmentData.producerSnapshotIndex().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Offset),
-                    Files.readAllBytes(logSegmentData.offsetIndex().toPath()));
-            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.Timestamp),
-                    Files.readAllBytes(logSegmentData.timeIndex().toPath()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.PRODUCER_SNAPSHOT),
+                    Files.readAllBytes(logSegmentData.producerSnapshotIndex()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.OFFSET),
+                    Files.readAllBytes(logSegmentData.offsetIndex()));
+            keyToLogData.put(generateKeyForIndex(remoteLogSegmentMetadata, IndexType.TIMESTAMP),
+                    Files.readAllBytes(logSegmentData.timeIndex()));
         } catch (Exception e) {
             throw new RemoteStorageException(e);
         }
