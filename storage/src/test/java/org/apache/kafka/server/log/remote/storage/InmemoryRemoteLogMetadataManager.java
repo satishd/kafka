@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * This class is an implementation of {@link RemoteLogMetadataManager} backed by in-memory store.
@@ -42,6 +43,9 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
 
     private Map<TopicIdPartition, RemoteLogMetadataCache> idToRemoteLogMetadataCache = new ConcurrentHashMap<>();
 
+    private final ReentrantReadWriteLock remoteLogMetadataCacheLock = new ReentrantReadWriteLock();
+    private final Object partitionDeleteMetadataLock = new Object();
+
     @Override
     public void addRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata)
             throws RemoteStorageException {
@@ -50,9 +54,15 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
 
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
 
-        idToRemoteLogMetadataCache
-                .computeIfAbsent(remoteLogSegmentId.topicIdPartition(), id -> new RemoteLogMetadataCache())
-                .addCopyInProgressSegment(remoteLogSegmentMetadata);
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache
+                .computeIfAbsent(remoteLogSegmentId.topicIdPartition(), id -> new RemoteLogMetadataCache());
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            remoteLogMetadataCache.addCopyInProgressSegment(remoteLogSegmentMetadata);
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -61,8 +71,15 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         log.debug("Updating remote log segment: [{}]", metadataUpdate);
         Objects.requireNonNull(metadataUpdate, "metadataUpdate can not be null");
 
-        getRemoteLogMetadataCache(metadataUpdate.remoteLogSegmentId().topicIdPartition())
-                .updateRemoteLogSegmentMetadata(metadataUpdate);
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(
+                metadataUpdate.remoteLogSegmentId().topicIdPartition());
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            remoteLogMetadataCache.updateRemoteLogSegmentMetadata(metadataUpdate);
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     private RemoteLogMetadataCache getRemoteLogMetadataCache(TopicIdPartition topicIdPartition)
@@ -82,7 +99,14 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        return getRemoteLogMetadataCache(topicIdPartition).remoteLogSegmentMetadata(epochForOffset, offset);
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            return remoteLogMetadataCache.remoteLogSegmentMetadata(epochForOffset, offset);
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -90,7 +114,14 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
                                                 int leaderEpoch) throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        return getRemoteLogMetadataCache(topicIdPartition).highestOffsetForEpoch(leaderEpoch);
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            return remoteLogMetadataCache.highestOffsetForEpoch(leaderEpoch);
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -102,18 +133,21 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
         TopicIdPartition topicIdPartition = remotePartitionDeleteMetadata.topicIdPartition();
 
         RemotePartitionDeleteState targetState = remotePartitionDeleteMetadata.state();
-        RemotePartitionDeleteMetadata existingMetadata = idToPartitionDeleteMetadata.get(topicIdPartition);
-        RemotePartitionDeleteState existingState = existingMetadata != null ? existingMetadata.state() : null;
-        if (!RemotePartitionDeleteState.isValidTransition(existingState, targetState)) {
-            throw new IllegalStateException("Current state: " + existingState + ", target state: " + targetState);
-        }
 
-        idToPartitionDeleteMetadata.put(topicIdPartition, remotePartitionDeleteMetadata);
+        synchronized (partitionDeleteMetadataLock) {
+            RemotePartitionDeleteMetadata existingMetadata = idToPartitionDeleteMetadata.get(topicIdPartition);
+            RemotePartitionDeleteState existingState = existingMetadata != null ? existingMetadata.state() : null;
+            if (!RemotePartitionDeleteState.isValidTransition(existingState, targetState)) {
+                throw new IllegalStateException("Current state: " + existingState + ", target state: " + targetState);
+            }
 
-        if (targetState == RemotePartitionDeleteState.DELETE_PARTITION_FINISHED) {
-            // Remove the association for the partition.
-            idToRemoteLogMetadataCache.remove(topicIdPartition);
-            idToPartitionDeleteMetadata.remove(topicIdPartition);
+            idToPartitionDeleteMetadata.put(topicIdPartition, remotePartitionDeleteMetadata);
+
+            if (targetState == RemotePartitionDeleteState.DELETE_PARTITION_FINISHED) {
+                // Remove the association for the partition.
+                idToRemoteLogMetadataCache.remove(topicIdPartition);
+                idToPartitionDeleteMetadata.remove(topicIdPartition);
+            }
         }
     }
 
@@ -122,7 +156,14 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        return getRemoteLogMetadataCache(topicIdPartition).listAllRemoteLogSegments();
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            return remoteLogMetadataCache.listAllRemoteLogSegments();
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -130,7 +171,14 @@ public class InmemoryRemoteLogMetadataManager implements RemoteLogMetadataManage
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
 
-        return getRemoteLogMetadataCache(topicIdPartition).listRemoteLogSegments(leaderEpoch);
+        RemoteLogMetadataCache remoteLogMetadataCache = getRemoteLogMetadataCache(topicIdPartition);
+
+        remoteLogMetadataCacheLock.writeLock().lock();
+        try {
+            return remoteLogMetadataCache.listRemoteLogSegments(leaderEpoch);
+        } finally {
+            remoteLogMetadataCacheLock.writeLock().unlock();
+        }
     }
 
     @Override
