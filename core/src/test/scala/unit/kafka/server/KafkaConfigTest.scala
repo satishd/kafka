@@ -22,6 +22,7 @@ import kafka.cluster.EndPoint
 import kafka.log.LogConfig
 import kafka.message._
 import kafka.utils.{CoreUtils, TestUtils}
+import org.apache.kafka.common.Node
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.common.metrics.Sensor
 import org.apache.kafka.common.network.ListenerName
@@ -29,15 +30,14 @@ import org.apache.kafka.common.record.Records
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.raft.RaftConfig
 import org.apache.kafka.raft.RaftConfig.{AddressSpec, InetAddressSpec, UNKNOWN_ADDRESS_SPEC_INSTANCE}
+import org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.function.Executable
+
 import java.net.InetSocketAddress
 import java.util
 import java.util.{Collections, Properties}
-
-import org.apache.kafka.common.Node
-import org.junit.jupiter.api.function.Executable
-
 import scala.jdk.CollectionConverters._
 
 class KafkaConfigTest {
@@ -826,6 +826,11 @@ class KafkaConfigTest {
         case RaftConfig.QUORUM_LINGER_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case RaftConfig.QUORUM_REQUEST_TIMEOUT_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case RaftConfig.QUORUM_RETRY_BACKOFF_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
+
+        // Remote Log Metadata Manager Configs
+        case TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
+        case TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
+        case TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
 
         case _ => assertPropertyInvalid(baseProperties, name, "not_a_number", "-1")
       }
