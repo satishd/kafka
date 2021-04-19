@@ -31,11 +31,12 @@ import org.apache.kafka.raft.RaftConfig
 import org.apache.kafka.raft.RaftConfig.{AddressSpec, InetAddressSpec, UNKNOWN_ADDRESS_SPEC_INSTANCE}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
+
 import java.net.InetSocketAddress
 import java.util
 import java.util.{Collections, Properties}
-
 import org.apache.kafka.common.Node
+import org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRLMMConfig
 import org.junit.jupiter.api.function.Executable
 
 import scala.jdk.CollectionConverters._
@@ -826,6 +827,11 @@ class KafkaConfigTest {
         case RaftConfig.QUORUM_LINGER_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case RaftConfig.QUORUM_REQUEST_TIMEOUT_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case RaftConfig.QUORUM_RETRY_BACKOFF_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
+
+        // Remote Log Metadata Manager Configs
+        case TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
+        case TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
+        case TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP => assertPropertyInvalid(baseProperties, name, "not_a_number")
 
         case _ => assertPropertyInvalid(baseProperties, name, "not_a_number", "-1")
       }

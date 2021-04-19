@@ -270,9 +270,12 @@
     <allow pkg="com.fasterxml.jackson" />
 
     <subpackage name="log">
+      <allow pkg="org.apache.kafka.clients" />
       <allow pkg="org.apache.kafka.server.log" />
       <allow pkg="org.apache.kafka.metadata" />
       <allow pkg="org.apache.kafka.raft.metadata" />
+      <allow pkg="kafka.api" />
+      <allow pkg="kafka.utils" />
     </subpackage>
   </subpackage>
 

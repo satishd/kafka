@@ -19,7 +19,6 @@ package kafka.server
 
 import java.util
 import java.util.{Collections, Locale, Properties}
-
 import kafka.api.{ApiVersion, ApiVersionValidator, KAFKA_0_10_0_IV1, KAFKA_2_1_IV0, KAFKA_2_7_IV0, KAFKA_2_8_IV0}
 import kafka.cluster.EndPoint
 import kafka.coordinator.group.OffsetConfig
@@ -43,6 +42,7 @@ import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.raft.RaftConfig
 import org.apache.kafka.server.authorizer.Authorizer
+import org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRLMMConfig
 import org.apache.zookeeper.client.ZKClientConfig
 
 import scala.jdk.CollectionConverters._
@@ -141,6 +141,11 @@ object Defaults {
   val AutoCreateTopicsEnable = true
   val MinInSyncReplicas = 1
   val MessageDownConversionEnable = true
+
+  /** ********** Default Remote log metadata manager configuration ********* */
+  val RemoteLogMetadataTopicReplicationFactor = TopicBasedRLMMConfig.DEFAULT_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR
+  val RemoteLogMetadataTopicPartitions = TopicBasedRLMMConfig.DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS
+  val RemoteLogMetadataTopicRetentionMillis = TopicBasedRLMMConfig.DEFAULT_REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS
 
   /** ********* Replication configuration ***********/
   val ControllerSocketTimeoutMs = RequestTimeoutMs
@@ -449,6 +454,12 @@ object KafkaConfig {
   val CreateTopicPolicyClassNameProp = "create.topic.policy.class.name"
   val AlterConfigPolicyClassNameProp = "alter.config.policy.class.name"
   val LogMessageDownConversionEnableProp = LogConfigPrefix + "message.downconversion.enable"
+
+  /** ********* Configs for default RLMM implementation ********* */
+  val RemoteLogMetadataTopicReplicationFactorProp = TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP
+  val RemoteLogMetadataTopicPartitionsProp = TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP
+  val RemoteLogMetadataTopicRetentionMillisProp = TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP
+
   /** ********* Replication configuration ***********/
   val ControllerSocketTimeoutMsProp = "controller.socket.timeout.ms"
   val DefaultReplicationFactorProp = "default.replication.factor"
@@ -832,6 +843,14 @@ object KafkaConfig {
     "implement the <code>org.apache.kafka.server.policy.AlterConfigPolicy</code> interface."
   val LogMessageDownConversionEnableDoc = TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_DOC;
 
+  /** ********** Default Remote log metadata manager configuration ********* */
+  val RemoteLogMetadataTopicReplicationFactorDoc = "Replication factor of remote log metadata Topic."
+  val RemoteLogMetadataTopicPartitionsDoc = "The number of partitions for remote log metadata Topic."
+  val RemoteLogMetadataTopicRetentionMillisDoc = "Remote log metadata topic log retention in milli seconds." +
+    "Default: -1, that means unlimited. Users can configure this value based on their usecases. " +
+    "To avoid any data loss, this value should be more than the maximum retention period of any topic enabled with " +
+    "tiered storage in the cluster."
+
   /** ********* Replication configuration ***********/
   val ControllerSocketTimeoutMsDoc = "The socket timeout for controller-to-broker channels"
   val ControllerMessageQueueSizeDoc = "The buffer size for controller-to-broker-channels"
@@ -1147,6 +1166,12 @@ object KafkaConfig {
       .define(CreateTopicPolicyClassNameProp, CLASS, null, LOW, CreateTopicPolicyClassNameDoc)
       .define(AlterConfigPolicyClassNameProp, CLASS, null, LOW, AlterConfigPolicyClassNameDoc)
       .define(LogMessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW, LogMessageDownConversionEnableDoc)
+
+      /** ********** Default Remote log metadata manager configuration ********* */
+      .define(RemoteLogMetadataTopicReplicationFactorProp, INT, Defaults.RemoteLogMetadataTopicReplicationFactor, LOW, RemoteLogMetadataTopicReplicationFactorDoc)
+      .define(RemoteLogMetadataTopicPartitionsProp, INT, Defaults.RemoteLogMetadataTopicPartitions, LOW, RemoteLogMetadataTopicPartitionsDoc)
+      .define(RemoteLogMetadataTopicRetentionMillisProp, LONG, Defaults.RemoteLogMetadataTopicRetentionMillis, LOW, RemoteLogMetadataTopicRetentionMillisDoc)
+
 
       /** ********* Replication configuration ***********/
       .define(ControllerSocketTimeoutMsProp, INT, Defaults.ControllerSocketTimeoutMs, MEDIUM, ControllerSocketTimeoutMsDoc)
@@ -1628,6 +1653,12 @@ class KafkaConfig(val props: java.util.Map[_, _], doLog: Boolean, dynamicConfigO
   def logMessageTimestampType = TimestampType.forName(getString(KafkaConfig.LogMessageTimestampTypeProp))
   def logMessageTimestampDifferenceMaxMs: Long = getLong(KafkaConfig.LogMessageTimestampDifferenceMaxMsProp)
   def logMessageDownConversionEnable: Boolean = getBoolean(KafkaConfig.LogMessageDownConversionEnableProp)
+
+  /** ********** Default Remote log metadata manager configuration ********* */
+  def remoteLogMetadataTopicReplicationFactor:Int = getInt(KafkaConfig.RemoteLogMetadataTopicReplicationFactorProp)
+  def remoteLogMetadataTopicPartitions:Int = getInt(KafkaConfig.RemoteLogMetadataTopicPartitionsProp)
+  def remoteLogMetadataTopicRetentionMillis:Long = getLong(KafkaConfig.RemoteLogMetadataTopicRetentionMillisProp)
+
 
   /** ********* Replication configuration ***********/
   val controllerSocketTimeoutMs: Int = getInt(KafkaConfig.ControllerSocketTimeoutMsProp)
