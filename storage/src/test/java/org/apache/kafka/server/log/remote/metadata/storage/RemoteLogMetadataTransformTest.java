@@ -19,9 +19,11 @@ package org.apache.kafka.server.log.remote.metadata.storage;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.serialization.Deserializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataContextSerdes;
+import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataContextSerde;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadataUpdate;
@@ -34,20 +36,20 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.Map;
 
-public class RemoteLogMetadataSerdesTest {
+public class RemoteLogMetadataTransformTest {
 
     public static final String TOPIC = "foo";
     private static final TopicIdPartition TP0 = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(TOPIC, 0));
     private final Time time = new MockTime(1);
 
     @Test
-    public void testRemoteLogSegmentMetadataSerde() {
+    public void testRemoteLogSegmentMetadataSerde() throws Exception {
         // Create RemoteLogMetadataContext for RemoteLogSegmentMetadata
         // Deserialize the bytes and get RemoteLogSegmentMetadata and check it is as expected.
         RemoteLogSegmentMetadata segmentMetadata = createRemoteLogSegmentMetadata();
 
         RemoteLogMetadataContext remoteLogMetadataContext = new RemoteLogMetadataContext(
-                RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_API_KEY, (byte) 0, segmentMetadata);
+                RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_API_KEY, segmentMetadata);
         doTestRemoteLogContextSerde(remoteLogMetadataContext);
     }
 
@@ -56,19 +58,19 @@ public class RemoteLogMetadataSerdesTest {
         RemoteLogSegmentMetadata segmentMetadata = createRemoteLogSegmentMetadata();
         // Set the wrong API key for the given RemoteLogSegmentMetadata on RemoteLogMetadataContext and expect an
         // exception is thrown while serializing.
-        byte[] wrongApiKeys = {RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY,
-            RemoteLogMetadataContextSerdes.REMOTE_PARTITION_DELETE_API_KEY};
+        short[] wrongApiKeys = {RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY,
+            RemoteLogMetadataContextSerde.REMOTE_PARTITION_DELETE_API_KEY};
 
         doTestWrongAPIKeySerde(segmentMetadata, wrongApiKeys);
     }
 
     @Test
-    public void testRemoteLogSegmentMetadataUpdateSerde() {
+    public void testRemoteLogSegmentMetadataUpdateSerde() throws Exception {
         // Create RemoteLogMetadataContext for RemoteLogSegmentMetadataUpdate
         RemoteLogSegmentMetadataUpdate segmentMetadataUpdate = createRemoteLogSegmentMetadataUpdate();
 
         RemoteLogMetadataContext remoteLogMetadataContext = new RemoteLogMetadataContext(
-                RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY, (byte) 0,
+                RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY,
                 segmentMetadataUpdate);
 
         doTestRemoteLogContextSerde(remoteLogMetadataContext);
@@ -79,19 +81,19 @@ public class RemoteLogMetadataSerdesTest {
         RemoteLogSegmentMetadataUpdate segmentMetadataUpdate = createRemoteLogSegmentMetadataUpdate();
         // Set the wrong API key for the given RemoteLogSegmentMetadataUpdate on RemoteLogMetadataContext and expect an
         // exception is thrown while serializing.
-        byte[] wrongApiKeys = {RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_API_KEY,
-            RemoteLogMetadataContextSerdes.REMOTE_PARTITION_DELETE_API_KEY};
+        short[] wrongApiKeys = {RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_API_KEY,
+            RemoteLogMetadataContextSerde.REMOTE_PARTITION_DELETE_API_KEY};
 
         doTestWrongAPIKeySerde(segmentMetadataUpdate, wrongApiKeys);
     }
 
     @Test
-    public void testRemotePartitionDeleteMetadataSerde() {
+    public void testRemotePartitionDeleteMetadataSerde() throws Exception {
         // Create RemoteLogMetadataContext for RemotePartitionDeleteMetadata
         RemotePartitionDeleteMetadata remotePartitionDeleteMetadata = createRemotePartitionDeleteMetadata();
 
         RemoteLogMetadataContext remoteLogMetadataContext = new RemoteLogMetadataContext(
-                RemoteLogMetadataContextSerdes.REMOTE_PARTITION_DELETE_API_KEY, (byte) 0,
+                RemoteLogMetadataContextSerde.REMOTE_PARTITION_DELETE_API_KEY,
                 remotePartitionDeleteMetadata);
 
         doTestRemoteLogContextSerde(remoteLogMetadataContext);
@@ -102,8 +104,8 @@ public class RemoteLogMetadataSerdesTest {
         RemotePartitionDeleteMetadata remotePartitionDeleteMetadata = createRemotePartitionDeleteMetadata();
         // Set the wrong API key for the given RemotePartitionDeleteMetadata on RemoteLogMetadataContext and expect an
         // exception is thrown while serializing.
-        byte[] wrongApiKeys = {RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_API_KEY,
-            RemoteLogMetadataContextSerdes.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY};
+        short[] wrongApiKeys = {RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_API_KEY,
+            RemoteLogMetadataContextSerde.REMOTE_LOG_SEGMENT_METADATA_UPDATE_API_KEY};
 
         doTestWrongAPIKeySerde(remotePartitionDeleteMetadata, wrongApiKeys);
     }
@@ -129,27 +131,37 @@ public class RemoteLogMetadataSerdesTest {
                                                  time.milliseconds(), 0);
     }
 
-    private void doTestRemoteLogContextSerde(RemoteLogMetadataContext remoteLogMetadataContext) {
-        RemoteLogMetadataContextSerdes remoteLogMetadataContextSerdes = new RemoteLogMetadataContextSerdes();
+    private void doTestRemoteLogContextSerde(RemoteLogMetadataContext remoteLogMetadataContext) throws Exception {
+        RemoteLogMetadataContextSerde remoteLogMetadataContextSerde = new RemoteLogMetadataContextSerde();
 
         // Serialize context and get the bytes.
-        byte[] contextSerBytes = remoteLogMetadataContextSerdes.serializer().serialize(TOPIC, remoteLogMetadataContext);
+        String serializerClassName =  remoteLogMetadataContextSerde.serializer().getClass().getName();
+
+        @SuppressWarnings("unchecked")
+        Serializer<RemoteLogMetadataContext> serializer = (Serializer<RemoteLogMetadataContext>)
+                this.getClass().getClassLoader().loadClass(serializerClassName).newInstance();
+
+        byte[] contextSerBytes = serializer.serialize(TOPIC, remoteLogMetadataContext);
 
         // Deserialize the bytes and check the RemoteLogMetadataContext object is as expected.
-        RemoteLogMetadataContext deserializedRlmContext = remoteLogMetadataContextSerdes.deserializer()
-                .deserialize(TOPIC, contextSerBytes);
+        String deserializerClassName = remoteLogMetadataContextSerde.deserializer().getClass().getName();
+        @SuppressWarnings("unchecked")
+        Deserializer<RemoteLogMetadataContext> deserializer = (Deserializer<RemoteLogMetadataContext>)
+                this.getClass().getClassLoader().loadClass(deserializerClassName).newInstance();
+
+        RemoteLogMetadataContext deserializedRlmContext = deserializer.deserialize(TOPIC, contextSerBytes);
         Assertions.assertEquals(remoteLogMetadataContext, deserializedRlmContext);
     }
 
     private void doTestWrongAPIKeySerde(Object object,
-                                        byte[] wrongApiKeys) {
-        for (byte wrongApiKey : wrongApiKeys) {
+                                        short[] wrongApiKeys) {
+        for (short wrongApiKey : wrongApiKeys) {
             RemoteLogMetadataContext remoteLogMetadataContext
-                    = new RemoteLogMetadataContext(wrongApiKey, (byte) 0, object);
+                    = new RemoteLogMetadataContext(wrongApiKey, object);
 
             // Serialize context, receive an exception as it does not have the expected payload for the given apiKey.
             Assertions.assertThrows(ClassCastException.class,
-                () -> new RemoteLogMetadataContextSerdes().serializer().serialize(TOPIC, remoteLogMetadataContext));
+                () -> new RemoteLogMetadataContextSerde().serializer().serialize(TOPIC, remoteLogMetadataContext));
         }
     }
 
