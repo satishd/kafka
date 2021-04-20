@@ -37,22 +37,17 @@ import java.util.Objects;
  * You can read more details in <a href="https://cwiki.apache.org/confluence/display/KAFKA/KIP-405%3A+Kafka+Tiered+Storage#KIP405:KafkaTieredStorage-MessageFormat">KIP-405</a>
  */
 public class RemoteLogMetadataContext {
-    private final byte apiKey;
-    private final byte version;
+    private final short apiKey;
     private final Object payload;
 
-    public RemoteLogMetadataContext(byte apiKey, byte version, Object payload) {
+    public RemoteLogMetadataContext(short apiKey,
+                                    Object payload) {
         this.apiKey = apiKey;
-        this.version = version;
         this.payload = payload;
     }
 
-    public byte apiKey() {
+    public short apiKey() {
         return apiKey;
-    }
-
-    public byte version() {
-        return version;
     }
 
     public Object payload() {
@@ -64,20 +59,18 @@ public class RemoteLogMetadataContext {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteLogMetadataContext that = (RemoteLogMetadataContext) o;
-        return apiKey == that.apiKey && version == that.version && Objects.equals(payload, that.payload);
+        return Objects.equals(payload, that.payload);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(apiKey, version, payload);
+        return Objects.hash(payload);
     }
 
     @Override
     public String toString() {
         return "RemoteLogMetadataContext{" +
-               "apiKey=" + apiKey +
-               ", version=" + version +
-               ", payload=" + payload +
-               '}';
+                "payload=" + payload +
+                '}';
     }
 }
