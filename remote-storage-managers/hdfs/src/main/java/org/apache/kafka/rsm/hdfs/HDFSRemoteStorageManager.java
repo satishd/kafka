@@ -19,10 +19,12 @@ package org.apache.kafka.rsm.hdfs;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.kafka.common.log.remote.storage.LogSegmentData;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata;
@@ -38,9 +40,12 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
-
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_URI_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.OFFSET_INDEX;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT;
@@ -66,18 +71,31 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     public void configure(Map<String, ?> configs) {
         HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
 
-        fsURI = URI.create(conf.getString(HDFSRemoteStorageManagerConfig.HDFS_URI_PROP));
-        baseDir = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP);
-        cacheLineSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP) * 1048576;
-        long cacheSize = conf.getInt(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP) * 1048576L;
+        fsURI = URI.create(conf.getString(HDFS_URI_PROP));
+        baseDir = conf.getString(HDFS_BASE_DIR_PROP);
+        cacheLineSize = conf.getInt(HDFS_REMOTE_READ_MB_PROP) * 1048576;
+        long cacheSize = conf.getInt(HDFS_REMOTE_READ_CACHE_MB_PROP) * 1048576L;
         if (cacheSize < cacheLineSize) {
-            throw new IllegalArgumentException(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP +
-                    " is larger than " + HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP);
+            throw new IllegalArgumentException(String.format("%s is larger than %s", HDFS_REMOTE_READ_MB_PROP,
+                    HDFS_REMOTE_READ_CACHE_MB_PROP));
         }
         readCache = new LRUCache(cacheSize);
 
-        // Loads configuration from hadoop configuration files in class path
-        hadoopConf = new Configuration();
+        if (hadoopConf == null) {
+            // Loads configuration from hadoop configuration files in class path
+            hadoopConf = new Configuration();
+        }
+        String authentication = hadoopConf.get(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION);
+        if (authentication.equalsIgnoreCase("kerberos")) {
+            String user = conf.getString(HDFS_USER_PROP);
+            String keytabPath = conf.getString(HDFS_KEYTAB_PATH_PROP);
+            try {
+                UserGroupInformation.setConfiguration(hadoopConf);
+                UserGroupInformation.loginUserFromKeytab(user, keytabPath);
+            } catch (final Exception ex) {
+                throw new RuntimeException(String.format("Unable to login as user: %s", user), ex);
+            }
+        }
     }
 
     @Override
@@ -158,11 +176,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         this.readCache = cache;
     }
 
+    @VisibleForTesting
+    void setHadoopConfiguration(final Configuration configuration) {
+        this.hadoopConf = configuration;
+    }
+
     private void uploadFile(final File localSrc,
                             final FSDataOutputStream out,
                             final boolean closeStream) throws IOException {
         if (localSrc != null && localSrc.exists()) {
-            final int bufferSize = hadoopConf.getInt(IO_FILE_BUFFER_SIZE_KEY, IO_FILE_BUFFER_SIZE_DEFAULT);
+            final int bufferSize = hadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
+                    CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
             final byte[] buf = new byte[bufferSize];
             try (final FileInputStream fis = new FileInputStream(localSrc)) {
                 int bytesRead = fis.read(buf);
@@ -248,7 +272,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             fileLen = (dataPosition.getLength() == Integer.MAX_VALUE) ?
                     Math.min(endPos, actualFileLength) :
                     Math.min(endPos, dataPosition.getPos() + dataPosition.getLength());
-            fullFetch = (fileLen == actualFileLength);
+            fullFetch = fileLen == actualFileLength;
         }
 
         @Override

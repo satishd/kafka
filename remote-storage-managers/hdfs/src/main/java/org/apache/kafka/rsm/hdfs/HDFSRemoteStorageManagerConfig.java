@@ -42,12 +42,20 @@ class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_REMOTE_READ_CACHE_MB_DOC = "Read cache size in MB. The maximum amount of remote data will be cached in broker's memory. " +
                                                                "This value must be larger than hdfs.remote.read.bytes.mb.";
 
+    public static final String HDFS_USER_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX() + "hdfs.user";
+    public static final String HDFS_KEYTAB_PATH_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX() + "hdfs.keytab.path";
+
+    public static final String HDFS_USER_DOC = "The principal name to load from the keytab. This property should be used with " + HDFS_KEYTAB_PATH_PROP;
+    public static final String HDFS_KEYTAB_PATH_DOC = "The path to the keytab file. This property should be used with " + HDFS_USER_PROP;
+
     private static final ConfigDef CONFIG;
 
     static {
         CONFIG = new ConfigDef()
             .define(HDFS_URI_PROP, STRING, HIGH, HDFS_URI_DOC)
             .define(HDFS_BASE_DIR_PROP, STRING, HIGH, HDFS_BASE_DIR_DOC)
+            .define(HDFS_USER_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_USER_DOC)
+            .define(HDFS_KEYTAB_PATH_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_KEYTAB_PATH_DOC)
             .define(HDFS_REMOTE_READ_MB_PROP, INT, 16, atLeast(1), MEDIUM, HDFS_REMOTE_READ_MB_DOC)
             .define(HDFS_REMOTE_READ_CACHE_MB_PROP, INT, 1024, atLeast(1), MEDIUM, HDFS_REMOTE_READ_CACHE_MB_DOC);
     }

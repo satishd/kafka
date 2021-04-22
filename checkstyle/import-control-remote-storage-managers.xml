@@ -30,6 +30,14 @@
   <allow pkg="org.junit"/>
   <allow pkg="org.mockito"/>
 
+  <subpackage name="hdfs">
+    <allow pkg="org.apache.kafka.rsm.hdfs"/>
+
+    <!-- tests -->
+    <allow pkg="com.google.common.annotations"/>
+    <allow pkg="org.apache.kafka.test"/>
+  </subpackage>
+
   <subpackage name="s3">
     <allow pkg="com.amazonaws.client.builder" />
     <allow pkg="com.amazonaws.services.s3" />

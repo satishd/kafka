@@ -17,11 +17,13 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
+import org.apache.hadoop.security.KerberosAuthException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.log.remote.storage.LogSegmentData;
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentId;
@@ -60,7 +62,7 @@ public class HDFSRemoteStorageManagerTest {
     private MiniDFSCluster hdfsCluster;
     private FileSystem hdfs;
     private final String baseDir = "/kafka-remote-logs";
-    private Map<String, String> config;
+    private Map<String, String> configs;
 
     private RemoteStorageManager rsm;
 
@@ -77,12 +79,12 @@ public class HDFSRemoteStorageManagerTest {
         String hdfsURI = "hdfs://localhost:" + hdfsCluster.getNameNodePort() + "/";
         hdfs = FileSystem.newInstance(new URI(hdfsURI), conf);
 
-        config = new HashMap<>();
-        config.put(HDFSRemoteStorageManagerConfig.HDFS_URI_PROP, hdfsURI);
-        config.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, baseDir);
+        configs = new HashMap<>();
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_URI_PROP, hdfsURI);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, baseDir);
 
         rsm = new HDFSRemoteStorageManager();
-        rsm.configure(config);
+        rsm.configure(configs);
     }
 
     @AfterEach
@@ -95,8 +97,25 @@ public class HDFSRemoteStorageManagerTest {
     @Test
     public void testConfigAndClose() throws Exception {
         RemoteStorageManager rsm = new HDFSRemoteStorageManager();
-        rsm.configure(config);
+        rsm.configure(configs);
         rsm.close();
+    }
+
+    @Test
+    public void testSecureLogin() {
+        System.setProperty("java.security.krb5.realm", "ATHENA.MIT.EDU");
+        System.setProperty("java.security.krb5.kdc", "kerberos.mit.edu:88");
+        String user = "test@ATHENA.MIT.EDU";
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_USER_PROP, user);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP, "test.keytab");
+
+        Configuration configuration = new Configuration();
+        configuration.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
+        HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+        rsm.setHadoopConfiguration(configuration);
+        Throwable exception = assertThrows(RuntimeException.class, () -> rsm.configure(configs),
+                "Unable to login as user: " + user);
+        assertTrue(exception.getCause() instanceof KerberosAuthException);
     }
 
     @Test
@@ -178,9 +197,9 @@ public class HDFSRemoteStorageManagerTest {
                                         String cacheLineSizeInMb,
                                         int segSize,
                                         int expectedCacheHit) throws Exception {
-        config.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP, cacheLineSizeInMb);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP, cacheLineSizeInMb);
         HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
-        rsm.configure(config);
+        rsm.configure(configs);
         rsm.setLRUCache(cache);
 
         TopicPartition tp = new TopicPartition("test", 1);
@@ -250,11 +269,11 @@ public class HDFSRemoteStorageManagerTest {
                                               UUID uuid) throws RemoteStorageException, IOException {
         rsm.deleteLogSegment(metadata);
         assertFalse(hdfs.exists(new Path(baseDir + File.separator + tp.toString() + File.separator + uuid)));
-        RemoteStorageException ex = assertThrows(RemoteStorageException.class,
-                () -> rsm.fetchLogSegmentData(metadata, 0L, Long.MAX_VALUE));
+        RemoteStorageException ex = assertThrows(RemoteStorageException.class, () ->
+                rsm.fetchLogSegmentData(metadata, 0L, Long.MAX_VALUE));
         assertEquals("Failed to fetch SEGMENT file from remote storage", ex.getMessage());
-        ex = assertThrows(RemoteStorageException.class,
-                () -> rsm.fetchOffsetIndex(metadata));
+        ex = assertThrows(RemoteStorageException.class, () ->
+                rsm.fetchOffsetIndex(metadata));
         assertEquals("Failed to fetch OFFSET_INDEX file from remote storage", ex.getMessage());
     }
 
