@@ -21,7 +21,7 @@ import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.ObjectSerializationCache;
 import org.apache.kafka.common.protocol.Readable;
 import org.apache.kafka.metadata.ApiMessageAndVersion;
-import org.apache.kafka.raft.metadata.AbstractMetadataRecordSerde;
+import org.apache.kafka.raft.metadata.ReadableWritableApiMessageSerde;
 import java.nio.ByteBuffer;
 
 /**
@@ -32,12 +32,12 @@ import java.nio.ByteBuffer;
  * {@code ApiMessage} for the given {@code apiKey}. This is required to deserialize the bytes to build the respective
  * {@code ApiMessage} instance.
  */
-public abstract class AbstractMetadataMessageSerde {
+public abstract class BytesApiMessageSerde {
 
-    private final AbstractMetadataRecordSerde metadataRecordSerde = new AbstractMetadataRecordSerde() {
+    private final ReadableWritableApiMessageSerde metadataRecordSerde = new ReadableWritableApiMessageSerde() {
         @Override
         public ApiMessage apiMessageFor(short apiKey) {
-            return AbstractMetadataMessageSerde.this.apiMessageFor(apiKey);
+            return BytesApiMessageSerde.this.apiMessageFor(apiKey);
         }
     };
 

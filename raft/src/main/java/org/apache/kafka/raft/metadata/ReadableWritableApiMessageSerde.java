@@ -32,7 +32,7 @@ import org.apache.kafka.raft.RecordSerde;
  *
  * This can be used as the underlying serialization mechanism for any metadata kind of log storage.
  */
-public abstract class AbstractMetadataRecordSerde implements RecordSerde<ApiMessageAndVersion> {
+public abstract class ReadableWritableApiMessageSerde implements RecordSerde<ApiMessageAndVersion> {
     private static final short DEFAULT_FRAME_VERSION = 0;
     private static final int DEFAULT_FRAME_VERSION_SIZE = ByteUtils.sizeOfUnsignedVarint(DEFAULT_FRAME_VERSION);
 
