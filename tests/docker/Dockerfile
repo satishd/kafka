@@ -77,7 +77,12 @@ RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.3.1-test.jar" -o /opt/kafka-2.3.1/lib
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.4.1-test.jar" -o /opt/kafka-2.4.1/libs/kafka-streams-2.4.1-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.5.1-test.jar" -o /opt/kafka-2.5.1/libs/kafka-streams-2.5.1-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.6.0-test.jar" -o /opt/kafka-2.6.0/libs/kafka-streams-2.6.0-test.jar
-RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.7.0-test.jar" -o /opt/kafka-2.6.0/libs/kafka-streams-2.7.0-test.jar
+RUN curl -s "$KAFKA_MIRROR/kafka-streams-2.7.0-test.jar" -o /opt/kafka-2.7.0/libs/kafka-streams-2.7.0-test.jar
+
+# Install Hadoop binary dependencies
+ARG HADOOP_VERSION=3.2.2
+ARG HADOOP_MIRROR="https://mirrors.estointernet.in/apache/hadoop/common"
+RUN mkdir -p "/opt/hadoop-$HADOOP_VERSION" && chmod a+rw /opt/hadoop-$HADOOP_VERSION && curl -s "$HADOOP_MIRROR/hadoop-$HADOOP_VERSION/hadoop-$HADOOP_VERSION.tar.gz" | tar xz --strip-components=1 -C "/opt/hadoop-$HADOOP_VERSION"
 
 # The version of Kibosh to use for testing.
 # If you update this, also update vagrant/base.sh
