@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from kafkatest.tests.core.replication_test import *
+from kafkatest.tests.core.replication_test import ReplicationTest, clean_shutdown, matrix, cluster, failures
 from kafkatest.services.hadoop import MiniHadoop
 from kafkatest.services.kafka import config_property
 
@@ -22,10 +22,12 @@ class TieredReplicationTest(ReplicationTest):
 
     def __init__(self, test_context):
         super(TieredReplicationTest, self).__init__(test_context)
-        self.logger.debug("My test context: %s", str(test_context))
 
-    @cluster(num_nodes=10)
-    @parametrize(failure_mode="clean_shutdown", broker_type="leader", security_protocol="PLAINTEXT")
+    @cluster(num_nodes=9)
+    @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
+            broker_type=["leader"],
+            security_protocol=["PLAINTEXT"],
+            enable_idempotence=[True, False])
     def test_replication_with_broker_failure(self, failure_mode, security_protocol, broker_type,
                                              client_sasl_mechanism="GSSAPI", interbroker_sasl_mechanism="GSSAPI",
                                              compression_type=None, enable_idempotence=False, tls_version=None):

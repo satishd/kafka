@@ -188,7 +188,8 @@ class MiniHadoop(Service):
             "HADOOP_OS_TYPE": "${HADOOP_OS_TYPE:-$(uname -s)}",
             "HADOOP_GC_SETTINGS": "-verbose:gc -XX:+PrintGCDetails -XX:+PrintGCTimeStamps -XX:+PrintGCDateStamps",
             "HDFS_NAMENODE_OPTS": "${HADOOP_GC_SETTINGS} -Xloggc:${HADOOP_LOG_DIR}/gc-rm.log-$(date +'%Y%m%d%H%M') "
-                                  "-Dhadoop.security.logger=INFO,RFAS"
+                                  "-Dhadoop.security.logger=INFO,RFAS",
+            "HADOOP_HEAPSIZE_MAX": "256m"
         }
         return self.render(template_name, kwargs=kwargs)
 
