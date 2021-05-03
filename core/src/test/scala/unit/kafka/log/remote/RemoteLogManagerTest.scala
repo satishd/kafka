@@ -23,6 +23,7 @@ import java.util.function.Consumer
 import java.util.{Collections, Optional, Properties}
 import java.{lang, util}
 
+import kafka.cluster.EndPoint
 import kafka.log.remote.RemoteLogManager.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX
 import kafka.log._
 import kafka.server.QuotaFactory.UnboundedQuota
@@ -34,8 +35,10 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.log.remote.storage._
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.easymock.EasyMock
 import org.junit.Assert._
@@ -122,7 +125,8 @@ class RemoteLogManagerTest {
     // this should initialize RSM
     val logsDirTmp = Files.createTempDirectory("kafka-").toString
     val remoteLogManager = new RemoteLogManager(logFetcher, lsoUpdater, rlmConfig, time, 1, "", logsDirTmp, new BrokerTopicStats)
-    remoteLogManager.onEndpointCreated("localhost:9092")
+    val securityProtocol = SecurityProtocol.PLAINTEXT
+    remoteLogManager.onEndpointCreated(EndPoint( "localhost", 9092, ListenerName.forSecurityProtocol(securityProtocol), securityProtocol))
 
     assertTrue(rsmConfig.count { case (k, v) => MockRemoteStorageManager.configs.get(k) == v } == rsmConfig.size)
     assertEquals(MockRemoteStorageManager.configs.get(KafkaConfig.RemoteLogRetentionBytesProp),

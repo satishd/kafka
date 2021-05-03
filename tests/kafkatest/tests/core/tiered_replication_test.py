@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from kafkatest.tests.core.replication_test import ReplicationTest, clean_shutdown, matrix, cluster, failures
+from kafkatest.tests.core.replication_test import ReplicationTest, clean_shutdown, matrix, parametrize, cluster, failures
 from kafkatest.services.hadoop import MiniHadoop
 from kafkatest.services.kafka import config_property
 
@@ -23,11 +23,25 @@ class TieredReplicationTest(ReplicationTest):
     def __init__(self, test_context):
         super(TieredReplicationTest, self).__init__(test_context)
 
-    @cluster(num_nodes=9)
+    @cluster(num_nodes=10)
     @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
             broker_type=["leader"],
             security_protocol=["PLAINTEXT"],
-            enable_idempotence=[True, False])
+            enable_idempotence=[True])
+    @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
+            broker_type=["leader"],
+            security_protocol=["PLAINTEXT", "SASL_SSL"])
+    @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
+            broker_type=["controller"],
+            security_protocol=["PLAINTEXT", "SASL_SSL"])
+    @matrix(failure_mode=["hard_bounce"],
+            broker_type=["leader"],
+            security_protocol=["SASL_SSL"], client_sasl_mechanism=["PLAIN"], interbroker_sasl_mechanism=["PLAIN", "GSSAPI"])
+    @parametrize(failure_mode="hard_bounce",
+                 broker_type="leader",
+                 security_protocol="SASL_SSL", client_sasl_mechanism="SCRAM-SHA-256", interbroker_sasl_mechanism="SCRAM-SHA-512")
+    @matrix(failure_mode=["clean_shutdown", "hard_shutdown", "clean_bounce", "hard_bounce"],
+            security_protocol=["PLAINTEXT"], broker_type=["leader"], compression_type=["gzip"], tls_version=["TLSv1.2", "TLSv1.3"])
     def test_replication_with_broker_failure(self, failure_mode, security_protocol, broker_type,
                                              client_sasl_mechanism="GSSAPI", interbroker_sasl_mechanism="GSSAPI",
                                              compression_type=None, enable_idempotence=False, tls_version=None):

@@ -23,7 +23,7 @@ import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.{Collections, Optional}
-import kafka.cluster.Partition
+import kafka.cluster.{EndPoint, Partition}
 import kafka.common.KafkaException
 import kafka.log.Log
 import kafka.log.remote.RemoteLogManager.CLUSTER_ID
@@ -33,6 +33,7 @@ import kafka.server.{BrokerTopicStats, Defaults, FetchDataInfo, FetchTxnCommitte
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.log.remote.storage.RemoteLogSegmentMetadata.State
@@ -170,13 +171,14 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     rlmm
   }
 
-  private def configureRLMM(localBootStrapServers:String): Unit = {
+  private def configureRLMM(endPoint: EndPoint): Unit = {
     val rlmmProps = new util.HashMap[String, Any]()
     rlmConfig.rlmmProps.foreach { case (k, v) => rlmmProps.put(k, v) }
     rlmmProps.put(KafkaConfig.LogDirProp, logDir)
     rlmmProps.put(KafkaConfig.BrokerIdProp, brokerId)
     rlmmProps.put(CLUSTER_ID, clusterId)
-    rlmmProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, localBootStrapServers)
+    rlmmProps.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, endPoint.host + ":" + endPoint.port)
+    rlmmProps.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, endPoint.securityProtocol.name)
     remoteLogMetadataManager.configure(rlmmProps)
   }
 
@@ -202,7 +204,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     convertToLeaderOrFollower(rlmTaskWithFuture.rlmTask)
   }
 
-  def onEndpointCreated(serverEndPoint:String): Unit = {
+  def onEndpointCreated(serverEndPoint: EndPoint): Unit = {
     // initialize and configure RSM and RLMM
     configureRSM()
     configureRLMM(serverEndPoint)
@@ -723,30 +725,34 @@ object RemoteLogManager {
    */
   val CLUSTER_ID = "cluster.id"
 
-  def DefaultConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable,
+  val rlmConfigDef = new ConfigDef()
+    .withClientSslSupport()
+    .withClientSaslSupport()
+
+  def DefaultConfig: RemoteLogManagerConfig = RemoteLogManagerConfig(remoteLogStorageEnable = Defaults.RemoteLogStorageEnable,
     null, null, Map.empty, Defaults.RemoteLogRetentionBytes, Defaults.RemoteLogRetentionMillis,
     Defaults.RemoteLogReaderThreads, Defaults.RemoteLogReaderMaxPendingTasks, Defaults.RemoteLogManagerThreadPoolSize,
     Defaults.RemoteLogManagerTaskIntervalMs, Defaults.RemoteLogMetadataManager,
     Defaults.RemoteLogMetadataManagerClassPath, rlmmProps = Map.empty)
 
   def createRemoteLogManagerConfig(config: KafkaConfig): RemoteLogManagerConfig = {
-    var rsmProps = Map[String, Any]()
-    var rlmmProps = Map[String, Any]()
+    val rlmmProps = rlmConfigDef.parse(config.props)
+    val rsmProps = collection.mutable.Map[String, Any]()
     config.props.forEach((key: Any, value: Any) => {
       key match {
         case key: String if key.startsWith(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX) =>
-          rsmProps += (key -> value)
+          rsmProps.put(key, value)
         case key: String if key.startsWith(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX) =>
-          rlmmProps += (key -> value)
+          rlmmProps.put(key, value.toString)
         case _ =>
       }
     })
 
     RemoteLogManagerConfig(config.remoteLogStorageEnable, config.remoteLogStorageManager,
-      config.remoteLogStorageManagerClassPath, rsmProps, config.remoteLogRetentionBytes,
+      config.remoteLogStorageManagerClassPath, rsmProps.toMap, config.remoteLogRetentionBytes,
       config.remoteLogRetentionMillis, config.remoteLogReaderThreads,
       config.remoteLogReaderMaxPendingTasks, config.remoteLogManagerThreadPoolSize,
       config.remoteLogManagerTaskIntervalMs, config.remoteLogMetadataManager, config.remoteLogMetadataManagerClassPath,
-      rlmmProps, Option(config.remoteLogMetadataManagerListenerName))
+      rlmmProps.asScala.toMap, Option(config.remoteLogMetadataManagerListenerName))
   }
 }

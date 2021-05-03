@@ -427,7 +427,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         val serverEndpoint = remoteLogManagerConfig.listenerName.map(ListenerName.normalised)
           .map(l => brokerInfo.broker.endPoint(l)) // if no listener is found it throws BrokerEndPointNotAvailableException
           .getOrElse(brokerInfo.broker.endPoints.head) // if no listener is configured, then return the first endpoint.
-        remoteLogManager.foreach(rlm => rlm.onEndpointCreated(serverEndpoint.host + ":" + serverEndpoint.port))
+        remoteLogManager.foreach(rlm => rlm.onEndpointCreated(serverEndpoint))
 
         socketServer.startProcessingRequests(authorizerFutures)
 
