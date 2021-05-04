@@ -43,9 +43,7 @@ import java.util.Set;
  * <p>
  * <code>remote.log.metadata.manager.listener.name</code> property is about listener name of the local broker to which
  * it should get connected if needed by RemoteLogMetadataManager implementation. When this is configured all other
- * required properties can be passed as properties with prefix of 'remote.log.metadata.manager.listener.
- * </p>
- * "cluster.id", "broker.id" and all the properties prefixed with "remote.log.metadata." are passed when
+ * required properties can be passed as properties with prefix of "remote.log.metadata." are passed when
  * {@link #configure(Map)} is invoked on this instance.
  * <p>
  * <p>

@@ -74,7 +74,9 @@ class TieredReplicationTest(ReplicationTest):
             [config_property.REMOTE_LOG_STORAGE_HDFS_FS_URI, self.hadoop.namenode_uri()],
             [config_property.REMOTE_LOG_STORAGE_HDFS_BASE_DIR, "/test"],
             [config_property.REMOTE_LOG_STORAGE_HDFS_REMOTE_READ_CACHE_MB, "8"],
-            [config_property.REMOTE_LOG_STORAGE_HDFS_REMOTE_READ_BYTES_MB, "1"]
+            [config_property.REMOTE_LOG_STORAGE_HDFS_REMOTE_READ_BYTES_MB, "1"],
+            # the `sasl.mechanism` is used by the kafka clients which gets invoked by the metadata manager.
+            [config_property.SASL_MECHANISM, client_sasl_mechanism]
         ]
         self.create_kafka(num_nodes=3,
                           security_protocol=security_protocol,

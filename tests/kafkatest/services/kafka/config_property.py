@@ -79,6 +79,7 @@ REMOTE_LOG_STORAGE_HDFS_REMOTE_READ_BYTES_MB="remote.log.storage.hdfs.remote.rea
 REMOTE_LOG_STORAGE_HDFS_REMOTE_READ_CACHE_MB="remote.log.storage.hdfs.remote.read.cache.mb"
 REMOTE_LOG_STORAGE_HDFS_USER="remote.log.storage.hdfs.user"
 REMOTE_LOG_STORAGE_HDFS_KEYTAB_PATH="remote.log.storage.hdfs.keytab.path"
+SASL_MECHANISM="sasl.mechanism"
 
 """
 From KafkaConfig.scala
