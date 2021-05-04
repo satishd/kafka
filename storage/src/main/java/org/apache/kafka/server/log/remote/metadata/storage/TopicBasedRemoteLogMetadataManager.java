@@ -50,8 +50,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #onPartitionLeadershipChanges(Set, Set)}. Each broker will have an instance of this class and it subscribes
  * to metadata updates for the registered user topic partitions.
  */
-public class TopicBasedRLMM implements RemoteLogMetadataManager {
-    private static final Logger log = LoggerFactory.getLogger(TopicBasedRLMM.class);
+public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataManager {
+    private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManager.class);
 
     // Take these as configs with the respective default values.
     private static final long INITIALIZATION_RETRY_INTERVAL_MS = 30_000L;

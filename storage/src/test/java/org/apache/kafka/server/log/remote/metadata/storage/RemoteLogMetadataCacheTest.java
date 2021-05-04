@@ -29,8 +29,6 @@ import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundExceptio
 import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,7 +40,6 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class RemoteLogMetadataCacheTest {
-    private static final Logger log = LoggerFactory.getLogger(RemoteLogMetadataCacheTest.class);
 
     private static final TopicIdPartition TP0 = new TopicIdPartition(Uuid.randomUuid(),
             new TopicPartition("foo", 0));
@@ -51,37 +48,6 @@ public class RemoteLogMetadataCacheTest {
     private static final int BROKER_ID_1 = 1;
 
     private final Time time = new MockTime(1);
-
-    @Test
-    public void testSegmentsLifeCycleInCache() throws Exception {
-        final RemoteLogMetadataCache cache = new RemoteLogMetadataCache();
-        // Create remote log segment metadata and add them to RemoteLogMetadataCache.
-        RemoteLogSegmentLifeCycleTest remoteLogSegmentLifeCycleTest = new RemoteLogSegmentLifeCycleTest(TP0) {
-            @Override
-            protected void updateRemoteLogSegmentMetadata(RemoteLogSegmentMetadataUpdate segmentMetadataUpdate) throws RemoteResourceNotFoundException {
-                cache.updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
-            }
-
-            @Override
-            protected Optional<Long> highestOffsetForEpoch(TopicIdPartition topicIdPartition,
-                                                           int epoch) {
-                return cache.highestOffsetForEpoch(epoch);
-            }
-
-            @Override
-            protected Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition,
-                                                                                  int leaderEpoch,
-                                                                                  long offset) {
-                return cache.remoteLogSegmentMetadata(leaderEpoch, offset);
-            }
-
-            @Override
-            protected void addCopyInProgressSegment(RemoteLogSegmentMetadata segmentMetadata) {
-                cache.addCopyInProgressSegment(segmentMetadata);
-            }
-        };
-        remoteLogSegmentLifeCycleTest.doTestRemoteLogSegmentLifeCycle();
-    }
 
     private RemoteLogSegmentMetadata createSegmentUpdateWithState(RemoteLogMetadataCache cache,
                                                                   Map<Integer, Long> segmentLeaderEpochs,
@@ -252,38 +218,4 @@ public class RemoteLogMetadataCacheTest {
         Assertions.assertTrue(allSegmentsIter.hasNext() && Objects.equals(allSegmentsIter.next(), expectedSegment));
     }
 
-    private static class EpochOffset {
-        final int epoch;
-        final long offset;
-
-        private EpochOffset(int epoch, long offset) {
-            this.epoch = epoch;
-            this.offset = offset;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            EpochOffset that = (EpochOffset) o;
-            return epoch == that.epoch && offset == that.offset;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(epoch, offset);
-        }
-
-        @Override
-        public String toString() {
-            return "EpochOffset{" +
-                   "epoch=" + epoch +
-                   ", offset=" + offset +
-                   '}';
-        }
-    }
 }

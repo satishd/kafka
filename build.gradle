@@ -1420,6 +1420,7 @@ project(':storage') {
     testImplementation project(':core').sourceSets.test.output
     testImplementation libs.junitJupiter
     testImplementation libs.mockitoCore
+    testImplementation libs.bcpkix
 
     testRuntimeOnly libs.slf4jlog4j
   }
@@ -1471,6 +1472,12 @@ project(':storage') {
     dependsOn createVersionFile
     from("$buildDir") {
       include "kafka/$buildVersionFileName"
+    }
+  }
+
+  test {
+    useJUnitPlatform {
+      includeEngines 'junit-jupiter'
     }
   }
 

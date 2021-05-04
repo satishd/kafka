@@ -37,8 +37,8 @@ import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRLMM
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRLMMConfig.REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP;
 
-public class TopicBasedRLMMConfigTest {
-    private static final  Logger log = LoggerFactory.getLogger(TopicBasedRLMMConfigTest.class);
+public class TopicBasedRemoteLogMetadataManagerConfigTest {
+    private static final  Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerConfigTest.class);
 
     private static final String BOOTSTRAP_SERVERS = "localhost:9091";
 
