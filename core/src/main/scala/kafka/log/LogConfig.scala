@@ -17,20 +17,19 @@
 
 package kafka.log
 
-import java.util.{Collections, Locale, Properties}
-
-import scala.jdk.CollectionConverters._
 import kafka.api.{ApiVersion, ApiVersionValidator}
 import kafka.message.BrokerCompressionCodec
 import kafka.server.{KafkaConfig, ThrottledReplicaListValidator}
 import kafka.utils.Implicits._
+import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
+import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, TopicConfig}
 import org.apache.kafka.common.errors.InvalidConfigurationException
-import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, TopicConfig}
 import org.apache.kafka.common.record.{LegacyRecord, TimestampType}
 import org.apache.kafka.common.utils.Utils
 
+import java.util.{Collections, Locale, Properties}
 import scala.collection.{Map, mutable}
-import org.apache.kafka.common.config.ConfigDef.{ConfigKey, ValidList, Validator}
+import scala.jdk.CollectionConverters._
 
 object Defaults {
   val SegmentSize = kafka.server.Defaults.LogSegmentBytes
@@ -95,6 +94,34 @@ case class LogConfig(props: java.util.Map[_, _], overriddenConfigs: Set[String] 
   val LeaderReplicationThrottledReplicas = getList(LogConfig.LeaderReplicationThrottledReplicasProp)
   val FollowerReplicationThrottledReplicas = getList(LogConfig.FollowerReplicationThrottledReplicasProp)
   val messageDownConversionEnable = getBoolean(LogConfig.MessageDownConversionEnableProp)
+  val remoteStorageEnable = getBoolean(LogConfig.RemoteLogStorageEnableProp)
+
+  def localRetentionMs: Long = {
+    val localLogRetentionMs = getLong(LogConfig.LocalLogRetentionMsProp)
+    if (localLogRetentionMs != null) {
+      // Added validation here as this config does not have a default value.
+      // When validator is passed to ConfigDef.define(), it expects a non null default value.
+      if (localLogRetentionMs < -1) {
+        throw new ConfigException(LogConfig.LocalLogRetentionMsProp, localLogRetentionMs, "Value must be at least -1.");
+      }
+      localLogRetentionMs
+    }
+    else retentionMs
+  }
+
+  def localRetentionBytes: Long = {
+    val localLogRetentionBytes = getLong(LogConfig.LocalLogRetentionBytesProp)
+    if (localLogRetentionBytes != null) {
+      // Added validation here as this config does not have a default value.
+      // When validator is passed to ConfigDef.define(), it expects a non null default value.
+      if (localLogRetentionBytes < -1) {
+        throw new ConfigException(LogConfig.LocalLogRetentionBytesProp, localLogRetentionBytes, "Value must be at least -1.");
+      }
+
+      localLogRetentionBytes
+    }
+    else retentionSize
+  }
 
   def randomSegmentJitter: Long =
     if (segmentJitterMs == 0) 0 else Utils.abs(scala.util.Random.nextInt()) % math.min(segmentJitterMs, segmentMs)
@@ -126,6 +153,9 @@ object LogConfig {
   val FlushMsProp = TopicConfig.FLUSH_MS_CONFIG
   val RetentionBytesProp = TopicConfig.RETENTION_BYTES_CONFIG
   val RetentionMsProp = TopicConfig.RETENTION_MS_CONFIG
+  val RemoteLogStorageEnableProp = TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG
+  val LocalLogRetentionMsProp = TopicConfig.LOCAL_LOG_RETENTION_MS_CONFIG
+  val LocalLogRetentionBytesProp = TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG
   val MaxMessageBytesProp = TopicConfig.MAX_MESSAGE_BYTES_CONFIG
   val IndexIntervalBytesProp = TopicConfig.INDEX_INTERVAL_BYTES_CONFIG
   val DeleteRetentionMsProp = TopicConfig.DELETE_RETENTION_MS_CONFIG
@@ -157,6 +187,9 @@ object LogConfig {
   val FlushMsDoc = TopicConfig.FLUSH_MS_DOC
   val RetentionSizeDoc = TopicConfig.RETENTION_BYTES_DOC
   val RetentionMsDoc = TopicConfig.RETENTION_MS_DOC
+  val RemoteLogStorageEnableDoc = TopicConfig.REMOTE_LOG_STORAGE_ENABLE_DOC
+  val LocalLogRetentionMsDoc = TopicConfig.LOCAL_LOG_RETENTION_MS_DOC
+  val LocalLogRetentionBytesDoc = TopicConfig.LOCAL_LOG_RETENTION_BYTES_DOC
   val MaxMessageSizeDoc = TopicConfig.MAX_MESSAGE_BYTES_DOC
   val IndexIntervalDoc = TopicConfig.INDEX_INTERVAL_BYTES_DOCS
   val FileDeleteDelayMsDoc = TopicConfig.FILE_DELETE_DELAY_MS_DOC
@@ -184,6 +217,8 @@ object LogConfig {
     "all replicas for this topic."
 
   private[log] val ServerDefaultHeaderName = "Server Default Property"
+
+  val configsWithNoServerDefaults: Set[String] = Set(RemoteLogStorageEnableProp, LocalLogRetentionMsProp, LocalLogRetentionBytesProp);
 
   // Package private for testing
   private[log] class LogConfigDef(base: ConfigDef) extends ConfigDef(base) {
@@ -238,7 +273,7 @@ object LogConfig {
     import org.apache.kafka.common.config.ConfigDef.Type._
     import org.apache.kafka.common.config.ConfigDef.ValidString._
 
-    new LogConfigDef()
+    val logConfigDef = new LogConfigDef()
       .define(SegmentBytesProp, INT, Defaults.SegmentSize, atLeast(LegacyRecord.RECORD_OVERHEAD_V0), MEDIUM,
         SegmentSizeDoc, KafkaConfig.LogSegmentBytesProp)
       .define(SegmentMsProp, LONG, Defaults.SegmentMs, atLeast(1), MEDIUM, SegmentMsDoc,
@@ -293,6 +328,15 @@ object LogConfig {
         FollowerReplicationThrottledReplicasDoc, FollowerReplicationThrottledReplicasProp)
       .define(MessageDownConversionEnableProp, BOOLEAN, Defaults.MessageDownConversionEnable, LOW,
         MessageDownConversionEnableDoc, KafkaConfig.LogMessageDownConversionEnableProp)
+
+    // RemoteLogStorageEnableProp, LocalLogRetentionMsProp, LocalLogRetentionBytesProp do not have server default
+    // config names.
+    logConfigDef
+      .define(RemoteLogStorageEnableProp, BOOLEAN, false, MEDIUM, RemoteLogStorageEnableDoc)
+      .define(LocalLogRetentionMsProp, LONG, null, MEDIUM, LocalLogRetentionMsDoc)
+      .define(LocalLogRetentionBytesProp, LONG, null, MEDIUM, LocalLogRetentionBytesDoc)
+
+    logConfigDef
   }
 
   def apply(): LogConfig = LogConfig(new Properties())

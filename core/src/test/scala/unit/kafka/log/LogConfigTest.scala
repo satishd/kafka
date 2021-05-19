@@ -40,10 +40,11 @@ class LogConfigTest {
   def ensureNoStaticInitializationOrderDependency(): Unit = {
     // Access any KafkaConfig val to load KafkaConfig object before LogConfig.
     assertNotNull(KafkaConfig.LogRetentionTimeMillisProp)
-    assertTrue(LogConfig.configNames.forall { config =>
-      val serverConfigOpt = LogConfig.serverConfigName(config)
-      serverConfigOpt.isDefined && (serverConfigOpt.get != null)
-    })
+    assertTrue(LogConfig.configNames.filter(config => !LogConfig.configsWithNoServerDefaults.contains(config))
+      .forall { config =>
+        val serverConfigOpt = LogConfig.serverConfigName(config)
+        serverConfigOpt.isDefined && (serverConfigOpt.get != null)
+      })
   }
 
   @Test
@@ -78,6 +79,10 @@ class LogConfigTest {
       case LogConfig.MinCleanableDirtyRatioProp => assertPropertyInvalid(name, "not_a_number", "-0.1", "1.2")
       case LogConfig.MinInSyncReplicasProp => assertPropertyInvalid(name, "not_a_number", "0", "-1")
       case LogConfig.MessageFormatVersionProp => assertPropertyInvalid(name, "")
+      case LogConfig.RemoteLogStorageEnableProp => assertPropertyInvalid(name, "not_a_boolean")
+      case LogConfig.LocalLogRetentionMsProp => assertPropertyInvalid(name, "not_a_number")
+      case LogConfig.LocalLogRetentionBytesProp => assertPropertyInvalid(name, "not_a_number")
+
       case _ => assertPropertyInvalid(name, "not_a_number", "-1")
     })
   }
