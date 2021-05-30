@@ -45,7 +45,7 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
     private static final int SEG_SIZE = 1024 * 1024;
 
     private final Time time = new MockTime(1);
-    private String logDir = TestUtils.tempDirectory("_rlmm_segs_").getAbsolutePath();
+    private final String logDir = TestUtils.tempDirectory("_rlmm_segs_").getAbsolutePath();
 
     private TopicBasedRemoteLogMetadataManagerHarness remoteLogMetadataManagerHarness;
 

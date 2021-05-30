@@ -162,13 +162,13 @@ object MockRemoteLogManager {
 
   def rlmConfig(threads: Int, taskQueueSize: Int): RemoteLogManagerConfig = {
     val props = new Properties
-    props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true.toString)
     props.put(RemoteLogManagerConfig.REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_PROP, "rlmm.config.")
     props.put(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP, "rsm.config.")
     props.put(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CLASS_NAME_PROP, "kafka.log.remote.MockRemoteStorageManager")
     props.put(RemoteLogManagerConfig.REMOTE_LOG_METADATA_MANAGER_CLASS_NAME_PROP, "kafka.log.remote.MockRemoteLogMetadataManager")
-    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_THREADS_PROP, threads)
-    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_MAX_PENDING_TASKS_PROP, taskQueueSize)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_THREADS_PROP, threads.toString)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_MAX_PENDING_TASKS_PROP, taskQueueSize.toString)
     val config = new AbstractConfig(RemoteLogManagerConfig.CONFIG_DEF, props, false)
     new RemoteLogManagerConfig(config)
   }

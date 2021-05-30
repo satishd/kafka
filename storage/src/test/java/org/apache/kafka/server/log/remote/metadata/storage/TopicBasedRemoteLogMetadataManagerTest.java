@@ -97,16 +97,18 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         final TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(leaderTopic, 0));
         final TopicIdPartition newFollowerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(followerTopic, 0));
 
-        // Add segments for these partitions but they are not available as they have not yet been subscribed.
+        // Add segments for these partitions but an exception is received as they have not yet been subscribed.
+        // These messages would have been published to the respective metadata topic partitions but the ConsumerManager
+        // has not yet been subscribing as they are not yet registered.
         RemoteLogSegmentMetadata leaderSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(newLeaderTopicIdPartition, Uuid.randomUuid()),
-                                                                                      0, 100, -1L, 0,
-                                                                                      time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
-        topicBasedRlmm().addRemoteLogSegmentMetadata(leaderSegmentMetadata);
+                                                                                0, 100, -1L, 0,
+                                                                                time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
+        Assertions.assertThrows(RemoteStorageException.class, () -> topicBasedRlmm().addRemoteLogSegmentMetadata(leaderSegmentMetadata));
 
         RemoteLogSegmentMetadata followerSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(newFollowerTopicIdPartition, Uuid.randomUuid()),
-                                                                                        0, 100, -1L, 0,
-                                                                                        time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
-        topicBasedRlmm().addRemoteLogSegmentMetadata(followerSegmentMetadata);
+                                                                                0, 100, -1L, 0,
+                                                                                time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
+        Assertions.assertThrows(RemoteStorageException.class, () -> topicBasedRlmm().addRemoteLogSegmentMetadata(followerSegmentMetadata));
 
         // `listRemoteLogSegments` will receive an exception as these topic partitions are not yet registered.
         Assertions.assertThrows(RemoteStorageException.class, () -> topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition));
@@ -115,15 +117,17 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(newLeaderTopicIdPartition),
                                                       Collections.singleton(newFollowerTopicIdPartition));
 
-        waitUntilConsumerCatchup(newLeaderTopicIdPartition, newFollowerTopicIdPartition, 300_000L);
+        // RemoteLogSegmentMetadata events are already published, and topicBasedRlmm's consumer manager will start
+        // fetching those events and build the cache.
+        waitUntilConsumerCatchesup(newLeaderTopicIdPartition, newFollowerTopicIdPartition, 30_000L);
 
         Assertions.assertTrue(topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition).hasNext());
         Assertions.assertTrue(topicBasedRlmm().listRemoteLogSegments(newFollowerTopicIdPartition).hasNext());
     }
 
-    private void waitUntilConsumerCatchup(TopicIdPartition newLeaderTopicIdPartition,
-                                          TopicIdPartition newFollowerTopicIdPartition,
-                                          long timeoutMs) throws TimeoutException {
+    private void waitUntilConsumerCatchesup(TopicIdPartition newLeaderTopicIdPartition,
+                                            TopicIdPartition newFollowerTopicIdPartition,
+                                            long timeoutMs) throws TimeoutException {
         int leaderMetadataPartition = topicBasedRlmm().metadataPartition(newLeaderTopicIdPartition);
         int followerMetadataPartition = topicBasedRlmm().metadataPartition(newFollowerTopicIdPartition);
 
@@ -138,13 +142,18 @@ public class TopicBasedRemoteLogMetadataManagerTest {
                 throw new TimeoutException("Timed out after " + timeoutMs + "ms ");
             }
 
+            // If both the leader and follower partitions are mapped to the same metadata partition then it should have at least
+            // 2 messages. That means, received offset should be >= 1 (including duplicate messages if any).
             if (leaderMetadataPartition == followerMetadataPartition) {
-                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) > 0) {
+                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) >= 1) {
                     break;
                 }
             } else {
-                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) > -1 ||
-                        topicBasedRlmm().receivedOffsetForPartition(followerMetadataPartition).orElse(-1L) > -1) {
+                // If the leader partition and the follower partition are mapped to different metadata partitions then
+                // each of those metadata partitions will have at least 1 message. That means, received offset should
+                // be >= 0 (including duplicate messages if any).
+                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) >= 0 ||
+                        topicBasedRlmm().receivedOffsetForPartition(followerMetadataPartition).orElse(-1L) >= 0) {
                     break;
                 }
             }

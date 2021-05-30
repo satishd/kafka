@@ -76,7 +76,7 @@ public class TopicBasedRemoteLogMetadataManagerConfigTest {
             Assertions.assertEquals(entry.getValue(),
                                     rlmmConfig.producerProperties().get(entry.getKey()));
             Assertions.assertEquals(entry.getValue(),
-                                    rlmmConfig.producerProperties().get(entry.getKey()));
+                                    rlmmConfig.consumerProperties().get(entry.getKey()));
         }
 
         // Check for producer configs.
@@ -129,7 +129,7 @@ public class TopicBasedRemoteLogMetadataManagerConfigTest {
         props.put(BROKER_ID, 1);
         props.put(LOG_DIR, TestUtils.tempDirectory().getAbsolutePath());
 
-        props.put(REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP, 3);
+        props.put(REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP, (short) 3);
         props.put(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP, 10);
         props.put(REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP, 60 * 60 * 1000L);
 

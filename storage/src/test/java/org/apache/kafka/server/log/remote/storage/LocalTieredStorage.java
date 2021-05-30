@@ -100,8 +100,6 @@ import static org.apache.kafka.server.log.remote.storage.RemoteTopicPartitionDir
  */
 public final class LocalTieredStorage implements RemoteStorageManager {
 
-    InputStream EMPTY_INPUT_STREAM = new ByteArrayInputStream(new byte[0]);
-
     public static final String STORAGE_CONFIG_PREFIX = "remote.log.storage.local.";
 
     /**
@@ -374,7 +372,7 @@ public final class LocalTieredStorage implements RemoteStorageManager {
 
                 File file = fileset.getFile(fileType);
                 final InputStream inputStream = (fileType.isOptional() && !file.exists()) ?
-                        EMPTY_INPUT_STREAM : newInputStream(file.toPath(), READ);
+                        new ByteArrayInputStream(new byte[0]) : newInputStream(file.toPath(), READ);
 
                 storageListeners.onStorageEvent(eventBuilder.withFileset(fileset).build());
 

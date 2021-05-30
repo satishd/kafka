@@ -29,9 +29,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * This class is responsible for publishing messages into the remote log metadata topic partitions.
+ *
+ * Caller of this class should take care of not sending messages once the closing of this instance is initiated.
  */
 public class ProducerManager implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(ProducerManager.class);
@@ -41,7 +44,8 @@ public class ProducerManager implements Closeable {
     private final RemoteLogMetadataTopicPartitioner topicPartitioner;
     private final TopicBasedRemoteLogMetadataManagerConfig rlmmConfig;
 
-    private volatile boolean close = false;
+    // It indicates whether closing process has been started or not.
+    private final AtomicBoolean closing = new AtomicBoolean();
 
     public ProducerManager(TopicBasedRemoteLogMetadataManagerConfig rlmmConfig,
                            RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner) {
@@ -50,22 +54,20 @@ public class ProducerManager implements Closeable {
         topicPartitioner = rlmmTopicPartitioner;
     }
 
-    public RecordMetadata publishMessage(TopicIdPartition topicIdPartition,
-                                         RemoteLogMetadata remoteLogMetadata) throws KafkaException {
-        ensureNotClosed();
-
-        int metadataPartitionNo = topicPartitioner.metadataPartition(topicIdPartition);
+    public RecordMetadata publishMessage(RemoteLogMetadata remoteLogMetadata) throws KafkaException {
+        TopicIdPartition topicIdPartition = remoteLogMetadata.topicIdPartition();
+        int metadataPartitionNum = topicPartitioner.metadataPartition(topicIdPartition);
         log.debug("Publishing metadata message of partition:[{}] into metadata topic partition:[{}] with payload: [{}]",
-                topicIdPartition, metadataPartitionNo, remoteLogMetadata);
+                topicIdPartition, metadataPartitionNum, remoteLogMetadata);
+        if (metadataPartitionNum >= rlmmConfig.metadataTopicPartitionsCount()) {
+            // This should never occur as long as metadata partitions always remain the same.
+            throw new KafkaException("Chosen partition no " + metadataPartitionNum +
+                                             " must be less than the partition count: " + rlmmConfig.metadataTopicPartitionsCount());
+        }
 
         ProducerCallback callback = new ProducerCallback();
         try {
-            if (metadataPartitionNo >= rlmmConfig.metadataTopicPartitionsCount()) {
-                // This should never occur as long as metadata partitions always remain the same.
-                throw new KafkaException("Chosen partition no " + metadataPartitionNo +
-                                         " is more than the partition count: " + rlmmConfig.metadataTopicPartitionsCount());
-            }
-            producer.send(new ProducerRecord<>(rlmmConfig.remoteLogMetadataTopicName(), metadataPartitionNo, null,
+            producer.send(new ProducerRecord<>(rlmmConfig.remoteLogMetadataTopicName(), metadataPartitionNum, null,
                     serde.serialize(remoteLogMetadata)), callback).get();
         } catch (KafkaException e) {
             throw e;
@@ -73,33 +75,28 @@ public class ProducerManager implements Closeable {
             throw new KafkaException("Exception occurred while publishing message for topicIdPartition: " + topicIdPartition, e);
         }
 
-        if (callback.exception() != null) {
+        if (callback.exception() == null) {
+            return callback.recordMetadata();
+        } else {
             Exception ex = callback.exception();
             if (ex instanceof KafkaException) {
                 throw (KafkaException) ex;
             } else {
                 throw new KafkaException(ex);
             }
-        } else {
-            return callback.recordMetadata();
-        }
-    }
-
-    private void ensureNotClosed() {
-        if (close) {
-            throw new IllegalStateException("This instance is already set in close state.");
         }
     }
 
     public void close() {
-        close = true;
+        // If it is already closed, return from here.
+        if (closing.compareAndSet(false, true)) {
+            return;
+        }
 
-        if (producer != null) {
-            try {
-                producer.close(Duration.ofSeconds(30));
-            } catch (Exception e) {
-                log.error("Error encountered while closing the producer", e);
-            }
+        try {
+            producer.close(Duration.ofSeconds(30));
+        } catch (Exception e) {
+            log.error("Error encountered while closing the producer", e);
         }
     }
 

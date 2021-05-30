@@ -20,6 +20,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -30,10 +31,14 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
+/**
+ * This class manages the consumer thread viz {@link ConsumerTask} that polls messages from the assigned metadata topic partitions.
+ * It also provides a way to wait until the given record is received by the consumer before it is timed out with an interval of
+ * {@link TopicBasedRemoteLogMetadataManagerConfig#consumeWaitMs()}.
+ */
 public class ConsumerManager implements Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(ConsumerManager.class);
@@ -56,7 +61,7 @@ public class ConsumerManager implements Closeable {
         KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(rlmmConfig.consumerProperties());
         Path committedOffsetsPath = new File(rlmmConfig.logDir(), COMMITTED_OFFSETS_FILE_NAME).toPath();
         consumerTask = new ConsumerTask(consumer, remotePartitionMetadataEventHandler, topicPartitioner, committedOffsetsPath, time, 60_000L);
-        consumerTaskThread = KafkaThread.daemon("RLMMConsumerTask", consumerTask);
+        consumerTaskThread = KafkaThread.nonDaemon("RLMMConsumerTask", consumerTask);
     }
 
     public void startConsumerThread() {
@@ -78,38 +83,29 @@ public class ConsumerManager implements Closeable {
         final int partition = recordMetadata.partition();
 
         // If the current assignment does not have the subscription for this partition then return immediately.
-        if (!assignedPartition(partition)) {
-            log.warn("This consumer is not subscribed to the target partition [{}] on which message is produced.",
-                    partition);
-            return;
+        if (!consumerTask.isPartitionAssigned(partition)) {
+            throw new KafkaException("This consumer is not subscribed to the target partition " + partition + "on which message is produced.");
         }
 
         final long offset = recordMetadata.offset();
-        long startTimeMillis = time.milliseconds();
+        long startTimeMs = time.milliseconds();
         while (true) {
-            long committedOffset = committedOffset(partition);
-            if (committedOffset >= offset) {
+            long receivedOffset = consumerTask.receivedOffsetForPartition(partition).orElse(-1L);
+            if (receivedOffset >= offset) {
                 break;
             }
 
             log.debug("Committed offset [{}] for partition [{}], but the target offset: [{}],  Sleeping for [{}] to retry again",
-                    offset, partition, committedOffset, CONSUME_RECHECK_INTERVAL_MS);
+                    offset, partition, receivedOffset, CONSUME_RECHECK_INTERVAL_MS);
 
-            if (time.milliseconds() - startTimeMillis > rlmmConfig.consumeWaitMs()) {
+            if (time.milliseconds() - startTimeMs > rlmmConfig.consumeWaitMs()) {
                 log.warn("Committed offset for partition:[{}] is : [{}], but the target offset: [{}] ",
-                        partition, committedOffset, offset);
+                        partition, receivedOffset, offset);
+                throw new TimeoutException("Timed out in catching up with the expected offset by consumer.");
             }
 
             time.sleep(CONSUME_RECHECK_INTERVAL_MS);
         }
-    }
-
-    private long committedOffset(int partition) {
-        return consumerTask.receivedOffsetForPartition(partition).orElse(-1L);
-    }
-
-    private boolean assignedPartition(int partition) {
-        return consumerTask.assignedPartition(partition);
     }
 
     @Override
@@ -125,8 +121,8 @@ public class ConsumerManager implements Closeable {
         }
     }
 
-    public void addAssignmentsForPartitions(HashSet<TopicIdPartition> allPartitions) {
-        consumerTask.addAssignmentsForPartitions(allPartitions);
+    public void addAssignmentsForPartitions(Set<TopicIdPartition> partitions) {
+        consumerTask.addAssignmentsForPartitions(partitions);
     }
 
     public void removeAssignmentsForPartitions(Set<TopicIdPartition> partitions) {
