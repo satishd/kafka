@@ -21,8 +21,6 @@ import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.config.TopicConfig;
-import org.apache.kafka.common.utils.MockTime;
-import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,10 +48,9 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerHarness.class);
 
     protected static final int METADATA_TOPIC_PARTITIONS_COUNT = 3;
-    protected static final int METADATA_TOPIC_REPLICATION_FACTOR = 2;
+    protected static final short METADATA_TOPIC_REPLICATION_FACTOR = 2;
     protected static final long METADATA_TOPIC_RETENTION_MS = 24 * 60 * 60 * 1000L;
 
-    private final Time time = new MockTime(1);
     private TopicBasedRemoteLogMetadataManager topicBasedRemoteLogMetadataManager;
 
     protected final Map<String, Object> overrideRemoteLogMetadataManagerProps = new HashMap<>();
@@ -63,16 +60,13 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
         // Call setup to start the cluster.
         super.setUp();
 
-        // Make sure the remote log metadata topic is created before it is used.
-        createMetadataTopic();
-
         initializeRemoteLogMetadataManager(topicIdPartitions, startConsumerThread);
     }
 
     public void initializeRemoteLogMetadataManager(Set<TopicIdPartition> topicIdPartitions,
                                                    boolean startConsumerThread) {
         String logDir = org.apache.kafka.test.TestUtils.tempDirectory("rlmm_segs_").getAbsolutePath();
-        topicBasedRemoteLogMetadataManager = new TopicBasedRemoteLogMetadataManager(time, startConsumerThread) {
+        topicBasedRemoteLogMetadataManager = new TopicBasedRemoteLogMetadataManager(startConsumerThread) {
             @Override
             public void onPartitionLeadershipChanges(Set<TopicIdPartition> leaderPartitions,
                                                      Set<TopicIdPartition> followerPartitions) {
@@ -125,7 +119,7 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
                 throw new TimeoutException("Time out reached before it is initialized successfully");
             }
 
-            Utils.sleep(1000);
+            Utils.sleep(100);
         }
     }
 

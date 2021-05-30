@@ -28,6 +28,7 @@ import kafka.common.KafkaException
 import kafka.log.Log
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.checkpoints.LeaderEpochCheckpointFile
+import kafka.server.epoch.EpochEntry
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchTxnCommitted, KafkaConfig, LogOffsetMetadata, RemoteStorageFetchInfo}
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
@@ -390,40 +391,82 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 val endOffset = nextOffset - 1
                 val producerIdSnapshotFile = log.producerStateManager.fetchSnapshot(nextOffset).orNull
 
-                // FIXME(@satishd): tood-tier: Check and build the segment leader epochs
-                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
-                  segment.largestTimestamp, brokerId, System.currentTimeMillis(), segment.log.sizeInBytes(),
-                  Collections.singletonMap(0, 0L))
-
-                remoteLogMetadataManager.addRemoteLogSegmentMetadata(remoteLogSegmentMetadata)
-
-                val leaderEpochStateFile = new File(logFile.getParentFile, "leader-epoch-checkpoint-" + nextOffset)
-
-                try {
-                  val leaderEpochs: File = log.leaderEpochCache
-                    .map(cache => cache.writeTo(new LeaderEpochCheckpointFile(leaderEpochStateFile)))
-                    .map(x => {
-                      x.truncateFromEnd(nextOffset)
-                      leaderEpochStateFile
-                    }).get
-
-                  val segmentData = new LogSegmentData(logFile.toPath, segment.lazyOffsetIndex.get.path,
-                    segment.lazyTimeIndex.get.path, Optional.ofNullable(segment.txnIndex.path),
-                    producerIdSnapshotFile.toPath, ByteBuffer.wrap(Files.readAllBytes(leaderEpochs.toPath)))
-                  remoteLogStorageManager.copyLogSegmentData(remoteLogSegmentMetadata, segmentData)
-                } finally {
+                def createLeaderEpochs(): ByteBuffer = {
+                  val leaderEpochStateFile = new File(logFile.getParentFile, "leader-epoch-checkpoint-" + nextOffset)
                   try {
-                    Files.delete(leaderEpochStateFile.toPath)
-                  } catch {
-                    case ex: Exception => warn(s"Error occurred while deleting leader epoch file: $leaderEpochStateFile", ex)
+                    log.leaderEpochCache
+                      .map(cache => cache.writeTo(new LeaderEpochCheckpointFile(leaderEpochStateFile)))
+                      .foreach(x => {
+                        x.truncateFromEnd(nextOffset)
+                      })
+
+                    ByteBuffer.wrap(Files.readAllBytes(leaderEpochStateFile.toPath))
+                  } finally {
+                    try {
+                      Files.delete(leaderEpochStateFile.toPath)
+                    } catch {
+                      case ex: Exception => warn(s"Error occurred while deleting leader epoch file: $leaderEpochStateFile", ex)
+                    }
                   }
                 }
 
-                val rlsmAfterCreate = new RemoteLogSegmentMetadataUpdate(id, System.currentTimeMillis(),
+                def createLeaderEpochEntries(startOffset: Long): Option[collection.Seq[EpochEntry]] = {
+                  val leaderEpochStateFile = new File(logFile.getParentFile,
+                    "leader-epoch-checkpoint-entries-" + startOffset + "-" + nextOffset)
+                  try {
+                    val leaderEpochCheckpointFile = log.leaderEpochCache
+                      .map(cache => {
+                        val checkpointFile = new LeaderEpochCheckpointFile(leaderEpochStateFile)
+                        cache.writeTo(checkpointFile)
+                        cache.truncateFromStart(startOffset)
+                        cache.truncateFromEnd(nextOffset)
+                        checkpointFile
+                      })
+
+                    leaderEpochCheckpointFile.map(x => x.read())
+                  } finally {
+                    try {
+                      Files.delete(leaderEpochStateFile.toPath)
+                    } catch {
+                      case ex: Exception => warn(s"Error occurred while deleting leader epoch file: $leaderEpochStateFile", ex)
+                    }
+                  }
+                }
+
+                val leaderEpochs = createLeaderEpochs()
+                val segmentLeaderEpochEntries = createLeaderEpochEntries(segment.baseOffset)
+                val segmentLeaderEpochs: util.HashMap[Integer, java.lang.Long] =
+                  segmentLeaderEpochEntries.map(entries => {
+                    val map: util.HashMap[Integer, java.lang.Long] = new util.HashMap()
+                    entries.foreach(entry => map.put(entry.epoch, entry.startOffset))
+                    map
+                  }).getOrElse {
+                    val map: util.HashMap[Integer, java.lang.Long] = new util.HashMap()
+                    map.put(
+                      log.leaderEpochCache
+                        .map(x => x.latestEntry.map(y => y.epoch).getOrElse(0))
+                        .getOrElse(0).toInt,
+                      segment.baseOffset)
+                    map
+                  }
+
+                val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
+                  segment.largestTimestamp, brokerId, time.milliseconds(), segment.log.sizeInBytes(),
+                  segmentLeaderEpochs)
+
+                remoteLogMetadataManager.addRemoteLogSegmentMetadata(remoteLogSegmentMetadata)
+
+                val segmentData = new LogSegmentData(logFile.toPath, segment.lazyOffsetIndex.get.path,
+                  segment.lazyTimeIndex.get.path, Optional.ofNullable(segment.txnIndex.path),
+                  producerIdSnapshotFile.toPath, leaderEpochs)
+                remoteLogStorageManager.copyLogSegmentData(remoteLogSegmentMetadata, segmentData)
+
+                val rlsmAfterCreate = new RemoteLogSegmentMetadataUpdate(id, time.milliseconds(),
                   RemoteLogSegmentState.COPY_SEGMENT_FINISHED, brokerId)
 
                 remoteLogMetadataManager.updateRemoteLogSegmentMetadata(rlsmAfterCreate)
-                brokerTopicStats.topicStats(tp.topicPartition().topic()).remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
+                brokerTopicStats.topicStats(tp.topicPartition().topic())
+                  .remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
                 readOffset = endOffset
                 //todo-tier-storage
                 log.updateRemoteIndexHighestOffset(readOffset)

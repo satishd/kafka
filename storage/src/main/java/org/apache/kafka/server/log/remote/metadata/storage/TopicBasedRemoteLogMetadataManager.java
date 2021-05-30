@@ -16,10 +16,14 @@
  */
 package org.apache.kafka.server.log.remote.metadata.storage;
 
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.utils.KafkaThread;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -35,6 +39,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -52,18 +59,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataManager {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManager.class);
+    private static final long INITIALIZATION_RETRY_INTERVAL_MS = 30000L;
 
-    // Take these as configs with the respective default values.
-    private static final long INITIALIZATION_RETRY_INTERVAL_MS = 30_000L;
-
-    private final Time time;
+    private final Time time = Time.SYSTEM;
     private final boolean startConsumerThread;
 
     private volatile boolean configured = false;
 
+    // It indicates whether the close process of this instance is started or not via #close() method.
     // Using AtomicBoolean instead of volatile as it may encounter http://findbugs.sourceforge.net/bugDescriptions.html#SP_SPIN_ON_FIELD
     // if the field is read but not updated in a spin loop like in #initializeResources() method.
-    private final AtomicBoolean close = new AtomicBoolean(false);
+    private final AtomicBoolean closing = new AtomicBoolean(false);
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
     private Thread initializationThread;
@@ -76,16 +82,14 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
 
     private RemotePartitionMetadataStore remotePartitionMetadataStore;
     private volatile TopicBasedRemoteLogMetadataManagerConfig rlmmConfig;
-    private RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner;
+    private volatile RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner;
 
     public TopicBasedRemoteLogMetadataManager() {
-        this(Time.SYSTEM, true);
+        this(true);
     }
 
     // Visible for testing.
-    public TopicBasedRemoteLogMetadataManager(Time time,
-                                              boolean startConsumerThread) {
-        this.time = time;
+    public TopicBasedRemoteLogMetadataManager(boolean startConsumerThread) {
         this.startConsumerThread = startConsumerThread;
     }
 
@@ -94,12 +98,11 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             throws RemoteStorageException {
         Objects.requireNonNull(remoteLogSegmentMetadata, "remoteLogSegmentMetadata can not be null");
 
-        ensureInitializedAndNotClosed();
-
         // This allows gracefully rejecting the requests while closing of this instance is in progress, which triggers
         // closing the producer/consumer manager instances.
         lock.readLock().lock();
         try {
+            ensureInitializedAndNotClosed();
 
             // This method is allowed only to add remote log segment with the initial state(which is RemoteLogSegmentState.COPY_SEGMENT_STARTED)
             // but not to update the existing remote log segment metadata.
@@ -122,10 +125,10 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             throws RemoteStorageException {
         Objects.requireNonNull(segmentMetadataUpdate, "segmentMetadataUpdate can not be null");
 
-        ensureInitializedAndNotClosed();
-
         lock.readLock().lock();
         try {
+            ensureInitializedAndNotClosed();
+
             // Callers should use addRemoteLogSegmentMetadata to add RemoteLogSegmentMetadata with state as
             // RemoteLogSegmentState.COPY_SEGMENT_STARTED.
             if (segmentMetadataUpdate.state() == RemoteLogSegmentState.COPY_SEGMENT_STARTED) {
@@ -145,10 +148,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             throws RemoteStorageException {
         Objects.requireNonNull(remotePartitionDeleteMetadata, "remotePartitionDeleteMetadata can not be null");
 
-        ensureInitializedAndNotClosed();
-
         lock.readLock().lock();
         try {
+            ensureInitializedAndNotClosed();
 
             doPublishMetadata(remotePartitionDeleteMetadata.topicIdPartition(), remotePartitionDeleteMetadata);
         } finally {
@@ -159,12 +161,10 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private void doPublishMetadata(TopicIdPartition topicIdPartition, RemoteLogMetadata remoteLogMetadata)
             throws RemoteStorageException {
         log.debug("Publishing metadata for partition: [{}] with context: [{}]", topicIdPartition, remoteLogMetadata);
-        ensureInitializedAndNotClosed();
 
         try {
             // Publish the message to the topic.
-            RecordMetadata recordMetadata = producerManager.publishMessage(topicIdPartition,
-                                                                           remoteLogMetadata);
+            RecordMetadata recordMetadata = producerManager.publishMessage(remoteLogMetadata);
             // Wait until the consumer catches up with this offset. This will ensure read-after-write consistency
             // semantics.
             consumerManager.waitTillConsumptionCatchesUp(recordMetadata);
@@ -182,41 +182,67 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
                                                                        int epochForOffset,
                                                                        long offset)
             throws RemoteStorageException {
-        ensureInitializedAndNotClosed();
+        lock.readLock().lock();
+        try {
+            ensureInitializedAndNotClosed();
 
-        return remotePartitionMetadataStore.remoteLogSegmentMetadata(topicIdPartition, offset, epochForOffset);
+            return remotePartitionMetadataStore.remoteLogSegmentMetadata(topicIdPartition, offset, epochForOffset);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
-    public Optional<Long> highestOffsetForEpoch(TopicIdPartition topicIdPartition, int leaderEpoch)
+    public Optional<Long> highestOffsetForEpoch(TopicIdPartition topicIdPartition,
+                                                int leaderEpoch)
             throws RemoteStorageException {
-        ensureInitializedAndNotClosed();
+        lock.readLock().lock();
+        try {
 
-        return remotePartitionMetadataStore.highestLogOffset(topicIdPartition, leaderEpoch);
+            ensureInitializedAndNotClosed();
+
+            return remotePartitionMetadataStore.highestLogOffset(topicIdPartition, leaderEpoch);
+        } finally {
+            lock.readLock().unlock();
+        }
+
     }
 
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition)
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
-        ensureInitializedAndNotClosed();
 
-        return remotePartitionMetadataStore.listRemoteLogSegments(topicIdPartition);
+        lock.readLock().lock();
+        try {
+            ensureInitializedAndNotClosed();
+
+            return remotePartitionMetadataStore.listRemoteLogSegments(topicIdPartition);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition, int leaderEpoch)
             throws RemoteStorageException {
         Objects.requireNonNull(topicIdPartition, "topicIdPartition can not be null");
-        ensureInitializedAndNotClosed();
 
-        return remotePartitionMetadataStore.listRemoteLogSegments(topicIdPartition, leaderEpoch);
+        lock.readLock().lock();
+        try {
+            ensureInitializedAndNotClosed();
+
+            return remotePartitionMetadataStore.listRemoteLogSegments(topicIdPartition, leaderEpoch);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public int metadataPartition(TopicIdPartition topicIdPartition) {
         return rlmmTopicPartitioner.metadataPartition(topicIdPartition);
     }
 
+    // Visible For Testing
     public Optional<Long> receivedOffsetForPartition(int metadataPartition) {
         return consumerManager.receivedOffsetForPartition(metadataPartition);
     }
@@ -250,6 +276,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     public void onStopPartitions(Set<TopicIdPartition> partitions) {
         lock.readLock().lock();
         try {
+            ensureInitializedAndNotClosed();
             consumerManager.removeAssignmentsForPartitions(partitions);
         } finally {
             lock.readLock().unlock();
@@ -278,7 +305,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             // Scheduling the initialization producer/consumer managers in a separate thread. Required resources may
             // not yet be available now. This thread makes sure that it is retried at regular intervals until it is
             // successful.
-            initializationThread = KafkaThread.daemon("RLMMInitializationThread", () -> initializeResources());
+            initializationThread = KafkaThread.nonDaemon("RLMMInitializationThread", () -> initializeResources());
             initializationThread.start();
         } finally {
             lock.writeLock().unlock();
@@ -287,32 +314,74 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
 
     private void initializeResources() {
         log.info("Initializing the resources.");
-        if (!initialized.get() && !close.get()) {
-            try {
-                //todo: There were race conditions observed in creating the remote log metadata topic when multiple
-                // brokers started running RLMM and creating the topic based on auto create flag.
-                // We may want to add a check here later.
+        final NewTopic remoteLogMetadataTopicRequest = createRemoteLogMetadataTopicRequest();
 
+        // Stop if it is already initialized or closing.
+        while (!(initialized.get() || closing.get())) {
+            // There were race conditions observed in creating the remote log metadata topic when multiple
+            // brokers started running RLMM and creating the topic.
+            if (!createTopic(remoteLogMetadataTopicRequest)) {
+                // try to create the topic again if it could not be created.
+                log.info("Sleep for : {} ms before it is retried again.", INITIALIZATION_RETRY_INTERVAL_MS);
+                Utils.sleep(INITIALIZATION_RETRY_INTERVAL_MS);
+            } else {
                 // Create producer and consumer managers.
-                if (producerManager == null) {
+                try {
                     producerManager = new ProducerManager(rlmmConfig, rlmmTopicPartitioner);
-                }
-
-                if (consumerManager == null) {
                     consumerManager = new ConsumerManager(rlmmConfig, remotePartitionMetadataStore, rlmmTopicPartitioner, time);
                     if (startConsumerThread) {
                         consumerManager.startConsumerThread();
                     } else {
                         log.info("RLMM Consumer task thread is not configured to be started.");
                     }
-                }
 
-                initialized.set(true);
-                log.info("Initialized resources successfully.");
-            } catch (Exception e) {
-                log.error("Encountered error while initializing producer/consumer", e);
+                    initialized.set(true);
+                    log.info("Initialized resources successfully.");
+                } catch (Exception e) {
+                    log.error("Encountered error while initializing producer/consumer", e);
+                }
             }
         }
+    }
+
+    private NewTopic createRemoteLogMetadataTopicRequest() {
+        Map<String, String> topicConfigs = new HashMap<>();
+        topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, Long.toString(rlmmConfig.metadataTopicRetentionMs()));
+        topicConfigs.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE);
+        return new NewTopic(rlmmConfig.remoteLogMetadataTopicName(),
+                            rlmmConfig.metadataTopicPartitionsCount(),
+                            rlmmConfig.metadataTopicReplicationFactor()).configs(topicConfigs);
+    }
+
+    /**
+     * @param topic topic to be created.
+     * @return Returns true if the topic already exists or it is created successfully.
+     */
+    private boolean createTopic(NewTopic topic) {
+        boolean topicCreated = false;
+        AdminClient adminClient = null;
+        try {
+            adminClient = AdminClient.create(rlmmConfig.consumerProperties());
+            adminClient.createTopics(Collections.singleton(topic)).all().get();
+            topicCreated = true;
+        } catch (Exception e) {
+            if (e.getCause() instanceof TopicExistsException) {
+                topicCreated = true;
+            } else {
+                log.error("Encountered error while creating remote log metadata topic.", e);
+            }
+        } finally {
+            if (adminClient != null) {
+                try {
+                    adminClient.close(Duration.ofSeconds(30));
+                } catch (Exception e) {
+                    // Ignore the error.
+                    log.debug("Error occurred while closing the admin client", e);
+                }
+            }
+        }
+
+        return topicCreated;
     }
 
     public boolean isInitialized() {
@@ -320,9 +389,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     }
 
     private void ensureInitializedAndNotClosed() {
-        if (close.get() || !initialized.get()) {
+        if (closing.get() || !initialized.get()) {
             throw new IllegalStateException("This instance is in invalid state, initialized: " + initialized +
-                                            " close: " + close);
+                                            " close: " + closing);
         }
     }
 
@@ -342,9 +411,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     public void close() throws IOException {
         // Close all the resources.
         log.info("Closing the resources.");
-        lock.writeLock().lock();
-        try {
-            if (close.compareAndSet(false, true)) {
+        if (closing.compareAndSet(false, true)) {
+            lock.writeLock().lock();
+            try {
                 if (initializationThread != null) {
                     try {
                         initializationThread.join();
@@ -356,10 +425,10 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
                 Utils.closeQuietly(producerManager, "ProducerTask");
                 Utils.closeQuietly(consumerManager, "RLMMConsumerManager");
                 Utils.closeQuietly(remotePartitionMetadataStore, "RemotePartitionMetadataStore");
+            } finally {
+                lock.writeLock().unlock();
+                log.info("Closed the resources.");
             }
-        } finally {
-            lock.writeLock().unlock();
-            log.info("Closed the resources.");
         }
     }
 }

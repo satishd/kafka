@@ -73,7 +73,11 @@ class ConsumerTask implements Runnable, Closeable {
     private final RemoteLogMetadataTopicPartitioner topicPartitioner;
     private final Time time;
 
-    private volatile boolean close = false;
+    // It indicates whether the closing process has been started or not. If it is set as true,
+    // consumer will stop consuming messages and it will not allow partition assignments to be updated.
+    private volatile boolean closing = false;
+    // It indicates whether the consumer needs to assign the partitions or not. This is set when it is
+    // determined that the consumer needs to be assigned with the updated partitions.
     private volatile boolean assignPartitions = false;
 
     private final Object assignPartitionsLock = new Object();
@@ -98,10 +102,10 @@ class ConsumerTask implements Runnable, Closeable {
                         Path committedOffsetsPath,
                         Time time,
                         long committedOffsetSyncIntervalMs) {
-        this.consumer = consumer;
-        this.remotePartitionMetadataEventHandler = remotePartitionMetadataEventHandler;
-        this.topicPartitioner = topicPartitioner;
-        this.time = time;
+        this.consumer = Objects.requireNonNull(consumer);
+        this.remotePartitionMetadataEventHandler = Objects.requireNonNull(remotePartitionMetadataEventHandler);
+        this.topicPartitioner = Objects.requireNonNull(topicPartitioner);
+        this.time = Objects.requireNonNull(time);
         this.committedOffsetSyncIntervalMs = committedOffsetSyncIntervalMs;
         initializeConsumerAssignment(committedOffsetsPath);
     }
@@ -145,12 +149,8 @@ class ConsumerTask implements Runnable, Closeable {
         log.info("Started Consumer task thread.");
         lastSyncedTimeMs = time.milliseconds();
         try {
-            while (!close) {
-                Set<Integer> assignedMetaPartitionsSnapshot = maybeWaitForPartitionsAssignment();
-
-                if (!assignedMetaPartitionsSnapshot.isEmpty()) {
-                    executeReassignment(assignedMetaPartitionsSnapshot);
-                }
+            while (!closing) {
+                maybeWaitForPartitionsAssignment();
 
                 log.info("Polling consumer to receive remote log metadata topic records");
                 ConsumerRecords<byte[], byte[]> consumerRecords
@@ -159,11 +159,10 @@ class ConsumerTask implements Runnable, Closeable {
                     handleRemoteLogMetadata(serde.deserialize(record.value()));
                     partitionToConsumedOffsets.put(record.partition(), record.offset());
                 }
-
                 syncCommittedDataAndOffsets(false);
             }
         } catch (Exception e) {
-            log.error("Error occurred in consumer task, close:[{}]", close, e);
+            log.error("Error occurred in consumer task, close:[{}]", closing, e);
         } finally {
             closeConsumer();
         }
@@ -195,22 +194,29 @@ class ConsumerTask implements Runnable, Closeable {
 
     private void closeConsumer() {
         log.info("Closing the consumer instance");
-        if (consumer != null) {
-            try {
-                consumer.close(Duration.ofSeconds(30));
-            } catch (Exception e) {
-                log.error("Error encountered while closing the consumer", e);
-            }
+        try {
+            consumer.close(Duration.ofSeconds(30));
+        } catch (Exception e) {
+            log.error("Error encountered while closing the consumer", e);
         }
     }
 
-    private Set<Integer> maybeWaitForPartitionsAssignment() {
+    private void maybeWaitForPartitionsAssignment() {
         Set<Integer> assignedMetaPartitionsSnapshot = Collections.emptySet();
         synchronized (assignPartitionsLock) {
-            while (assignedMetaPartitions.isEmpty() && !close) {
+            // If it is closing, return immediately. This should be inside the assignPartitionsLock as the closing is updated
+            // in close() method with in the same lock to avoid any race conditions.
+            if (closing) {
+                return;
+            }
+
+            while (assignedMetaPartitions.isEmpty() && !closing) {
                 // If no partitions are assigned, wait until they are assigned.
-                log.info("Waiting for assigned remote log metadata partitions..");
+                log.debug("Waiting for assigned remote log metadata partitions..");
                 try {
+                    // No timeout is set here, as it is always notified. Even when it is closed, the race can happen
+                    // between the thread calling this method and the thread calling close() but closing check earlier
+                    // will guard against not coming here after closing is set and notify is invoked.
                     assignPartitionsLock.wait();
                 } catch (InterruptedException e) {
                     throw new KafkaException(e);
@@ -222,7 +228,10 @@ class ConsumerTask implements Runnable, Closeable {
                 assignPartitions = false;
             }
         }
-        return assignedMetaPartitionsSnapshot;
+
+        if (!assignedMetaPartitionsSnapshot.isEmpty()) {
+            executeReassignment(assignedMetaPartitionsSnapshot);
+        }
     }
 
     private void handleRemoteLogMetadata(RemoteLogMetadata remoteLogMetadata) {
@@ -241,8 +250,8 @@ class ConsumerTask implements Runnable, Closeable {
         consumer.assign(assignedMetaTopicPartitions);
     }
 
-    public void addAssignmentsForPartitions(Set<TopicIdPartition> updatedPartitions) {
-        updateAssignmentsForPartitions(updatedPartitions, Collections.emptySet());
+    public void addAssignmentsForPartitions(Set<TopicIdPartition> partitions) {
+        updateAssignmentsForPartitions(partitions, Collections.emptySet());
     }
 
     public void removeAssignmentsForPartitions(Set<TopicIdPartition> partitions) {
@@ -252,7 +261,6 @@ class ConsumerTask implements Runnable, Closeable {
     private void updateAssignmentsForPartitions(Set<TopicIdPartition> addedPartitions,
                                                 Set<TopicIdPartition> removedPartitions) {
         log.info("Updating assignments for addedPartitions: {} and removedPartition: {}", addedPartitions, removedPartitions);
-        ensureNotClosed();
 
         Objects.requireNonNull(addedPartitions, "addedPartitions must not be null");
         Objects.requireNonNull(removedPartitions, "removedPartitions must not be null");
@@ -287,25 +295,21 @@ class ConsumerTask implements Runnable, Closeable {
         return Optional.ofNullable(partitionToConsumedOffsets.get(partition));
     }
 
-    public boolean assignedPartition(int partition) {
+    public boolean isPartitionAssigned(int partition) {
         return assignedMetaPartitions.contains(partition);
     }
 
-    private void ensureNotClosed() {
-        if (close) {
-            throw new IllegalStateException("This instance is already closed");
-        }
-    }
-
     public void close() {
-        if (!close) {
-            close = true;
-            // Release the lock to finish processing the #run() method.
+        if (!closing) {
             synchronized (assignPartitionsLock) {
+                // Closing should be updated only after acquiring the lock to avoid race in
+                // maybeWaitForPartitionsAssignment() where it waits on assignPartitionsLock. It should not wait
+                // if the closing is already set.
+                closing = true;
+                consumer.wakeup();
                 assignPartitionsLock.notifyAll();
+                syncCommittedDataAndOffsets(true);
             }
-            consumer.wakeup();
-            syncCommittedDataAndOffsets(true);
         }
     }
 }

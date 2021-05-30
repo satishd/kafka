@@ -85,8 +85,7 @@ public class RemoteLogSegmentLifecycleTest {
             // it reaches RemoteLogSegmentState.COPY_SEGMENT_FINISHED.
             assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(40, 1).isPresent());
 
-            // Check that these leader epochs are to considered for highest offsets as they are still getting copied and
-            // they did nto reach COPY_SEGMENT_FINISHED state.
+            // Check that these leader epochs are not to be considered for highestOffsetForEpoch API as they are still getting copied.
             Stream.of(0, 1, 2).forEach(epoch -> {
                 try {
                     assertFalse(remoteLogSegmentLifecycleManager.highestOffsetForEpoch(epoch).isPresent());
@@ -424,7 +423,7 @@ public class RemoteLogSegmentLifecycleTest {
      * creates the remote log metadata topic required for {@code TopicBasedRemoteLogMetadataManager}. This cluster will
      * be stopped by invoking {@link #close()}.
      */
-    private static class TopicBasedRemoteLogMetadataManagerWrapper extends TopicBasedRemoteLogMetadataManagerHarness implements RemoteLogSegmentLifecycleManager {
+    static class TopicBasedRemoteLogMetadataManagerWrapper extends TopicBasedRemoteLogMetadataManagerHarness implements RemoteLogSegmentLifecycleManager {
 
         private TopicIdPartition topicIdPartition;
 
@@ -481,7 +480,7 @@ public class RemoteLogSegmentLifecycleTest {
      * This is passed to {@link #testRemoteLogSegmentLifeCycle(RemoteLogSegmentLifecycleManager)} to test
      * {@code RemoteLogMetadataCache} for several lifecycle operations.
      */
-    private static class RemoteLogMetadataCacheWrapper implements RemoteLogSegmentLifecycleManager {
+    static class RemoteLogMetadataCacheWrapper implements RemoteLogSegmentLifecycleManager {
 
         private final RemoteLogMetadataCache metadataCache = new RemoteLogMetadataCache();
 
