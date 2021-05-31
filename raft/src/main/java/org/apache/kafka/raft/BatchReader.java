@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.raft;
 
+import org.apache.kafka.server.common.serialization.RecordSerde;
+
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
@@ -30,7 +32,7 @@ import java.util.OptionalLong;
  * of the Raft IO thread. This helps to ensure that a slow state machine will not
  * affect replication.
  *
- * @param <T> record type (see {@link org.apache.kafka.raft.RecordSerde})
+ * @param <T> record type (see {@link RecordSerde})
  */
 public interface BatchReader<T> extends Iterator<BatchReader.Batch<T>>, AutoCloseable {
 
