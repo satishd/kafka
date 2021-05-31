@@ -29,6 +29,7 @@ include 'clients',
     'log4j-appender',
     'metadata',
     'raft',
+    'remote-storage-managers:hdfs',
     'server-common',
     'shell',
     'storage',
@@ -52,4 +53,5 @@ include 'clients',
     'streams:upgrade-system-tests-26',
     'streams:upgrade-system-tests-27',
     'tools'
+
 

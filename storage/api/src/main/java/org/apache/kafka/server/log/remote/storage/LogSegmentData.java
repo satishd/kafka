@@ -55,9 +55,9 @@ public class LogSegmentData {
         this.logSegment = Objects.requireNonNull(logSegment, "logSegment can not be null");
         this.offsetIndex = Objects.requireNonNull(offsetIndex, "offsetIndex can not be null");
         this.timeIndex = Objects.requireNonNull(timeIndex, "timeIndex can not be null");
-        this.txnIndex = Objects.requireNonNull(txnIndex, "txnIndex can not be null");
-        this.producerSnapshotIndex = Objects.requireNonNull(producerSnapshotIndex, "producerSnapshotIndex can not be null");
-        this.leaderEpochIndex = Objects.requireNonNull(leaderEpochIndex, "leaderEpochIndex can not be null");
+        this.txnIndex = txnIndex;
+        this.producerSnapshotIndex = producerSnapshotIndex;
+        this.leaderEpochIndex = leaderEpochIndex;
     }
 
     /**
