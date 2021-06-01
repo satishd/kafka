@@ -757,6 +757,7 @@ project(':core') {
     compile project(':clients')
     compile project(':metadata')
     compile project(':raft')
+    compile project(':storage:api')
     compile project(':storage')
     compile libs.argparse4j
     compile libs.jacksonDatabind
