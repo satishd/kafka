@@ -126,8 +126,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
-                                           int startPosition,
-                                           int endPosition) throws RemoteStorageException {
+                                       int startPosition,
+                                       int endPosition) throws RemoteStorageException {
         return fetchData(metadata, SEGMENT, startPosition, endPosition);
     }
 

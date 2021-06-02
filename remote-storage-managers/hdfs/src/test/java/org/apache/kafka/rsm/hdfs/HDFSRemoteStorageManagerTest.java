@@ -37,6 +37,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -104,6 +105,12 @@ public class HDFSRemoteStorageManagerTest {
         RemoteStorageManager rsm = new HDFSRemoteStorageManager();
         rsm.configure(configs);
         rsm.close();
+    }
+
+    @Test
+    @Disabled
+    public void testCopySegmentUptoMaxSegmentLimitOfTwoGB() throws Exception {
+        verifyUpload(rsm, tp, Uuid.randomUuid(), 0, Integer.MAX_VALUE, true);
     }
 
     @Test

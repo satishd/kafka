@@ -24,13 +24,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 public class TestLogSegmentUtils {
 
     public static final String LOG_FILE_NAME = "log";
     public static final String OFFSET_INDEX_FILE_NAME = "index";
     public static final String TIME_INDEX_FILE_NAME = "time";
-    public static final String LEADER_EPOCH_FILE_NAME = "leader-epoch-checkpoint";
     public static final String TXN_INDEX_FILE_NAME = "txn";
     public static final String PRODUCER_SNAPSHOT_FILE_NAME = "snapshot";
 
@@ -40,7 +40,18 @@ public class TestLogSegmentUtils {
                                                       boolean withOptionalFiles) throws IOException {
         String prefix = String.format("%020d", startOffset);
         Path segment = new File(logDir, prefix + "." + LOG_FILE_NAME).toPath();
-        Files.write(segment, TestUtils.randomBytes(segSize));
+        int optimalSize = 1024 * 1024;
+        if (segSize < optimalSize) {
+            Files.write(segment, TestUtils.randomBytes(segSize));
+        } else {
+            Files.createFile(segment);
+            int segSizeRemainingToFill = segSize;
+            while (segSizeRemainingToFill > 0) {
+                int bufferLength = Math.min(segSizeRemainingToFill, optimalSize);
+                Files.write(segment, TestUtils.randomBytes(bufferLength), StandardOpenOption.APPEND);
+                segSizeRemainingToFill -= bufferLength;
+            }
+        }
 
         Path offsetIndex = new File(logDir, prefix + "." + OFFSET_INDEX_FILE_NAME).toPath();
         Files.write(offsetIndex, TestUtils.randomBytes(10));
