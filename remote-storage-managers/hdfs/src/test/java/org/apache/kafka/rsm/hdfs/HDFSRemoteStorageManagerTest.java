@@ -24,6 +24,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.security.KerberosAuthException;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
@@ -110,16 +111,19 @@ public class HDFSRemoteStorageManagerTest {
         System.setProperty("java.security.krb5.realm", "ATHENA.MIT.EDU");
         System.setProperty("java.security.krb5.kdc", "kerberos.mit.edu:88");
         String user = "test@ATHENA.MIT.EDU";
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_USER_PROP, user);
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP, "test.keytab");
+
+        Map<String, String> secureConfigs = new HashMap<>(configs);
+        secureConfigs.put(HDFSRemoteStorageManagerConfig.HDFS_USER_PROP, user);
+        secureConfigs.put(HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP, "test.keytab");
 
         Configuration configuration = new Configuration();
         configuration.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
         HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
         rsm.setHadoopConfiguration(configuration);
-        Throwable exception = assertThrows(RuntimeException.class, () -> rsm.configure(configs),
+        Throwable exception = assertThrows(RuntimeException.class, () -> rsm.configure(secureConfigs),
                 "Unable to login as user: " + user);
         assertTrue(exception.getCause() instanceof KerberosAuthException);
+        UserGroupInformation.setConfiguration(new Configuration());
     }
 
     @Test
