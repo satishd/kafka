@@ -22,6 +22,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -29,8 +30,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -66,6 +71,7 @@ class ConsumerTask implements Runnable, Closeable {
     private final KafkaConsumer<byte[], byte[]> consumer;
     private final RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler;
     private final RemoteLogMetadataTopicPartitioner topicPartitioner;
+    private final Time time;
 
     private volatile boolean close = false;
     private volatile boolean assignPartitions = false;
@@ -80,18 +86,64 @@ class ConsumerTask implements Runnable, Closeable {
 
     // Map of remote log metadata topic partition to consumed offsets.
     private final Map<Integer, Long> partitionToConsumedOffsets = new ConcurrentHashMap<>();
+    private Map<Integer, Long> committedPartitionToConsumedOffsets = Collections.emptyMap();
+
+    private final long committedOffsetSyncIntervalMs;
+    private CommittedOffsetsFile committedOffsetsFile;
+    private long lastSyncedTimeMs;
 
     public ConsumerTask(KafkaConsumer<byte[], byte[]> consumer,
                         RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler,
-                        RemoteLogMetadataTopicPartitioner topicPartitioner) {
+                        RemoteLogMetadataTopicPartitioner topicPartitioner,
+                        Path committedOffsetsPath,
+                        Time time,
+                        long committedOffsetSyncIntervalMs) {
         this.consumer = consumer;
         this.remotePartitionMetadataEventHandler = remotePartitionMetadataEventHandler;
         this.topicPartitioner = topicPartitioner;
+        this.time = time;
+        this.committedOffsetSyncIntervalMs = committedOffsetSyncIntervalMs;
+        initializeConsumerAssignment(committedOffsetsPath);
+    }
+
+    private void initializeConsumerAssignment(Path committedOffsetsPath) {
+        // look whether the committed file exists or not.
+        File file = committedOffsetsPath.toFile();
+        committedOffsetsFile = new CommittedOffsetsFile(file);
+        try {
+            if (file.createNewFile()) {
+                log.info("Created file: [{}] successfully", file);
+            } else {
+                // load committed offset and assign them in the consumer
+                final Map<Integer, Long> committedOffsets = committedOffsetsFile.read();
+                final Set<Map.Entry<Integer, Long>> entries = committedOffsets.entrySet();
+
+                if (!entries.isEmpty()) {
+                    // assign topic partitions from the earlier committed offsets file.
+                    Set<Integer> earlierAssignedPartitions = committedOffsets.keySet();
+                    assignedMetaPartitions.addAll(earlierAssignedPartitions);
+                    Set<TopicPartition> metadataTopicPartitions = earlierAssignedPartitions.stream()
+                                                                                        .map(x -> new TopicPartition(REMOTE_LOG_METADATA_TOPIC_NAME, x))
+                                                                                        .collect(Collectors.toSet());
+                    consumer.assign(metadataTopicPartitions);
+
+                    // Seek to the committed offsets
+                    for (Map.Entry<Integer, Long> entry : entries) {
+                        partitionToConsumedOffsets.put(entry.getKey(), entry.getValue());
+                        consumer.seek(new TopicPartition(REMOTE_LOG_METADATA_TOPIC_NAME, entry.getKey()), entry.getValue());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Ignore the error and consumer consumes from the earliest offset.
+            log.error("Encountered error while building committed offsets from the file", e);
+        }
     }
 
     @Override
     public void run() {
         log.info("Started Consumer task thread.");
+        lastSyncedTimeMs = time.milliseconds();
         try {
             while (!close) {
                 Set<Integer> assignedMetaPartitionsSnapshot = maybeWaitForPartitionsAssignment();
@@ -107,13 +159,34 @@ class ConsumerTask implements Runnable, Closeable {
                     handleRemoteLogMetadata(serde.deserialize(record.value()));
                     partitionToConsumedOffsets.put(record.partition(), record.offset());
                 }
+
+                syncCommittedDataAndOffsets(false);
             }
         } catch (Exception e) {
             log.error("Error occurred in consumer task, close:[{}]", close, e);
+        } finally {
+            closeConsumer();
         }
 
-        closeConsumer();
         log.info("Exiting from consumer task thread");
+    }
+
+    private void syncCommittedDataAndOffsets(boolean forceSync) {
+        boolean noOffsetUpdates = committedPartitionToConsumedOffsets.equals(partitionToConsumedOffsets);
+        if (noOffsetUpdates || !forceSync && time.milliseconds() - lastSyncedTimeMs < committedOffsetSyncIntervalMs) {
+            log.debug("Skip syncing committed offsets, noOffsetUpdates: {}, forceSync: {}", noOffsetUpdates, forceSync);
+            return;
+        }
+
+        try {
+            // todo sync the snapshot file
+            // remotePartitionMetadataEventHandler.syncLogMetadataDataFile();
+            committedOffsetsFile.write(partitionToConsumedOffsets);
+            committedPartitionToConsumedOffsets = new HashMap<>(partitionToConsumedOffsets);
+            lastSyncedTimeMs = System.currentTimeMillis();
+        } catch (IOException e) {
+            log.error("Error encountered while writing committed offsets to a local file", e);
+        }
     }
 
     private void closeConsumer() {
@@ -224,6 +297,7 @@ class ConsumerTask implements Runnable, Closeable {
         if (!close) {
             close = true;
             consumer.wakeup();
+            syncCommittedDataAndOffsets(true);
         }
     }
 }
