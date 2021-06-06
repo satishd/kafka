@@ -31,13 +31,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.collection.Seq;
+import scala.jdk.CollectionConverters;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Map;
+import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
-
-import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_CONSUME_WAIT_MS_PROP;
 
 public class TopicBasedRemoteLogMetadataManagerTest {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerTest.class);
@@ -45,17 +47,12 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     private static final int SEG_SIZE = 1024 * 1024;
 
     private final Time time = new MockTime(1);
-    private final TopicBasedRemoteLogMetadataManagerHarness remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness() {
-        @Override
-        protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
-            return Collections.singletonMap(REMOTE_LOG_METADATA_CONSUME_WAIT_MS_PROP, 5000L);
-        }
-    };
+    private final TopicBasedRemoteLogMetadataManagerHarness remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness();
 
     @BeforeEach
     public void setup() {
         // Start the cluster and initialize TopicBasedRemoteLogMetadataManager.
-        remoteLogMetadataManagerHarness.initialize(Collections.emptySet());
+        remoteLogMetadataManagerHarness.initialize(Collections.emptySet(), true);
     }
 
     @AfterEach
@@ -64,13 +61,41 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     }
 
     public TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
-        return remoteLogMetadataManagerHarness.topicBasedRlmm();
+        return remoteLogMetadataManagerHarness.remoteLogMetadataManager();
+    }
+
+    @Test
+    public void testWithNoAssignedPartitions() throws Exception {
+        // This test checks simple lifecycle of TopicBasedRemoteLogMetadataManager with out assigning any leader/follower partitions.
+        // This should close successfully releasing the resources.
+        log.info("Not assigning any partitions on TopicBasedRemoteLogMetadataManager");
     }
 
     @Test
     public void testNewPartitionUpdates() throws Exception {
-        final TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("new-leader", 0));
-        final TopicIdPartition newFollowerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("new-follower", 0));
+        // Create topics.
+        String leaderTopic = "new-leader";
+        HashMap<Object, Seq<Object>> assignedLeaderTopicReplicas = new HashMap<>();
+        List<Object> leaderTopicReplicas = new ArrayList<>();
+        // Set broker id 0 as the first entry which is taken as the leader.
+        leaderTopicReplicas.add(0);
+        leaderTopicReplicas.add(1);
+        leaderTopicReplicas.add(2);
+        assignedLeaderTopicReplicas.put(0, CollectionConverters.ListHasAsScala(leaderTopicReplicas).asScala());
+        remoteLogMetadataManagerHarness.createTopic(leaderTopic, CollectionConverters.MapHasAsScala(assignedLeaderTopicReplicas).asScala());
+
+        String followerTopic = "new-follower";
+        HashMap<Object, Seq<Object>> assignedFollowerTopicReplicas = new HashMap<>();
+        List<Object> followerTopicReplicas = new ArrayList<>();
+        // Set broker id 1 as the first entry which is taken as the leader.
+        followerTopicReplicas.add(1);
+        followerTopicReplicas.add(2);
+        followerTopicReplicas.add(0);
+        assignedFollowerTopicReplicas.put(0, CollectionConverters.ListHasAsScala(followerTopicReplicas).asScala());
+        remoteLogMetadataManagerHarness.createTopic(followerTopic, CollectionConverters.MapHasAsScala(assignedFollowerTopicReplicas).asScala());
+
+        final TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(leaderTopic, 0));
+        final TopicIdPartition newFollowerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(followerTopic, 0));
 
         // Add segments for these partitions but an exception is received as they have not yet been subscribed.
         // These messages would have been published to the respective metadata topic partitions but the ConsumerManager

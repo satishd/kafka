@@ -428,38 +428,38 @@ public class RemoteLogSegmentLifecycleTest {
         @Override
         public synchronized void initialize(TopicIdPartition topicIdPartition) {
             this.topicIdPartition = topicIdPartition;
-            super.initialize(Collections.singleton(topicIdPartition));
+            super.initialize(Collections.singleton(topicIdPartition), true);
         }
 
         @Override
         public void addRemoteLogSegmentMetadata(RemoteLogSegmentMetadata segmentMetadata) throws RemoteStorageException {
-            topicBasedRlmm().addRemoteLogSegmentMetadata(segmentMetadata);
+            remoteLogMetadataManager().addRemoteLogSegmentMetadata(segmentMetadata);
         }
 
         @Override
         public void updateRemoteLogSegmentMetadata(RemoteLogSegmentMetadataUpdate segmentMetadataUpdate) throws RemoteStorageException {
-            topicBasedRlmm().updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
+            remoteLogMetadataManager().updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
         }
 
         @Override
         public Optional<Long> highestOffsetForEpoch(int leaderEpoch) throws RemoteStorageException {
-            return topicBasedRlmm().highestOffsetForEpoch(topicIdPartition, leaderEpoch);
+            return remoteLogMetadataManager().highestOffsetForEpoch(topicIdPartition, leaderEpoch);
         }
 
         @Override
         public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(int leaderEpoch,
                                                                            long offset) throws RemoteStorageException {
-            return topicBasedRlmm().remoteLogSegmentMetadata(topicIdPartition, leaderEpoch, offset);
+            return remoteLogMetadataManager().remoteLogSegmentMetadata(topicIdPartition, leaderEpoch, offset);
         }
 
         @Override
         public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(int leaderEpoch) throws RemoteStorageException {
-            return topicBasedRlmm().listRemoteLogSegments(topicIdPartition, leaderEpoch);
+            return remoteLogMetadataManager().listRemoteLogSegments(topicIdPartition, leaderEpoch);
         }
 
         @Override
         public Iterator<RemoteLogSegmentMetadata> listAllRemoteLogSegments() throws RemoteStorageException {
-            return topicBasedRlmm().listRemoteLogSegments(topicIdPartition);
+            return remoteLogMetadataManager().listRemoteLogSegments(topicIdPartition);
         }
 
         @Override

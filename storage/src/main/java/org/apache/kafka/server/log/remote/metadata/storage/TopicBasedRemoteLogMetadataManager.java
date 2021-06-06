@@ -32,6 +32,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -53,6 +54,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private boolean closed = false;
     private boolean initialized = false;
     private final Time time = Time.SYSTEM;
+    private final boolean startConsumerThread;
 
     private volatile ProducerManager producerManager;
     private volatile ConsumerManager consumerManager;
@@ -61,8 +63,18 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     // requests calling different methods which use the resources like producer/consumer managers.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    private final RemotePartitionMetadataStore remotePartitionMetadataStore = new RemotePartitionMetadataStore();
+    private RemotePartitionMetadataStore remotePartitionMetadataStore;
+    private volatile TopicBasedRemoteLogMetadataManagerConfig rlmmConfig;
     private volatile RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner;
+
+    public TopicBasedRemoteLogMetadataManager() {
+        this(true);
+    }
+
+    // Visible for testing.
+    public TopicBasedRemoteLogMetadataManager(boolean startConsumerThread) {
+        this.startConsumerThread = startConsumerThread;
+    }
 
     @Override
     public void addRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata)
@@ -232,6 +244,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
         lock.readLock().lock();
         try {
             ensureInitializedAndNotClosed();
+            for (TopicIdPartition partition : allPartitions) {
+                remotePartitionMetadataStore.maybeLoadPartition(partition);
+            }
             consumerManager.addAssignmentsForPartitions(allPartitions);
         } finally {
             lock.readLock().unlock();
@@ -258,13 +273,16 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             if (!initialized) {
                 log.info("Started initializing with configs: {}", configs);
 
-                TopicBasedRemoteLogMetadataManagerConfig rlmmConfig = new TopicBasedRemoteLogMetadataManagerConfig(configs);
+                rlmmConfig = new TopicBasedRemoteLogMetadataManagerConfig(configs);
                 rlmmTopicPartitioner = new RemoteLogMetadataTopicPartitioner(rlmmConfig.metadataTopicPartitionsCount());
+                remotePartitionMetadataStore = new RemotePartitionMetadataStore(new File(rlmmConfig.logDir()).toPath());
                 log.info("Successfully initialized with rlmmConfig: {}", rlmmConfig);
 
                 producerManager = new ProducerManager(rlmmConfig, rlmmTopicPartitioner);
                 consumerManager = new ConsumerManager(rlmmConfig, remotePartitionMetadataStore, rlmmTopicPartitioner, time);
-                consumerManager.startConsumerThread();
+                if (startConsumerThread) {
+                    consumerManager.startConsumerThread();
+                }
                 initialized = true;
                 log.info("Initialized resources successfully.");
             }
@@ -288,6 +306,18 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
         if (closed || !initialized) {
             throw new IllegalStateException("This instance is in invalid state, initialized: " + initialized +
                                                     " closed: " + closed);
+        }
+    }
+
+    // Visible for testing.
+    public TopicBasedRemoteLogMetadataManagerConfig config() {
+        return rlmmConfig;
+    }
+
+    // Visible for testing.
+    public void startConsumerThread() {
+        if (consumerManager != null) {
+            consumerManager.startConsumerThread();
         }
     }
 
