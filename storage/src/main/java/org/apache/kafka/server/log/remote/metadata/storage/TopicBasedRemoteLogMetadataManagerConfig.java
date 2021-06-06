@@ -74,9 +74,10 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
     public static final String REMOTE_LOG_METADATA_COMMON_CLIENT_PREFIX = "remote.log.metadata.common.client.";
     public static final String REMOTE_LOG_METADATA_PRODUCER_PREFIX = "remote.log.metadata.producer.";
     public static final String REMOTE_LOG_METADATA_CONSUMER_PREFIX = "remote.log.metadata.consumer.";
+    public static final String BROKER_ID = "broker.id";
+    public static final String LOG_DIR = "log.dir";
 
     private static final String REMOTE_LOG_METADATA_CLIENT_PREFIX = "__remote_log_metadata_client";
-    private static final String BROKER_ID = "broker.id";
 
     private static final ConfigDef CONFIG = new ConfigDef();
     static {
@@ -99,6 +100,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
     private final String clientIdPrefix;
     private final int metadataTopicPartitionsCount;
     private final String bootstrapServers;
+    private final String logDir;
     private final long consumeWaitMs;
     private final long metadataTopicRetentionMs;
     private final short metadataTopicReplicationFactor;
@@ -116,6 +118,11 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
         bootstrapServers = (String) props.get(BOOTSTRAP_SERVERS_CONFIG);
         if (bootstrapServers == null || bootstrapServers.isEmpty()) {
             throw new IllegalArgumentException(BOOTSTRAP_SERVERS_CONFIG + " config must not be null or empty.");
+        }
+
+        logDir = (String) props.get(LOG_DIR);
+        if (logDir == null || logDir.isEmpty()) {
+            throw new IllegalArgumentException(LOG_DIR + " config must not be null or empty.");
         }
 
         metadataTopicPartitionsCount = (int) parsedConfigs.get(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP);
@@ -186,6 +193,10 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
     public long initializationRetryIntervalMs() {
         return initializationRetryIntervalMs;
+    }
+
+    public String logDir() {
+        return logDir;
     }
 
     public Map<String, Object> consumerProperties() {
