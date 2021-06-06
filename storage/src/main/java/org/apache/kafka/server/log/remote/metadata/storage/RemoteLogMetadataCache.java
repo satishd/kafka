@@ -95,7 +95,7 @@ public class RemoteLogMetadataCache {
     private static final Logger log = LoggerFactory.getLogger(RemoteLogMetadataCache.class);
 
     // It contains all the segment-id to metadata mappings which did not reach the terminal state viz DELETE_SEGMENT_FINISHED.
-    private final ConcurrentMap<RemoteLogSegmentId, RemoteLogSegmentMetadata> idToSegmentMetadata
+    protected final ConcurrentMap<RemoteLogSegmentId, RemoteLogSegmentMetadata> idToSegmentMetadata
             = new ConcurrentHashMap<>();
 
     // It contains leader epoch to the respective entry containing the state.
