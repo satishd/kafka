@@ -16,7 +16,6 @@
  */
 package org.apache.kafka.server.log.remote.metadata.storage;
 
-import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
@@ -42,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class RemotePartitionMetadataStore extends RemotePartitionMetadataEventHandler implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(RemotePartitionMetadataStore.class);
+
     private final Path logDir;
 
     private Map<TopicIdPartition, RemotePartitionDeleteMetadata> idToPartitionDeleteMetadata =
@@ -59,20 +59,19 @@ public class RemotePartitionMetadataStore extends RemotePartitionMetadataEventHa
         log.debug("Adding remote log segment : [{}]", remoteLogSegmentMetadata);
 
         final RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
+        TopicIdPartition topicIdPartition = remoteLogSegmentId.topicIdPartition();
 
-        idToRemoteLogMetadataCache
-                .computeIfAbsent(remoteLogSegmentId.topicIdPartition(),
-                                 id -> new FileBasedRemoteLogMetadataCache(remoteLogSegmentId.topicIdPartition(), partitionLogDirectory(remoteLogSegmentId.topicIdPartition().topicPartition())))
-                .addCopyInProgressSegment(remoteLogSegmentMetadata);
+        // This should have been already existing as it is loaded when the partitions are assigned.
+        RemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
+        if (remoteLogMetadataCache != null) {
+            remoteLogMetadataCache.addCopyInProgressSegment(remoteLogSegmentMetadata);
+        } else {
+            log.error("No partition metadata found for : " + topicIdPartition);
+        }
     }
 
-    private Path partitionLogDirectory(TopicPartition topicIdPartition) {
-        File partitionDir = new File(logDir.toFile(), topicIdPartition.topic() + "-" + topicIdPartition.topic());
-        if(!partitionDir.exists() || !partitionDir.isDirectory()) {
-            throw new KafkaException();
-        }
-
-        return partitionDir.toPath();
+    private Path partitionLogDirectory(TopicPartition topicPartition) {
+        return new File(logDir.toFile(), topicPartition.topic() + "-" + topicPartition.partition()).toPath();
     }
 
     @Override
@@ -113,11 +112,14 @@ public class RemotePartitionMetadataStore extends RemotePartitionMetadataEventHa
                                         Long metadataPartitionOffset) throws IOException {
         //todo-tier write partitions
         RemotePartitionDeleteMetadata partitionDeleteMetadata = idToPartitionDeleteMetadata.get(topicIdPartition);
-        if(partitionDeleteMetadata != null) {
-            log.info("Skipping syncing of metadata snapshot as remote partition [{}] is with state: [{}] ", topicIdPartition, partitionDeleteMetadata);
+        if (partitionDeleteMetadata != null) {
+            log.info("Skipping syncing of metadata snapshot as remote partition [{}] is with state: [{}] ", topicIdPartition,
+                     partitionDeleteMetadata);
         } else {
             FileBasedRemoteLogMetadataCache remoteLogMetadataCache = idToRemoteLogMetadataCache.get(topicIdPartition);
-            remoteLogMetadataCache.flushToFile(metadataPartition, metadataPartitionOffset);
+            if (remoteLogMetadataCache != null) {
+                remoteLogMetadataCache.flushToFile(metadataPartition, metadataPartitionOffset);
+            }
         }
     }
 
@@ -170,4 +172,11 @@ public class RemotePartitionMetadataStore extends RemotePartitionMetadataEventHa
         idToPartitionDeleteMetadata = Collections.emptyMap();
         idToRemoteLogMetadataCache = Collections.emptyMap();
     }
+
+    public void maybeLoadPartition(TopicIdPartition partition) {
+        idToRemoteLogMetadataCache.computeIfAbsent(partition,
+            topicIdPartition -> new FileBasedRemoteLogMetadataCache(topicIdPartition, partitionLogDirectory(topicIdPartition.topicPartition())));
+    }
+
+
 }

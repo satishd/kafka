@@ -20,19 +20,22 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde;
-import org.apache.kafka.server.log.remote.storage.RemoteLogMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 public class CommittedLogMetadataFile {
 
@@ -48,6 +51,7 @@ public class CommittedLogMetadataFile {
                              Path metadataStoreDir) {
         this.metadataStoreFile = new File(metadataStoreDir.toFile(), COMMITTED_LOG_METADATA_SNAPSHOT_FILE_NAME);
 
+        // Create an empty file if it does not exist.
         if (!metadataStoreFile.exists()) {
             try {
                 metadataStoreFile.createNewFile();
@@ -59,14 +63,12 @@ public class CommittedLogMetadataFile {
 
     public synchronized void write(Snapshot snapshot) throws IOException {
         File newMetadataStoreFile = new File(metadataStoreFile.getAbsolutePath() + ".new");
-        try (FileOutputStream fileOutputStream = new FileOutputStream(newMetadataStoreFile);
-             BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream)) {
+        try (WritableByteChannel fileChannel = Channels.newChannel(new FileOutputStream(newMetadataStoreFile))) {
 
             ByteBuffer headerBuffer = ByteBuffer.allocate(HEADER_SIZE);
 
             // Write version
             headerBuffer.putShort(snapshot.version);
-            bufferedOutputStream.write(headerBuffer.array());
 
             // Write topic-id
             headerBuffer.putLong(snapshot.topicId.getMostSignificantBits());
@@ -75,45 +77,45 @@ public class CommittedLogMetadataFile {
             // Write metadata partition and metadata partition offset
             headerBuffer.putInt(snapshot.metadataPartition);
             headerBuffer.putLong(snapshot.metadataPartitionOffset);
+            headerBuffer.flip();
 
             // Write header
-            bufferedOutputStream.write(headerBuffer.array());
+            fileChannel.write(headerBuffer);
 
             // Write each entry
-            ByteBuffer lenBuffer = ByteBuffer.allocate(8);
+            ByteBuffer lenBuffer = ByteBuffer.allocate(4);
             RemoteLogMetadataSerde serde = new RemoteLogMetadataSerde();
             for (RemoteLogSegmentMetadata remoteLogSegmentMetadata : snapshot.remoteLogMetadatas) {
                 final byte[] serializedBytes = serde.serialize(remoteLogSegmentMetadata);
                 // Write length
                 lenBuffer.putInt(serializedBytes.length);
-                bufferedOutputStream.write(lenBuffer.array());
                 lenBuffer.flip();
+                fileChannel.write(lenBuffer);
+                lenBuffer.rewind();
 
                 // Write data
-                bufferedOutputStream.write(serializedBytes);
+                fileChannel.write(ByteBuffer.wrap(serializedBytes));
             }
-
-            fileOutputStream.getFD().sync();
         }
 
         Utils.atomicMoveWithFallback(newMetadataStoreFile.toPath(), metadataStoreFile.toPath());
     }
 
     @SuppressWarnings("unchecked")
-    public synchronized Snapshot read() throws IOException {
+    public synchronized Optional<Snapshot> read() throws IOException {
 
         // Checking for empty files.
         if (metadataStoreFile.length() == 0) {
-            throw new IOException("Empty snapshot file.");
+            return Optional.empty();
         }
 
-        try (FileInputStream fis = new FileInputStream(metadataStoreFile)) {
+        try (ReadableByteChannel channel = Channels.newChannel(new FileInputStream(metadataStoreFile))) {
 
             // Read header
             ByteBuffer headerBuffer = ByteBuffer.allocate(HEADER_SIZE);
-            fis.read(headerBuffer.array());
-
-            Short version = headerBuffer.getShort();
+            channel.read(headerBuffer);
+            headerBuffer.rewind();
+            short version = headerBuffer.getShort();
             Uuid topicId = new Uuid(headerBuffer.getLong(), headerBuffer.getLong());
             int metadataPartition = headerBuffer.getInt();
             long metadataPartitionOffset = headerBuffer.getLong();
@@ -123,25 +125,26 @@ public class CommittedLogMetadataFile {
             List<RemoteLogSegmentMetadata> result = new ArrayList<>();
 
             ByteBuffer lenBuffer = ByteBuffer.allocate(4);
-            while (fis.read(lenBuffer.array()) != -1) {
+            while (channel.read(lenBuffer) > 0) {
+                lenBuffer.rewind();
                 // Read the length of each entry
                 final int len = lenBuffer.getInt();
                 lenBuffer.flip();
 
                 // Read the entry
-                byte[] data = new byte[len];
-                final int read = fis.read(data);
+                ByteBuffer data = ByteBuffer.allocate(len);
+                final int read = channel.read(data);
                 if (read != len) {
                     throw new IOException("Invalid amount of data read, file may have been corrupted.");
                 }
 
                 // We are always adding RemoteLogSegmentMetadata only as you can see in #write() method.
                 // Did not add a specific serde for RemoteLogSegmentMetadata and reusing RemoteLogMetadataSerde
-                final RemoteLogSegmentMetadata remoteLogSegmentMetadata = (RemoteLogSegmentMetadata) serde.deserialize(data);
+                final RemoteLogSegmentMetadata remoteLogSegmentMetadata = (RemoteLogSegmentMetadata) serde.deserialize(data.array());
                 result.add(remoteLogSegmentMetadata);
             }
 
-            return new Snapshot(version, topicId, metadataPartition, metadataPartitionOffset, result);
+            return Optional.of(new Snapshot(version, topicId, metadataPartition, metadataPartitionOffset, result));
         }
     }
 
@@ -191,6 +194,20 @@ public class CommittedLogMetadataFile {
 
         public Collection<RemoteLogSegmentMetadata> remoteLogMetadatas() {
             return remoteLogMetadatas;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof Snapshot)) return false;
+            Snapshot snapshot = (Snapshot) o;
+            return version == snapshot.version && metadataPartition == snapshot.metadataPartition && metadataPartitionOffset == snapshot.metadataPartitionOffset && Objects
+                    .equals(topicId, snapshot.topicId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(version, topicId, metadataPartition, metadataPartitionOffset);
         }
     }
 }

@@ -121,7 +121,7 @@ class ConsumerTask implements Runnable, Closeable {
                 if (!entries.isEmpty()) {
                     // assign topic partitions from the earlier committed offsets file.
                     Set<Integer> earlierAssignedPartitions = committedOffsets.keySet();
-                    assignedMetaPartitions.addAll(earlierAssignedPartitions);
+                    assignedMetaPartitions = Collections.unmodifiableSet(earlierAssignedPartitions);
                     Set<TopicPartition> metadataTopicPartitions = earlierAssignedPartitions.stream()
                                                                                         .map(x -> new TopicPartition(REMOTE_LOG_METADATA_TOPIC_NAME, x))
                                                                                         .collect(Collectors.toSet());
@@ -207,7 +207,7 @@ class ConsumerTask implements Runnable, Closeable {
     private Set<Integer> maybeWaitForPartitionsAssignment() {
         Set<Integer> assignedMetaPartitionsSnapshot = Collections.emptySet();
         synchronized (assignPartitionsLock) {
-            while (assignedMetaPartitions.isEmpty()) {
+            while (assignedMetaPartitions.isEmpty() && !close) {
                 // If no partitions are assigned, wait until they are assigned.
                 log.info("Waiting for assigned remote log metadata partitions..");
                 try {
@@ -300,6 +300,10 @@ class ConsumerTask implements Runnable, Closeable {
     public void close() {
         if (!close) {
             close = true;
+            // Release the lock to finish processing the #run() method.
+            synchronized (assignPartitionsLock) {
+                assignPartitionsLock.notifyAll();
+            }
             consumer.wakeup();
             syncCommittedDataAndOffsets(true);
         }

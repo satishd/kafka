@@ -231,6 +231,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
 
             HashSet<TopicIdPartition> allPartitions = new HashSet<>(leaderPartitions);
             allPartitions.addAll(followerPartitions);
+            for (TopicIdPartition partition : allPartitions) {
+                remotePartitionMetadataStore.maybeLoadPartition(partition);
+            }
             consumerManager.addAssignmentsForPartitions(allPartitions);
         } finally {
             lock.readLock().unlock();
@@ -311,6 +314,11 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             throw new IllegalStateException("This instance is in invalid state, initialized: " + initialized +
                                             " close: " + close);
         }
+    }
+
+    // Visible for testing.
+    public TopicBasedRemoteLogMetadataManagerConfig config() {
+        return rlmmConfig;
     }
 
     @Override

@@ -29,12 +29,19 @@ public class FileBasedRemoteLogMetadataCache extends RemoteLogMetadataCache {
 
     public FileBasedRemoteLogMetadataCache(TopicIdPartition topicIdPartition,
                                            Path partitionDir) {
-        if(!partitionDir.toFile().exists() || !partitionDir.toFile().isDirectory()) {
+        if (!partitionDir.toFile().exists() || !partitionDir.toFile().isDirectory()) {
             throw new KafkaException("Given partition directory:" + partitionDir + " must be an existing directory.");
         }
 
         this.topicIdPartition = topicIdPartition;
         committedLogMetadataFile = new CommittedLogMetadataFile(topicIdPartition, partitionDir);
+
+        try {
+            committedLogMetadataFile.read().ifPresent(snapshot -> loadRemoteLogSegmentMetadata(snapshot.remoteLogMetadatas()));
+        } catch (IOException e) {
+            throw new KafkaException(e);
+        }
+
     }
 
     public void flushToFile(int metadataPartition,

@@ -76,6 +76,7 @@ public class TopicBasedRemoteLogMetadataManagerWrapperWithHarness implements Rem
     @Override
     public void onPartitionLeadershipChanges(Set<TopicIdPartition> leaderPartitions,
                                              Set<TopicIdPartition> followerPartitions) {
+
         remoteLogMetadataManagerHarness.topicBasedRlmm().onPartitionLeadershipChanges(leaderPartitions, followerPartitions);
     }
 

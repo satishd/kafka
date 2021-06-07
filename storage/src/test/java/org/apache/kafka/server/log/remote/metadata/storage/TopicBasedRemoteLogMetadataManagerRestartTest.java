@@ -21,10 +21,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -32,16 +30,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.collection.Seq;
+import scala.jdk.CollectionConverters;
 
 import java.io.IOException;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeoutException;
 
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR;
-import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_CONSUME_WAIT_MS_PROP;
 
 public class TopicBasedRemoteLogMetadataManagerRestartTest {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerRestartTest.class);
@@ -49,26 +48,36 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
     private static final int SEG_SIZE = 1024 * 1024;
 
     private final Time time = new MockTime(1);
-    private final String logDir = TestUtils.tempDirectory("rlmm_segs").getAbsolutePath();
-    private final TopicBasedRemoteLogMetadataManagerHarness remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness() {
-        @Override
-        protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
-            Map<String, Object> props= new HashMap<>();
-            props.put(REMOTE_LOG_METADATA_CONSUME_WAIT_MS_PROP, 5000L);
-            props.put(LOG_DIR, logDir);
-            return props;
-        }
-    };
+    private String logDir = TestUtils.tempDirectory("_rlmm_segs_").getAbsolutePath();
+
+    private TopicBasedRemoteLogMetadataManagerHarness remoteLogMetadataManagerHarness;
 
     @BeforeEach
     public void setup() {
         // Start the cluster and initialize TopicBasedRemoteLogMetadataManager.
+        startTopicBasedRemoteLogMetadataManagerHarness();
+    }
+
+    private void startTopicBasedRemoteLogMetadataManagerHarness() {
+        remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness() {
+            protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
+                Map<String, Object> props = new HashMap<>();
+                props.put(LOG_DIR, logDir);
+                return props;
+            }
+        };
         remoteLogMetadataManagerHarness.initialize(Collections.emptySet());
     }
 
     @AfterEach
     public void teardown() throws IOException {
-        remoteLogMetadataManagerHarness.close();
+        stopTopicBasedRemoteLogMetadataManagerHarness();
+    }
+
+    private void stopTopicBasedRemoteLogMetadataManagerHarness() throws IOException {
+        if (remoteLogMetadataManagerHarness != null) {
+            remoteLogMetadataManagerHarness.close();
+        }
     }
 
     public TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
@@ -77,73 +86,58 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
 
     @Test
     public void testRLMMAPIsAfterRestart() throws Exception {
-        // register partitions
-        // add segment metadata events.
-        // stop servers
-        // restart servers
-        // fetch the segment metadata added earlier.
-    }
+        // Create topics.
+        String leaderTopic = "new-leader";
+        HashMap<Object, Seq<Object>> assignedLeaderTopicReplicas = new HashMap<>();
+        List<Object> leaderTopicReplicas = new ArrayList<>();
+        // Set broker id 0 as the first entry which is taken as the leader.
+        leaderTopicReplicas.add(0);
+        leaderTopicReplicas.add(1);
+        leaderTopicReplicas.add(2);
+        assignedLeaderTopicReplicas.put(0, CollectionConverters.ListHasAsScala(leaderTopicReplicas).asScala());
+        remoteLogMetadataManagerHarness.createTopic(leaderTopic, CollectionConverters.MapHasAsScala(assignedLeaderTopicReplicas).asScala());
 
-    @Test
-    public void testNewPartitionUpdates() throws Exception {
-        final TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("new-leader", 0));
-        final TopicIdPartition newFollowerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("new-follower", 0));
+        String followerTopic = "new-follower";
+        HashMap<Object, Seq<Object>> assignedFollowerTopicReplicas = new HashMap<>();
+        List<Object> followerTopicReplicas = new ArrayList<>();
+        // Set broker id 1 as the first entry which is taken as the leader.
+        followerTopicReplicas.add(1);
+        followerTopicReplicas.add(2);
+        followerTopicReplicas.add(0);
+        assignedFollowerTopicReplicas.put(0, CollectionConverters.ListHasAsScala(followerTopicReplicas).asScala());
+        remoteLogMetadataManagerHarness.createTopic(followerTopic, CollectionConverters.MapHasAsScala(assignedFollowerTopicReplicas).asScala());
+
+        final TopicIdPartition leaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(leaderTopic, 0));
+        final TopicIdPartition followerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(followerTopic, 0));
+
+        // Register these partitions to RLMM.
+        topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(leaderTopicIdPartition), Collections.singleton(followerTopicIdPartition));
 
         // Add segments for these partitions but they are not available as they have not yet been subscribed.
-        RemoteLogSegmentMetadata leaderSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(newLeaderTopicIdPartition, Uuid.randomUuid()),
-                                                                                0, 100, -1L, 0,
-                                                                                time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
+        RemoteLogSegmentMetadata leaderSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(leaderTopicIdPartition, Uuid.randomUuid()),
+                                                                                      0, 100, -1L, 0,
+                                                                                      time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
         topicBasedRlmm().addRemoteLogSegmentMetadata(leaderSegmentMetadata);
 
-        RemoteLogSegmentMetadata followerSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(newFollowerTopicIdPartition, Uuid.randomUuid()),
-                                                                                0, 100, -1L, 0,
-                                                                                time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
+        RemoteLogSegmentMetadata followerSegmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(followerTopicIdPartition, Uuid.randomUuid()),
+                                                                                        0, 100, -1L, 0,
+                                                                                        time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
         topicBasedRlmm().addRemoteLogSegmentMetadata(followerSegmentMetadata);
 
-        // `listRemoteLogSegments` will receive an exception as these topic partitions are not yet registered.
-        Assertions.assertThrows(RemoteStorageException.class, () -> topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition));
-        Assertions.assertThrows(RemoteStorageException.class, () -> topicBasedRlmm().listRemoteLogSegments(newFollowerTopicIdPartition));
 
-        topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(newLeaderTopicIdPartition),
-                                                      Collections.singleton(newFollowerTopicIdPartition));
+        // Stop servers and close TopicBasedRemoteLogMetadataManagerHarness.
+        stopTopicBasedRemoteLogMetadataManagerHarness();
 
-        waitUntilConsumerCatchesup(newLeaderTopicIdPartition, newFollowerTopicIdPartition, 30000L);
+        // Start servers and TopicBasedRemoteLogMetadataManagerHarness.
+        startTopicBasedRemoteLogMetadataManagerHarness();
 
-        Assertions.assertTrue(topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition).hasNext());
-        Assertions.assertTrue(topicBasedRlmm().listRemoteLogSegments(newFollowerTopicIdPartition).hasNext());
-    }
+        // Register these partitions to RLMM.
+        topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(leaderTopicIdPartition), Collections.singleton(followerTopicIdPartition));
 
-    private void waitUntilConsumerCatchesup(TopicIdPartition newLeaderTopicIdPartition,
-                                            TopicIdPartition newFollowerTopicIdPartition,
-                                            long timeoutMs) throws TimeoutException {
-        int leaderMetadataPartition = topicBasedRlmm().metadataPartition(newLeaderTopicIdPartition);
-        int followerMetadataPartition = topicBasedRlmm().metadataPartition(newFollowerTopicIdPartition);
-
-        log.debug("Metadata partition for newLeaderTopicIdPartition: [{}], is: [{}]", newLeaderTopicIdPartition, leaderMetadataPartition);
-        log.debug("Metadata partition for newFollowerTopicIdPartition: [{}], is: [{}]", newFollowerTopicIdPartition, followerMetadataPartition);
-
-        long sleepMs = 100L;
-        long time = System.currentTimeMillis();
-
-        while (true) {
-            if (System.currentTimeMillis() - time > timeoutMs) {
-                throw new TimeoutException("Timed out after " + timeoutMs + "ms ");
-            }
-
-            if (leaderMetadataPartition == followerMetadataPartition) {
-                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) > 0) {
-                    break;
-                }
-            } else {
-                if (topicBasedRlmm().receivedOffsetForPartition(leaderMetadataPartition).orElse(-1L) > -1 ||
-                        topicBasedRlmm().receivedOffsetForPartition(followerMetadataPartition).orElse(-1L) > -1) {
-                    break;
-                }
-            }
-
-            log.debug("Sleeping for: " + sleepMs);
-            Utils.sleep(sleepMs);
-        }
+        Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(Collections.singleton(leaderSegmentMetadata).iterator(),
+                                                                 topicBasedRlmm().listRemoteLogSegments(leaderTopicIdPartition)));
+        Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(Collections.singleton(followerSegmentMetadata).iterator(),
+                                                                 topicBasedRlmm().listRemoteLogSegments(followerTopicIdPartition)));
     }
 
 }
