@@ -129,7 +129,7 @@ public class CommittedLogMetadataFile {
                 lenBuffer.rewind();
                 // Read the length of each entry
                 final int len = lenBuffer.getInt();
-                lenBuffer.flip();
+                lenBuffer.rewind();
 
                 // Read the entry
                 ByteBuffer data = ByteBuffer.allocate(len);

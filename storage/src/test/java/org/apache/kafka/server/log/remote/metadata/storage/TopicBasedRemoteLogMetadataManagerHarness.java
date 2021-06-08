@@ -45,7 +45,6 @@ import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemo
 
 /**
  * A test harness class that brings up 3 brokers and registers {@link TopicBasedRemoteLogMetadataManager} on broker with id as 0.
- * It laos creates
  */
 public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHarness {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerHarness.class);
@@ -61,15 +60,21 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
         return Collections.emptyMap();
     }
 
-    public void initialize(Set<TopicIdPartition> topicIdPartitions) {
+    public void initialize(Set<TopicIdPartition> topicIdPartitions,
+                           boolean startConsumerThread) {
         // Call setup to start the cluster.
         super.setUp();
 
         // Make sure the remote log metadata topic is created before it is used.
         createMetadataTopic();
-        String logDir = org.apache.kafka.test.TestUtils.tempDirectory("rlmm_segs_").getAbsolutePath();
 
-        topicBasedRemoteLogMetadataManager = new TopicBasedRemoteLogMetadataManager(time) {
+        initializeRemoteLogMetadataManager(topicIdPartitions, startConsumerThread);
+    }
+
+    public void initializeRemoteLogMetadataManager(Set<TopicIdPartition> topicIdPartitions,
+                                                   boolean startConsumerThread) {
+        String logDir = org.apache.kafka.test.TestUtils.tempDirectory("rlmm_segs_").getAbsolutePath();
+        topicBasedRemoteLogMetadataManager = new TopicBasedRemoteLogMetadataManager(time, startConsumerThread) {
             @Override
             public void onPartitionLeadershipChanges(Set<TopicIdPartition> leaderPartitions,
                                                      Set<TopicIdPartition> followerPartitions) {
@@ -131,7 +136,7 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
         return 3;
     }
 
-    protected TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
+    protected TopicBasedRemoteLogMetadataManager remoteLogMetadataManager() {
         return topicBasedRemoteLogMetadataManager;
     }
 
@@ -143,9 +148,13 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
     }
 
     public void close() throws IOException {
-        Utils.closeQuietly(topicBasedRemoteLogMetadataManager, "TopicBasedRemoteLogMetadataManager");
+        closeRemoteLogMetadataManager();
 
         // Stop the servers and zookeeper.
         tearDown();
+    }
+
+    public void closeRemoteLogMetadataManager() {
+        Utils.closeQuietly(topicBasedRemoteLogMetadataManager, "TopicBasedRemoteLogMetadataManager");
     }
 }

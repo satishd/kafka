@@ -28,13 +28,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import scala.collection.Seq;
 import scala.jdk.CollectionConverters;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -43,7 +42,6 @@ import java.util.Map;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR;
 
 public class TopicBasedRemoteLogMetadataManagerRestartTest {
-    private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerRestartTest.class);
 
     private static final int SEG_SIZE = 1024 * 1024;
 
@@ -55,10 +53,6 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
     @BeforeEach
     public void setup() {
         // Start the cluster and initialize TopicBasedRemoteLogMetadataManager.
-        startTopicBasedRemoteLogMetadataManagerHarness();
-    }
-
-    private void startTopicBasedRemoteLogMetadataManagerHarness() {
         remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness() {
             protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
                 Map<String, Object> props = new HashMap<>();
@@ -66,22 +60,26 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
                 return props;
             }
         };
-        remoteLogMetadataManagerHarness.initialize(Collections.emptySet());
+        remoteLogMetadataManagerHarness.initialize(Collections.emptySet(), true);
+    }
+
+    private void startTopicBasedRemoteLogMetadataManagerHarness(boolean startConsumerThread) {
+        remoteLogMetadataManagerHarness.initializeRemoteLogMetadataManager(Collections.emptySet(), startConsumerThread);
     }
 
     @AfterEach
     public void teardown() throws IOException {
-        stopTopicBasedRemoteLogMetadataManagerHarness();
-    }
-
-    private void stopTopicBasedRemoteLogMetadataManagerHarness() throws IOException {
         if (remoteLogMetadataManagerHarness != null) {
             remoteLogMetadataManagerHarness.close();
         }
     }
 
+    private void stopTopicBasedRemoteLogMetadataManagerHarness() throws IOException {
+        remoteLogMetadataManagerHarness.closeRemoteLogMetadataManager();
+    }
+
     public TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
-        return remoteLogMetadataManagerHarness.topicBasedRlmm();
+        return remoteLogMetadataManagerHarness.remoteLogMetadataManager();
     }
 
     @Test
@@ -125,19 +123,34 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
         topicBasedRlmm().addRemoteLogSegmentMetadata(followerSegmentMetadata);
 
 
-        // Stop servers and close TopicBasedRemoteLogMetadataManagerHarness.
+        // Stop TopicBasedRemoteLogMetadataManager only.
         stopTopicBasedRemoteLogMetadataManagerHarness();
 
-        // Start servers and TopicBasedRemoteLogMetadataManagerHarness.
-        startTopicBasedRemoteLogMetadataManagerHarness();
+        // Start TopicBasedRemoteLogMetadataManager but do not start consumer thread to check whether the stored metadata is
+        // loaded successfully or not.
+        startTopicBasedRemoteLogMetadataManagerHarness(false);
 
-        // Register these partitions to RLMM.
+        // Register these partitions to RLMM, which loads the respective metadata snapshots.
         topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(leaderTopicIdPartition), Collections.singleton(followerTopicIdPartition));
 
+        // Check for the stored entries from the earlier run.
         Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(Collections.singleton(leaderSegmentMetadata).iterator(),
                                                                  topicBasedRlmm().listRemoteLogSegments(leaderTopicIdPartition)));
         Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(Collections.singleton(followerSegmentMetadata).iterator(),
                                                                  topicBasedRlmm().listRemoteLogSegments(followerTopicIdPartition)));
+
+        // Start Consumer thread
+        topicBasedRlmm().startConsumerThread();
+
+        // Add one more segment
+        RemoteLogSegmentMetadata leaderSegmentMetadata2 = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(leaderTopicIdPartition, Uuid.randomUuid()),
+                                                                                      101, 200, -1L, 0,
+                                                                                      time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 101L));
+        topicBasedRlmm().addRemoteLogSegmentMetadata(leaderSegmentMetadata2);
+
+        // Check that both the stored segment and recently added segment are available.
+        Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(Arrays.asList(leaderSegmentMetadata, leaderSegmentMetadata2).iterator(),
+                                                                 topicBasedRlmm().listRemoteLogSegments(leaderTopicIdPartition)));
     }
 
 }

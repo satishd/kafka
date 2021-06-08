@@ -52,7 +52,7 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     @BeforeEach
     public void setup() {
         // Start the cluster and initialize TopicBasedRemoteLogMetadataManager.
-        remoteLogMetadataManagerHarness.initialize(Collections.emptySet());
+        remoteLogMetadataManagerHarness.initialize(Collections.emptySet(), true);
     }
 
     @AfterEach
@@ -61,7 +61,7 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     }
 
     public TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
-        return remoteLogMetadataManagerHarness.topicBasedRlmm();
+        return remoteLogMetadataManagerHarness.remoteLogMetadataManager();
     }
 
     @Test

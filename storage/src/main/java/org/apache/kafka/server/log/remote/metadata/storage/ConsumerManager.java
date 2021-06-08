@@ -63,6 +63,7 @@ public class ConsumerManager implements Closeable {
         try {
             // Start a thread to continuously consume records from topic partitions.
             consumerTaskThread.start();
+            log.info("RLMM Consumer task thread is started");
         } catch (Exception e) {
             throw new KafkaException("Error encountered while initializing and scheduling ConsumerTask thread", e);
         }

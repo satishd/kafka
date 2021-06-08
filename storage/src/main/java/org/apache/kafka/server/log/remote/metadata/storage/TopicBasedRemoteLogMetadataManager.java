@@ -56,6 +56,9 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     // Take these as configs with the respective default values.
     private static final long INITIALIZATION_RETRY_INTERVAL_MS = 30_000L;
 
+    private final Time time;
+    private final boolean startConsumerThread;
+
     private volatile boolean configured = false;
 
     // Using AtomicBoolean instead of volatile as it may encounter http://findbugs.sourceforge.net/bugDescriptions.html#SP_SPIN_ON_FIELD
@@ -64,7 +67,6 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
     private Thread initializationThread;
-    private Time time = Time.SYSTEM;
     private volatile ProducerManager producerManager;
     private volatile ConsumerManager consumerManager;
 
@@ -77,11 +79,14 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner;
 
     public TopicBasedRemoteLogMetadataManager() {
+        this(Time.SYSTEM, true);
     }
 
     // Visible for testing.
-    public TopicBasedRemoteLogMetadataManager(Time time) {
+    public TopicBasedRemoteLogMetadataManager(Time time,
+                                              boolean startConsumerThread) {
         this.time = time;
+        this.startConsumerThread = startConsumerThread;
     }
 
     @Override
@@ -234,6 +239,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             for (TopicIdPartition partition : allPartitions) {
                 remotePartitionMetadataStore.maybeLoadPartition(partition);
             }
+
             consumerManager.addAssignmentsForPartitions(allPartitions);
         } finally {
             lock.readLock().unlock();
@@ -294,7 +300,11 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
 
                 if (consumerManager == null) {
                     consumerManager = new ConsumerManager(rlmmConfig, remotePartitionMetadataStore, rlmmTopicPartitioner, time);
-                    consumerManager.startConsumerThread();
+                    if (startConsumerThread) {
+                        consumerManager.startConsumerThread();
+                    } else {
+                        log.info("RLMM Consumer task thread is not configured to be started.");
+                    }
                 }
 
                 initialized.set(true);
@@ -319,6 +329,13 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     // Visible for testing.
     public TopicBasedRemoteLogMetadataManagerConfig config() {
         return rlmmConfig;
+    }
+
+    // Visible for testing.
+    public void startConsumerThread() {
+        if (consumerManager != null) {
+            consumerManager.startConsumerThread();
+        }
     }
 
     @Override
