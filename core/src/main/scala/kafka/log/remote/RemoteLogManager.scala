@@ -384,7 +384,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
                 // todo-tier build segment leader epochs
                 val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
-                  segment.maxTimestampSoFar, brokerId, System.currentTimeMillis(), segment.log.sizeInBytes(), Collections.emptyMap())
+                  segment.largestTimestamp, brokerId, System.currentTimeMillis(), segment.log.sizeInBytes(), Collections.emptyMap())
 
                 remoteLogMetadataManager.addRemoteLogSegmentMetadata(remoteLogSegmentMetadata)
 
@@ -446,21 +446,51 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
             None
           else {
             var maxOffset: Long = Long.MinValue
-            val cleanupTs = time.milliseconds() - rlmConfig.remoteLogRetentionMillis
-            remoteLogSegmentMetadatas.asScala.takeWhile(m => m.createdTimestamp() <= cleanupTs)
-              .foreach(m => {
-                deleteRemoteLogSegment(m)
-                maxOffset = Math.max(m.endOffset(), maxOffset)
+            fetchLog(tp.topicPartition()).foreach(log => {
+              val cleanupTs = time.milliseconds() - log.config.retentionMs
+
+              // get earliest leader epoch and start deleting the segments.
+              log.leaderEpochCache.foreach(cache => {
+                cache.epochEntries.foreach( epoch => {
+                  val segmentsIterator = remoteLogMetadataManager.listRemoteLogSegments(tp, epoch.epoch)
+                  var finished = false;
+                  while(segmentsIterator.hasNext || !finished) {
+                    val segmentMetadata = segmentsIterator.next()
+                    if(segmentMetadata.maxTimestampMs() <= cleanupTs) {
+                      // Publish delete segment started event.
+                      remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
+                          new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
+                            RemoteLogSegmentState.DELETE_SEGMENT_STARTED, brokerId))
+
+                      // Delete the segment in remote storage.
+                      remoteLogStorageManager.deleteLogSegmentData(segmentMetadata)
+
+                      // Publish delete segment finished event.
+                      remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
+                        new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
+                          RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, brokerId))
+                    } else {
+                      finished = true;
+                    }
+                  }
+                })
               })
 
-            val remoteLogStartOffset = if (maxOffset == Long.MinValue) {
-              // FIXME(@kamalcph): Using iterator.takeWhile move the pointer to next. This needs to be fixed.
-              // remoteLogSegmentMetadatas.asScala.nextOption().map(metadata => metadata.startOffset())
-              None
-            } else {
-              Some(maxOffset + 1)
-            }
-            remoteLogStartOffset.foreach(x => handleLogStartOffsetUpdate(tp.topicPartition(), x))
+              remoteLogSegmentMetadatas.asScala.takeWhile(m => m.eventTimestampMs() <= cleanupTs)
+                .foreach(m => {
+                  deleteRemoteLogSegment(m)
+                  maxOffset = Math.max(m.endOffset(), maxOffset)
+                })
+
+              val remoteLogStartOffset = if (maxOffset == Long.MinValue) {
+                // FIXME(@kamalcph): Using iterator.takeWhile move the pointer to next. This needs to be fixed.
+                // remoteLogSegmentMetadatas.asScala.nextOption().map(metadata => metadata.startOffset())
+                None
+              } else {
+                Some(maxOffset + 1)
+              }
+              remoteLogStartOffset.foreach(x => handleLogStartOffsetUpdate(tp.topicPartition(), x))
+            })
           }
         }
       } catch {
