@@ -275,11 +275,11 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
     if (delete) {
       try {
-        //todo-tier need to check whether it is really needed to delete from remote. This may be a delete request only
-        //for this replica. We should delete from remote storage only if the topic partition is getting deleted.
+        //todo-tier Actual deletion should occur only through RLMM delete marker events instead of deleting them here.
         val maybeTopicIdPartition = topicPartitionIds.get(topicPartition)
         maybeTopicIdPartition.foreach(topicIdPartition => {
-          remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition).forEachRemaining(deleteRemoteLogSegment)
+          remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition)
+            .forEachRemaining(segmentMetadata => deleteRemoteLogSegment(segmentMetadata))
           remoteLogMetadataManager.onStopPartitions(Collections.singleton(topicPartition))
         })
       } catch {
@@ -288,16 +288,27 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
   }
 
-  private def deleteRemoteLogSegment(metadata: RemoteLogSegmentMetadata): Unit = {
-    try {
-      //todo-tier delete in RLMM in 2 phases to avoid dangling objects
-      remoteLogMetadataManager.deleteRemoteLogSegmentMetadata(metadata)
-      remoteLogStorageManager.deleteLogSegment(metadata)
-    } catch {
-      case e: Exception =>
-        error("Error while deleting the remote log segment", e)
-      //todo-tier collect failed segment ids and store them in a dead letter topic.
-    }
+  def deleteRemoteLogSegment(segmentMetadata: RemoteLogSegmentMetadata,
+                             predicate: RemoteLogSegmentMetadata => Boolean = _ => true): Boolean = {
+    if (predicate(segmentMetadata)) {
+      // Publish delete segment started event.
+      remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
+        new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
+          RemoteLogSegmentState.DELETE_SEGMENT_STARTED, brokerId))
+
+      // Delete the segment in remote storage.
+      try {
+        remoteLogStorageManager.deleteLogSegmentData(segmentMetadata)
+
+        // Publish delete segment finished event.
+        remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
+          new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
+            RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, brokerId))
+      } catch {
+        case ex: Exception => error(s"Error occurred while deleting segment: $segmentMetadata", ex)
+      }
+      true
+    } else false
   }
 
   class RLMTask(tp: TopicIdPartition) extends CancellableRunnable with Logging {
@@ -436,24 +447,6 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       def handleLogStartOffsetUpdate(topicPartition: TopicPartition, remoteLogStartOffset: Long): Unit = {
         debug(s"Updating $topicPartition with remoteLogStartOffset: $remoteLogStartOffset")
         updateRemoteLogStartOffset(topicPartition, remoteLogStartOffset)
-      }
-
-      def deleteRemoteLogSegment(segmentMetadata: RemoteLogSegmentMetadata, predicate: RemoteLogSegmentMetadata => Boolean): Boolean = {
-        if (predicate(segmentMetadata)) {
-          // Publish delete segment started event.
-          remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
-            new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
-              RemoteLogSegmentState.DELETE_SEGMENT_STARTED, brokerId))
-
-          // Delete the segment in remote storage.
-          remoteLogStorageManager.deleteLogSegmentData(segmentMetadata)
-
-          // Publish delete segment finished event.
-          remoteLogMetadataManager.updateRemoteLogSegmentMetadata(
-            new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(), time.milliseconds(),
-              RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, brokerId))
-          true
-        } else false
       }
 
       try {
