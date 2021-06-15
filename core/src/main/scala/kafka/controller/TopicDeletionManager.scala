@@ -19,7 +19,8 @@ package kafka.controller
 import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
+import org.apache.kafka.server.log.remote.storage.{RemoteLogMetadataManager, RemotePartitionDeleteMetadata, RemotePartitionDeleteState}
 
 import scala.collection.Set
 import scala.collection.mutable
@@ -88,7 +89,8 @@ class TopicDeletionManager(config: KafkaConfig,
                            controllerContext: ControllerContext,
                            replicaStateMachine: ReplicaStateMachine,
                            partitionStateMachine: PartitionStateMachine,
-                           client: DeletionClient) extends Logging {
+                           client: DeletionClient,
+                           remoteLogMetadataManager: Option[RemoteLogMetadataManager] = None) extends Logging {
   this.logIdent = s"[Topic Deletion Manager ${config.brokerId}] "
   val isDeleteTopicEnabled: Boolean = config.deleteTopicEnable
 
@@ -286,9 +288,16 @@ class TopicDeletionManager(config: KafkaConfig,
     val allDeadReplicas = mutable.ListBuffer.empty[PartitionAndReplica]
     val allReplicasForDeletionRetry = mutable.ListBuffer.empty[PartitionAndReplica]
     val allTopicsIneligibleForDeletion = mutable.Set.empty[String]
+    val allTopicIdPartitions =  mutable.Set.empty[TopicIdPartition]
 
     topicsToBeDeleted.foreach { topic =>
-      val (aliveReplicas, deadReplicas) = controllerContext.replicasForTopic(topic).partition { r =>
+      val replicas = controllerContext.replicasForTopic(topic)
+
+      replicas.foreach(partitionAndReplica =>
+        allTopicIdPartitions.add(new TopicIdPartition(controllerContext.topicIds(partitionAndReplica.topic),
+          partitionAndReplica.topicPartition)))
+
+      val (aliveReplicas, deadReplicas) = replicas.partition { r =>
         controllerContext.isReplicaOnline(r.replica, r.topicPartition)
       }
 
@@ -310,6 +319,12 @@ class TopicDeletionManager(config: KafkaConfig,
     replicaStateMachine.handleStateChanges(allReplicasForDeletionRetry, OfflineReplica)
     replicaStateMachine.handleStateChanges(allReplicasForDeletionRetry, ReplicaDeletionStarted)
 
+    // Mark topics for deletion using RemoteLogMetadataManager.
+    remoteLogMetadataManager.foreach( rlmm => {
+      allTopicIdPartitions.foreach(tp =>
+      rlmm.putRemotePartitionDeleteMetadata(new RemotePartitionDeleteMetadata(tp,
+        RemotePartitionDeleteState.DELETE_PARTITION_MARKED, System.currentTimeMillis(), controllerContext.)))
+    })
     if (allTopicsIneligibleForDeletion.nonEmpty) {
       markTopicIneligibleForDeletion(allTopicsIneligibleForDeletion, reason = "offline replicas")
     }

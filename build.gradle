@@ -807,6 +807,7 @@ project(':core') {
     implementation project(':server-common')
     implementation project(':metadata')
     implementation project(':raft')
+    implementation project(':storage:api')
     implementation project(':storage')
 
     implementation libs.argparse4j
