@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Optional;
 
 public class TestLogSegmentUtils {
 
@@ -62,14 +63,15 @@ public class TestLogSegmentUtils {
         ByteBuffer leaderEpochIndex = ByteBuffer.wrap(TestUtils.randomBytes(10));
         leaderEpochIndex.rewind();
 
+        Path producerSnapshotIndex = new File(logDir, prefix + "." + PRODUCER_SNAPSHOT_FILE_NAME).toPath();
+        Files.write(producerSnapshotIndex, TestUtils.randomBytes(10));
+
         Path txnIndex = null;
-        Path producerSnapshotIndex = null;
         if (withOptionalFiles) {
             txnIndex = new File(logDir, prefix + "." + TXN_INDEX_FILE_NAME).toPath();
-            producerSnapshotIndex = new File(logDir, prefix + "." + PRODUCER_SNAPSHOT_FILE_NAME).toPath();
             Files.write(txnIndex, TestUtils.randomBytes(10));
-            Files.write(producerSnapshotIndex, TestUtils.randomBytes(10));
         }
-        return new LogSegmentData(segment, offsetIndex, timeIndex, txnIndex, producerSnapshotIndex, leaderEpochIndex);
+        return new LogSegmentData(segment, offsetIndex, timeIndex, Optional.ofNullable(txnIndex),
+                producerSnapshotIndex, leaderEpochIndex);
     }
 }

@@ -269,6 +269,13 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
     }
   }
 
+  def writeTo(leaderEpochCheckpoint: LeaderEpochCheckpoint): LeaderEpochFileCache = {
+    inReadLock(lock) {
+      leaderEpochCheckpoint.write(epochEntries)
+      new LeaderEpochFileCache(this.topicPartition, this.logEndOffset, leaderEpochCheckpoint)
+    }
+  }
+
   /**
     * Delete all entries.
     */

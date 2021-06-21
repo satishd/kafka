@@ -43,8 +43,8 @@ import java.util.Map;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_MB_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BYTES_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
@@ -74,10 +74,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         fsURI = URI.create(conf.getString(HDFS_URI_PROP));
         baseDir = conf.getString(HDFS_BASE_DIR_PROP);
-        cacheLineSize = conf.getInt(HDFS_REMOTE_READ_MB_PROP) * 1024 * 1024;
-        long cacheSize = conf.getInt(HDFS_REMOTE_READ_CACHE_MB_PROP) * 1024 * 1024L;
+        cacheLineSize = conf.getInt(HDFS_REMOTE_READ_BYTES_PROP);
+        long cacheSize = conf.getLong(HDFS_REMOTE_READ_CACHE_BYTES_PROP);
         if (cacheSize < cacheLineSize) {
-            throw new IllegalArgumentException(String.format("%s is larger than %s", HDFS_REMOTE_READ_MB_PROP, HDFS_REMOTE_READ_CACHE_MB_PROP));
+            throw new IllegalArgumentException(String.format("%s is larger than %s", HDFS_REMOTE_READ_BYTES_PROP, HDFS_REMOTE_READ_CACHE_BYTES_PROP));
         }
         readCache = new LRUCache(cacheSize);
 
@@ -111,7 +111,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             uploadFile(segmentData.timeIndex(), fsOut, false);
             uploadData(segmentData.leaderEpochIndex(), fsOut, false);
             uploadFile(segmentData.producerSnapshotIndex(), fsOut, false);
-            uploadFile(segmentData.txnIndex(), fsOut, false);
+            if (segmentData.transactionIndex().isPresent()) {
+                uploadFile(segmentData.transactionIndex().get(), fsOut, false);
+            }
             uploadFile(segmentData.logSegment(), fsOut, true);
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to copy log segment to remote storage", e);

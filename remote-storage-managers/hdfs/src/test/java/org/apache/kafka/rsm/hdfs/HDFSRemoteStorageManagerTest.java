@@ -193,20 +193,20 @@ public class HDFSRemoteStorageManagerTest {
     public void testRepeatedFetchReadsFromCacheOnFullSegmentFetch() throws Exception {
         LRUCacheWithContext cache = new LRUCacheWithContext(10 * 1048576L);
         // two cache hits due to the additional 25 bytes read for the header exceeds the defined cache line size of 2MB.
-        testRepeatedCacheReads(cache, "2", 2097152, 2);
+        testRepeatedCacheReads(cache, String.valueOf(2 * 1048576), 2097152, 2);
     }
 
     @Test
     public void testRepeatedFetchReadsFromCacheOnSegmentSizeLessThanCacheLine() throws Exception {
         LRUCacheWithContext cache = new LRUCacheWithContext(10 * 1048576L);
-        testRepeatedCacheReads(cache, "1", 1024, 1);
+        testRepeatedCacheReads(cache, String.valueOf(1048576), 1024, 1);
     }
 
     private void testRepeatedCacheReads(LRUCacheWithContext cache,
-                                        String cacheLineSizeInMb,
+                                        String cacheLineSizeInBytes,
                                         int segSize,
                                         int expectedCacheHit) throws Exception {
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_MB_PROP, cacheLineSizeInMb);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, cacheLineSizeInBytes);
         HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
         rsm.configure(configs);
         rsm.setLRUCache(cache);
@@ -322,9 +322,9 @@ public class HDFSRemoteStorageManagerTest {
             assertDataEquals(leaderEpochIndex, actualStream);
         }
 
-        if (segmentData.txnIndex() != null) {
+        if (segmentData.transactionIndex().isPresent()) {
             try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
-                assertFileEquals(segmentData.txnIndex().toFile(), actualStream);
+                assertFileEquals(segmentData.transactionIndex().get().toFile(), actualStream);
             }
         }
 

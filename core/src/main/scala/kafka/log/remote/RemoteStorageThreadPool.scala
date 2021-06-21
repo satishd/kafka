@@ -42,11 +42,20 @@ abstract class RemoteStorageTask[T] extends Callable[T] with Logging {
  * @param maxPendingTasks The task queue capacity. If the task queue is full, the submit() / execute() method will throw RejectedExecutionException
  * @param metricNamePrefix The name of average idle percentage metric
  */
-abstract class RemoteStorageThreadPool(name: String, threadNamePrefix: String, numThreads: Int, maxPendingTasks: Int, time: Time, metricNamePrefix: String)
-  extends ThreadPoolExecutor(numThreads, numThreads, 0L, TimeUnit.MILLISECONDS,
-    new LinkedBlockingQueue[Runnable](maxPendingTasks), new RemoteStorageThreadFactory(threadNamePrefix + "-"))
-    with Logging
-    with KafkaMetricsGroup {
+abstract class RemoteStorageThreadPool(name: String,
+                                       threadNamePrefix: String,
+                                       numThreads: Int,
+                                       maxPendingTasks: Int,
+                                       time: Time,
+                                       metricNamePrefix: String)
+  extends ThreadPoolExecutor(numThreads,
+    numThreads,
+    0L,
+    TimeUnit.MILLISECONDS,
+    new LinkedBlockingQueue[Runnable](maxPendingTasks),
+    new RemoteStorageThreadFactory(threadNamePrefix + "-")
+  ) with KafkaMetricsGroup {
+
   newGauge(metricNamePrefix.concat("TaskQueueSize"), () => {
     getQueue().size()
   })
@@ -58,7 +67,7 @@ abstract class RemoteStorageThreadPool(name: String, threadNamePrefix: String, n
   this.logIdent = s"[$name] "
 
   override def afterExecute(r: Runnable, e: Throwable): Unit = {
-    if (e != null)
+    if (e != null) {
       e match {
         case e: FatalExitError =>
           info("Stopped")
@@ -67,6 +76,7 @@ abstract class RemoteStorageThreadPool(name: String, threadNamePrefix: String, n
           if (!isShutdown)
             error("Error due to", e)
       }
+    }
   }
 
   def resizeThreadPool(newSize: Int): Unit = synchronized {

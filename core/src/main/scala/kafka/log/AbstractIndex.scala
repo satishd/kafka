@@ -17,7 +17,7 @@
 
 package kafka.log
 
-import java.io.{Closeable, File, RandomAccessFile}
+import java.io.{File, RandomAccessFile}
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.{ByteBuffer, MappedByteBuffer}
@@ -26,7 +26,7 @@ import java.util.concurrent.locks.{Lock, ReentrantLock}
 import kafka.common.IndexOffsetOverflowException
 import kafka.utils.CoreUtils.inLock
 import kafka.utils.{CoreUtils, Logging}
-import org.apache.kafka.common.utils.{ByteBufferUnmapper, OperatingSystem, Utils}
+import org.apache.kafka.common.utils.{ByteBufferUnmapper, OperatingSystem}
 
 /**
  * The abstract index class which holds entry format agnostic methods.

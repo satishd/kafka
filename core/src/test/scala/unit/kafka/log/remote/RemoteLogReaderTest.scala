@@ -18,18 +18,20 @@
 package kafka.log.remote
 
 import java.nio.file.Files
-import java.util.Optional
+import java.util.{Optional, Properties}
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.concurrent.{CompletableFuture, RejectedExecutionException}
-import kafka.log.remote.RemoteLogManager.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX
-import kafka.server.{BrokerTopicStats, Defaults, FetchDataInfo, FetchTxnCommitted, LogOffsetMetadata, RemoteStorageFetchInfo}
+
+import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchTxnCommitted, LogOffsetMetadata, RemoteStorageFetchInfo}
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, SimpleRecord}
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.utils.SystemTime
-import org.junit.jupiter.api.Assertions.assertEquals
+import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
+import org.junit.jupiter.api.Assertions.{assertEquals, assertThrows, assertTrue}
 import org.junit.jupiter.api.Test
 
 import scala.jdk.CollectionConverters._
@@ -39,25 +41,20 @@ class RemoteLogReaderTest {
   @Test
   def testReadRemoteLog(): Unit = {
     val rlm = new MockRemoteLogManager(2, 10)
-
     val tp = new TopicPartition("test", 0)
     val fetchInfo = new PartitionData(200, 200, 1000, Optional.of(1))
-
     val resultFuture = new CompletableFuture[RemoteLogReadResult]
-
     def callback(result: RemoteLogReadResult): Unit = {
       resultFuture.complete(result)
     }
-
-    rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
-
+    rlm.asyncRead(RemoteStorageFetchInfo(1000, minOneMessage = true, tp, fetchInfo, FetchTxnCommitted), callback)
     Thread.sleep(100)
 
-    val i = resultFuture.get.info.get
+    val dataInfo = resultFuture.get.info.get
     assertEquals(None, resultFuture.get.error)
-    assertEquals(200, i.fetchOffsetMetadata.messageOffset)
-    assertEquals(2, i.records.records.asScala.size)
-    assertEquals(202, i.records.records.iterator.next.offset)
+    assertEquals(200, dataInfo.fetchOffsetMetadata.messageOffset)
+    assertEquals(2, dataInfo.records.records.asScala.size)
+    assertEquals(202, dataInfo.records.records.iterator.next.offset)
   }
 
   @Test
@@ -66,12 +63,9 @@ class RemoteLogReaderTest {
     rlm.pause()
 
     val tp = new TopicPartition("test", 0)
-
     val tasks = new Array[RemoteLogManager#AsyncReadTask](26)
     val finishedTasks = Array.fill[Boolean](26)(false)
-
     val finishCount = new AtomicInteger(0)
-
     def callback(result: RemoteLogReadResult): Unit = {
       assertEquals(None, result.error)
       finishCount.addAndGet(1)
@@ -80,21 +74,21 @@ class RemoteLogReaderTest {
 
     for (i <- 0 to 24) {
       val fetchInfo = new PartitionData(i, 0, 1000, Optional.of(1))
-      val future = rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
+      val future = rlm.asyncRead(RemoteStorageFetchInfo(1000, minOneMessage = true, tp, fetchInfo, FetchTxnCommitted), callback)
       tasks(i) = future
     }
     assertEquals(0, finishCount.get)
 
-    assertThrows[RejectedExecutionException] {
+    assertThrows(classOf[RejectedExecutionException], () => {
       val fetchInfo = new PartitionData(25, 0, 1000, Optional.of(1))
-      rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
-    }
+      rlm.asyncRead(RemoteStorageFetchInfo(1000, minOneMessage = true, tp, fetchInfo, FetchTxnCommitted), callback)
+    })
 
     tasks(7).cancel(false)
     tasks(10).cancel(true)
 
     val fetchInfo = new PartitionData(25, 0, 1000, Optional.of(1))
-    rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
+    rlm.asyncRead(RemoteStorageFetchInfo(1000, minOneMessage = true, tp, fetchInfo, FetchTxnCommitted), callback)
     rlm.resume()
 
     Thread.sleep(200)
@@ -106,33 +100,49 @@ class RemoteLogReaderTest {
 
   @Test
   def testErr(): Unit = {
-    val rlm = new MockRemoteLogManager(2, 10)
+    val rlm = new MockRemoteLogManager(2, 10) {
+      override def read(remoteStorageFetchInfo: RemoteStorageFetchInfo): FetchDataInfo = {
+        throw new OffsetOutOfRangeException("Offset: %d is out of range"
+          .format(remoteStorageFetchInfo.fetchInfo.fetchOffset))
+      }
+    }
     val tp = new TopicPartition("test", 1)
     val fetchInfo = new PartitionData(10000, 0, 1000, Optional.of(1))
-
+    val resultFuture = new CompletableFuture[RemoteLogReadResult]
     def callback(result: RemoteLogReadResult): Unit = {
-      assertEquals(None, result.info)
-      assert(result.error.get.isInstanceOf[OffsetOutOfRangeException])
+      resultFuture.complete(result)
     }
 
-    val task = rlm.asyncRead(RemoteStorageFetchInfo(1000, true, tp, fetchInfo, FetchTxnCommitted), callback)
+    val task = rlm.asyncRead(RemoteStorageFetchInfo(1000, minOneMessage = true, tp, fetchInfo, FetchTxnCommitted), callback)
     Thread.sleep(100)
-    assert(task.isDone)
+    assertTrue(task.isDone)
+    assertEquals(None, resultFuture.get.info)
+    assertEquals(classOf[OffsetOutOfRangeException], resultFuture.get.error.get.getClass)
   }
 }
 
 class MockRemoteLogManager(threads: Int, taskQueueSize: Int)
-  extends RemoteLogManager((tp) => None, (tp, segment) => {}, MockRemoteLogManager.rlmConfig(threads, taskQueueSize), new SystemTime, 1, "mock-cluster", Files.createTempDirectory("kafka-test-").toString, new BrokerTopicStats) {
+  extends RemoteLogManager(
+    _ => None,
+    (_, _) => {},
+    MockRemoteLogManager.rlmConfig(threads, taskQueueSize),
+    new SystemTime,
+    1,
+    "mock-cluster-id",
+    Files.createTempDirectory("kafka-test-").toString,
+    new BrokerTopicStats) {
+
   private val lock = new ReentrantReadWriteLock
 
   override def read(remoteStorageFetchInfo: RemoteStorageFetchInfo): FetchDataInfo = {
     lock.readLock.lock()
     try {
       val fetchInfo = remoteStorageFetchInfo.fetchInfo
-      val recordsArray = Array(new SimpleRecord("k1".getBytes, "v1".getBytes),
-        new SimpleRecord("k2".getBytes, "v2".getBytes))
+      val recordsArray = Array(
+        new SimpleRecord("k1".getBytes, "v1".getBytes),
+        new SimpleRecord("k2".getBytes, "v2".getBytes)
+      )
       val records = MemoryRecords.withRecords(fetchInfo.fetchOffset + 2, CompressionType.NONE, 1, recordsArray: _*)
-
       FetchDataInfo(new LogOffsetMetadata(fetchInfo.fetchOffset), records)
     } finally {
       lock.readLock.unlock()
@@ -149,10 +159,17 @@ class MockRemoteLogManager(threads: Int, taskQueueSize: Int)
 }
 
 object MockRemoteLogManager {
-  val rsmConfig: Map[String, Any] = Map(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "url" -> "foo.url",
-    REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "timout.ms" -> 1000L)
 
   def rlmConfig(threads: Int, taskQueueSize: Int): RemoteLogManagerConfig = {
-    RemoteLogManagerConfig(remoteLogStorageEnable = true, "kafka.log.remote.MockRemoteStorageManager", "", rsmConfig, 1024, 60000, threads, taskQueueSize, Defaults.RemoteLogManagerThreadPoolSize, Defaults.RemoteLogManagerTaskIntervalMs, "kafka.log.remote.MockRemoteLogMetadataManager", rlmmProps = Map.empty)
+    val props = new Properties
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_PROP, "rlmm.config.")
+    props.put(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP, "rsm.config.")
+    props.put(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CLASS_NAME_PROP, "kafka.log.remote.MockRemoteStorageManager")
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_METADATA_MANAGER_CLASS_NAME_PROP, "kafka.log.remote.MockRemoteLogMetadataManager")
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_THREADS_PROP, threads)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_MAX_PENDING_TASKS_PROP, taskQueueSize)
+    val config = new AbstractConfig(RemoteLogManagerConfig.CONFIG_DEF, props, false)
+    new RemoteLogManagerConfig(config)
   }
 }

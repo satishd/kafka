@@ -727,6 +727,10 @@ class ProducerStateManager(val topicPartition: TopicPartition,
     }
   }
 
+  def fetchSnapshot(offset:Long): Option[File] = {
+    Option(snapshots.get(offset)).map(_.file)
+  }
+
   /**
    * Update the parentDir for this ProducerStateManager and all of the snapshot files which it manages.
    */

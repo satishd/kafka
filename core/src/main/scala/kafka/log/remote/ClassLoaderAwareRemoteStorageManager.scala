@@ -19,7 +19,7 @@ package kafka.log.remote
 import org.apache.kafka.server.log.remote.storage.{LogSegmentData, RemoteLogSegmentMetadata, RemoteStorageManager}
 
 import java.io.InputStream
-import java.{lang, util}
+import java.util
 
 /**
  * A wrapper class of RemoteStorageManager that sets the context class loader when calling RSM methods.

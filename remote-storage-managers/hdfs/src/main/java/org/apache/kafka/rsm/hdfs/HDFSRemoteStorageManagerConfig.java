@@ -25,10 +25,12 @@ import static org.apache.kafka.common.config.ConfigDef.Importance.HIGH;
 import static org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
+import static org.apache.kafka.common.config.ConfigDef.Type.LONG;
 import static org.apache.kafka.common.config.ConfigDef.Type.STRING;
 
 class HDFSRemoteStorageManagerConfig extends AbstractConfig {
-    public static final String REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "";
+
+    private static final String REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "remote.log.storage.";
 
     public static final String HDFS_URI_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.fs.uri";
     public static final String HDFS_URI_DOC = "URI of of the HDFS cluster.";
@@ -36,18 +38,23 @@ class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_BASE_DIR_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.base.dir";
     public static final String HDFS_BASE_DIR_DOC = "The HDFS directory in which the remote data is stored.";
 
-    public static final String HDFS_REMOTE_READ_MB_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.remote.read.bytes.mb";
-    public static final String HDFS_REMOTE_READ_MB_DOC = "HDFS read buffer size in MB.";
+    public static final String HDFS_REMOTE_READ_BYTES_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.remote.read.bytes";
+    public static final String HDFS_REMOTE_READ_BYTES_DOC = "HDFS read buffer size in bytes.";
+    public static final int DEFAULT_HDFS_REMOTE_READ_BYTES = 16 * 1024 * 1024;
 
-    public static final String HDFS_REMOTE_READ_CACHE_MB_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.remote.read.cache.mb";
-    public static final String HDFS_REMOTE_READ_CACHE_MB_DOC = "Read cache size in MB. The maximum amount of remote data will be cached in broker's memory. " +
-                                                               "This value must be larger than hdfs.remote.read.bytes.mb.";
+    public static final String HDFS_REMOTE_READ_CACHE_BYTES_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.remote.read.cache.bytes";
+    public static final String HDFS_REMOTE_READ_CACHE_BYTES_DOC = "Read cache size in bytes. " +
+            "The maximum amount of remote data will be cached in broker's memory. " +
+            "This value must be larger than " + HDFS_REMOTE_READ_BYTES_PROP;
+    public static final long DEFAULT_HDFS_REMOTE_READ_CACHE_BYTES = 1024 * 1024 * 1024L;
 
     public static final String HDFS_USER_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.user";
     public static final String HDFS_KEYTAB_PATH_PROP = REMOTE_STORAGE_MANAGER_CONFIG_PREFIX + "hdfs.keytab.path";
 
-    public static final String HDFS_USER_DOC = "The principal name to load from the keytab. This property should be used with " + HDFS_KEYTAB_PATH_PROP;
-    public static final String HDFS_KEYTAB_PATH_DOC = "The path to the keytab file. This property should be used with " + HDFS_USER_PROP;
+    public static final String HDFS_USER_DOC = "The principal name to load from the keytab. " +
+            "This property should be used with " + HDFS_KEYTAB_PATH_PROP;
+    public static final String HDFS_KEYTAB_PATH_DOC = "The path to the keytab file. " +
+            "This property should be used with " + HDFS_USER_PROP;
 
     private static final ConfigDef CONFIG;
 
@@ -57,8 +64,8 @@ class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_BASE_DIR_PROP, STRING, HIGH, HDFS_BASE_DIR_DOC)
             .define(HDFS_USER_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_USER_DOC)
             .define(HDFS_KEYTAB_PATH_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_KEYTAB_PATH_DOC)
-            .define(HDFS_REMOTE_READ_MB_PROP, INT, 16, atLeast(1), MEDIUM, HDFS_REMOTE_READ_MB_DOC)
-            .define(HDFS_REMOTE_READ_CACHE_MB_PROP, INT, 1024, atLeast(1), MEDIUM, HDFS_REMOTE_READ_CACHE_MB_DOC);
+            .define(HDFS_REMOTE_READ_BYTES_PROP, INT, DEFAULT_HDFS_REMOTE_READ_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_BYTES_DOC)
+            .define(HDFS_REMOTE_READ_CACHE_BYTES_PROP, LONG, DEFAULT_HDFS_REMOTE_READ_CACHE_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_CACHE_BYTES_DOC);
     }
 
     HDFSRemoteStorageManagerConfig(Map<?, ?> props, boolean doLog) {

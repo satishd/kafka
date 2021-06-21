@@ -265,6 +265,8 @@ class ReplicaManager(val config: KafkaConfig,
 
   private var logDirFailureHandler: LogDirFailureHandler = null
 
+  def getHighWatermarkCheckpoints: Map[String, OffsetCheckpointFile] = highWatermarkCheckpoints
+
   private class LogDirFailureHandler(name: String, haltBrokerOnDirFailure: Boolean) extends ShutdownableThread(name) {
     override def doWork(): Unit = {
       val newOfflineLogDir = logDirFailureChannel.takeNextOfflineLogDir()

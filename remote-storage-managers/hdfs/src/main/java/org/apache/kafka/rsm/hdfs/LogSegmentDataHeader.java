@@ -168,7 +168,7 @@ public class LogSegmentDataHeader {
             case PRODUCER_SNAPSHOT:
                 return fileLength(segmentData.producerSnapshotIndex());
             case TRANSACTION_INDEX:
-                return fileLength(segmentData.txnIndex());
+                return fileLength(segmentData.transactionIndex().orElse(null));
             case SEGMENT:
                 return fileLength(segmentData.logSegment());
             default:

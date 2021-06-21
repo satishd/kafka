@@ -17,6 +17,7 @@
 package kafka.log
 
 import java.io.{Closeable, File}
+import java.nio.file.Path
 
 import org.apache.kafka.common.utils.Utils
 
@@ -34,6 +35,8 @@ abstract class CleanableIndex(@volatile var _file: File) extends Closeable {
   }
 
   def file: File = _file
+
+  def path: Path = if (file.exists()) file.toPath else null
 
   def deleteIfExists(): Boolean
 }
