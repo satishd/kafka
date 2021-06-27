@@ -89,7 +89,7 @@ class KafkaController(val config: KafkaConfig,
 
   private val isAlterIsrEnabled = config.interBrokerProtocolVersion.isAlterIsrSupported
   private val stateChangeLogger = new StateChangeLogger(config.brokerId, inControllerContext = true, None)
-  val controllerContext = new ControllerContext
+  val controllerContext = new ControllerContext(config.brokerId)
   var controllerChannelManager = new ControllerChannelManager(controllerContext, config, time, metrics,
     stateChangeLogger, threadNamePrefix)
 

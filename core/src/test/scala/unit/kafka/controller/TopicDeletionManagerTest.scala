@@ -249,7 +249,7 @@ class TopicDeletionManagerTest {
                   topics: Set[String],
                   numPartitions: Int,
                   replicationFactor: Int): ControllerContext = {
-    val context = new ControllerContext
+    val context = new ControllerContext(brokerId)
     val brokerEpochs = brokers.map { brokerId =>
       val endpoint = new EndPoint("localhost", 9900 + brokerId, new ListenerName("blah"),
         SecurityProtocol.PLAINTEXT)

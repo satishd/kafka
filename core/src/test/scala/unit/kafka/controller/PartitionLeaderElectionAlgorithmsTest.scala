@@ -24,7 +24,7 @@ class PartitionLeaderElectionAlgorithmsTest {
 
   @BeforeEach
   def setUp(): Unit = {
-    controllerContext = new ControllerContext
+    controllerContext = new ControllerContext(0)
     controllerContext.stats.removeMetric("UncleanLeaderElectionsPerSec")
   }
 

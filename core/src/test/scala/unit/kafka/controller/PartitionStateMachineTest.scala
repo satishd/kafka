@@ -45,7 +45,7 @@ class PartitionStateMachineTest {
 
   @BeforeEach
   def setUp(): Unit = {
-    controllerContext = new ControllerContext
+    controllerContext = new ControllerContext(brokerId)
     controllerContext.epoch = controllerEpoch
     mockZkClient = EasyMock.createMock(classOf[KafkaZkClient])
     mockControllerBrokerRequestBatch = EasyMock.createMock(classOf[ControllerBrokerRequestBatch])

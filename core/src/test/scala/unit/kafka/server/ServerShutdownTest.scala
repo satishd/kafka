@@ -227,7 +227,7 @@ class ServerShutdownTest extends ZooKeeperTestHarness {
       // Start a ControllerChannelManager
       val brokerAndEpochs = Map((new Broker(1, "localhost", serverSocket.getLocalPort, listenerName, securityProtocol), 0L))
       val controllerConfig = KafkaConfig.fromProps(TestUtils.createBrokerConfig(controllerId, zkConnect))
-      val controllerContext = new ControllerContext
+      val controllerContext = new ControllerContext(controllerId)
       controllerContext.setLiveBrokers(brokerAndEpochs)
       controllerChannelManager = new ControllerChannelManager(controllerContext, controllerConfig, Time.SYSTEM,
         metrics, new StateChangeLogger(controllerId, inControllerContext = true, None))

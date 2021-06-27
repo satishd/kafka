@@ -323,7 +323,7 @@ class TopicDeletionManager(config: KafkaConfig,
     remoteLogMetadataManager.foreach( rlmm => {
       allTopicIdPartitions.foreach(tp =>
       rlmm.putRemotePartitionDeleteMetadata(new RemotePartitionDeleteMetadata(tp,
-        RemotePartitionDeleteState.DELETE_PARTITION_MARKED, System.currentTimeMillis(), controllerContext.)))
+        RemotePartitionDeleteState.DELETE_PARTITION_MARKED, System.currentTimeMillis(), controllerContext.brokerId)))
     })
     if (allTopicsIneligibleForDeletion.nonEmpty) {
       markTopicIneligibleForDeletion(allTopicsIneligibleForDeletion, reason = "offline replicas")

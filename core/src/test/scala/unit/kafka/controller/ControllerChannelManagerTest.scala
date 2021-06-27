@@ -890,7 +890,7 @@ class ControllerChannelManagerTest {
                           numPartitions: Int,
                           replicationFactor: Int,
                           topicIds: Map[String, Uuid]): ControllerContext = {
-    val context = new ControllerContext
+    val context = new ControllerContext(brokers.head)
     val brokerEpochs = brokers.map { brokerId =>
       val endpoint = new EndPoint("localhost", 9900 + brokerId, new ListenerName("PLAINTEXT"),
         SecurityProtocol.PLAINTEXT)

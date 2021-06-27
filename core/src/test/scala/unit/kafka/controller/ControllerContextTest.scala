@@ -36,14 +36,12 @@ class ControllerContextTest {
 
   @BeforeEach
   def setUp(): Unit = {
-    context = new ControllerContext
-
     val brokerEpochs = Seq(1,2,3).map { brokerId =>
       val endpoint = new EndPoint("localhost", 9900 + brokerId, new ListenerName("PLAINTEXT"),
         SecurityProtocol.PLAINTEXT)
       Broker(brokerId, Seq(endpoint), rack = None) -> 1L
     }.toMap
-
+    context = new ControllerContext(brokerEpochs.head._1.id)
     context.setLiveBrokers(brokerEpochs)
 
     // Simple round-robin replica assignment

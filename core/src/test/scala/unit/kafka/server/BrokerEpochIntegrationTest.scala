@@ -128,7 +128,7 @@ class BrokerEpochIntegrationTest extends ZooKeeperTestHarness {
         s.kafkaController.brokerEpoch)).toMap
     val nodes = brokerAndEpochs.keys.map(_.node(listenerName))
 
-    val controllerContext = new ControllerContext
+    val controllerContext = new ControllerContext(controllerId)
     controllerContext.setLiveBrokers(brokerAndEpochs)
     val metrics = new Metrics
     val controllerChannelManager = new ControllerChannelManager(controllerContext, controllerConfig, Time.SYSTEM,
