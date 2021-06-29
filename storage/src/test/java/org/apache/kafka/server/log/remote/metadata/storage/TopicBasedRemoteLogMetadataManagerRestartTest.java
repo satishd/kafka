@@ -37,7 +37,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR;
 
@@ -53,13 +52,8 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
     @BeforeEach
     public void setup() {
         // Start the cluster and initialize TopicBasedRemoteLogMetadataManager.
-        remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness() {
-            protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
-                Map<String, Object> props = new HashMap<>();
-                props.put(LOG_DIR, logDir);
-                return props;
-            }
-        };
+        remoteLogMetadataManagerHarness = new TopicBasedRemoteLogMetadataManagerHarness();
+        remoteLogMetadataManagerHarness.overrideRemoteLogMetadataManagerProps.put(LOG_DIR, logDir);
         remoteLogMetadataManagerHarness.initialize(Collections.emptySet(), true);
     }
 

@@ -56,9 +56,7 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
     private final Time time = new MockTime(1);
     private TopicBasedRemoteLogMetadataManager topicBasedRemoteLogMetadataManager;
 
-    protected Map<String, Object> overrideRemoteLogMetadataManagerProps() {
-        return Collections.emptyMap();
-    }
+    protected final Map<String, Object> overrideRemoteLogMetadataManagerProps = new HashMap<>();
 
     public void initialize(Set<TopicIdPartition> topicIdPartitions,
                            boolean startConsumerThread) {
@@ -105,7 +103,7 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
 
         log.debug("TopicBasedRemoteLogMetadataManager configs before adding overridden properties: {}", configs);
         // Add override properties.
-        configs.putAll(overrideRemoteLogMetadataManagerProps());
+        configs.putAll(overrideRemoteLogMetadataManagerProps);
         log.debug("TopicBasedRemoteLogMetadataManager configs after adding overridden properties: {}", configs);
 
         topicBasedRemoteLogMetadataManager.configure(configs);

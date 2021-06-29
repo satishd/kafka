@@ -29,7 +29,6 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.test.TestUtils;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -46,8 +45,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public class RemoteLogSegmentLifecycleTest {
     private static final Logger log = LoggerFactory.getLogger(RemoteLogSegmentLifecycleTest.class);
@@ -80,15 +83,15 @@ public class RemoteLogSegmentLifecycleTest {
 
             // We should not get this as the segment is still getting copied and it is not yet considered successful until
             // it reaches RemoteLogSegmentState.COPY_SEGMENT_FINISHED.
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(40, 1).isPresent());
+            assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(40, 1).isPresent());
 
             // Check that these leader epochs are to considered for highest offsets as they are still getting copied and
             // they did nto reach COPY_SEGMENT_FINISHED state.
             Stream.of(0, 1, 2).forEach(epoch -> {
                 try {
-                    Assertions.assertFalse(remoteLogSegmentLifecycleManager.highestOffsetForEpoch(epoch).isPresent());
+                    assertFalse(remoteLogSegmentLifecycleManager.highestOffsetForEpoch(epoch).isPresent());
                 } catch (RemoteStorageException e) {
-                    Assertions.fail(e);
+                    fail(e);
                 }
             });
 
@@ -157,9 +160,9 @@ public class RemoteLogSegmentLifecycleTest {
                 log.debug("Searching for {} , result: {}, expected: {} ", epochOffset, segmentMetadata,
                           expectedSegmentMetadata);
                 if (expectedSegmentMetadata != null) {
-                    Assertions.assertEquals(Optional.of(expectedSegmentMetadata), segmentMetadata);
+                    assertEquals(Optional.of(expectedSegmentMetadata), segmentMetadata);
                 } else {
-                    Assertions.assertFalse(segmentMetadata.isPresent());
+                    assertFalse(segmentMetadata.isPresent());
                 }
             }
 
@@ -170,7 +173,7 @@ public class RemoteLogSegmentLifecycleTest {
                                                                                        time.milliseconds(),
                                                                                        RemoteLogSegmentState.DELETE_SEGMENT_STARTED,
                                                                                        BROKER_ID_1));
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 10).isPresent());
+            assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 10).isPresent());
 
             // Update segment with state as DELETE_SEGMENT_FINISHED.
             // It should not be available when we search for that segment.
@@ -179,7 +182,7 @@ public class RemoteLogSegmentLifecycleTest {
                                                                                        time.milliseconds(),
                                                                                        RemoteLogSegmentState.DELETE_SEGMENT_FINISHED,
                                                                                        BROKER_ID_1));
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 10).isPresent());
+            assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 10).isPresent());
 
             //////////////////////////////////////////////////////////////////////////////////////////
             //  Search for cache.highestLogOffset(leaderEpoch) for all the leader epochs
@@ -197,15 +200,166 @@ public class RemoteLogSegmentLifecycleTest {
                 Long expectedOffset = entry.getValue();
                 Optional<Long> offset = remoteLogSegmentLifecycleManager.highestOffsetForEpoch(epoch);
                 log.debug("Fetching highest offset for epoch: {} , returned: {} , expected: {}", epoch, offset, expectedOffset);
-                Assertions.assertEquals(Optional.of(expectedOffset), offset);
+                assertEquals(Optional.of(expectedOffset), offset);
             }
 
             // Search for non existing leader epoch
             Optional<Long> highestOffsetForEpoch5 = remoteLogSegmentLifecycleManager.highestOffsetForEpoch(5);
-            Assertions.assertFalse(highestOffsetForEpoch5.isPresent());
+            assertFalse(highestOffsetForEpoch5.isPresent());
         } finally {
             Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
         }
+    }
+
+    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
+    @MethodSource("remoteLogSegmentLifecycleManagers")
+    public void testCacheSegmentWithCopySegmentStartedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
+
+        try {
+            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
+
+                // Create a segment with state COPY_SEGMENT_STARTED, and check for searching that segment and listing the
+            // segments.
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId, 0L, 50L, -1L, BROKER_ID_0,
+                                                                                    time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
+            remoteLogSegmentLifecycleManager.addRemoteLogSegmentMetadata(segmentMetadata);
+
+            // This segment should not be available as the state is not reached to COPY_SEGMENT_FINISHED.
+            Optional<RemoteLogSegmentMetadata> segMetadataForOffset0Epoch0 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 0);
+            assertFalse(segMetadataForOffset0Epoch0.isPresent());
+
+            // cache.listRemoteLogSegments APIs should contain the above segment.
+            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
+        } finally {
+            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
+        }
+    }
+
+    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
+    @MethodSource("remoteLogSegmentLifecycleManagers")
+    public void testCacheSegmentWithCopySegmentFinishedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
+        try {
+            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
+
+            // Create a segment and move it to state COPY_SEGMENT_FINISHED. and check for searching that segment and
+            // listing the segments.
+            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
+                                                                                    Collections.singletonMap(0, 101L),
+                                                                                    101L, 200L, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+
+            // Search should return the above segment.
+            Optional<RemoteLogSegmentMetadata> segMetadataForOffset150 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 150);
+            assertEquals(Optional.of(segmentMetadata), segMetadataForOffset150);
+
+            // cache.listRemoteLogSegments should contain the above segments.
+            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
+        } finally {
+            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
+        }
+    }
+
+    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
+    @MethodSource("remoteLogSegmentLifecycleManagers")
+    public void testCacheSegmentWithDeleteSegmentStartedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
+        try {
+            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
+
+            // Create a segment and move it to state DELETE_SEGMENT_STARTED, and check for searching that segment and
+            // listing the segments.
+            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
+                                                                                    Collections.singletonMap(0, 201L),
+                                                                                    201L, 300L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
+
+            // Search should not return the above segment as their leader epoch state is cleared.
+            Optional<RemoteLogSegmentMetadata> segmentMetadataForOffset250Epoch0 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 250);
+            assertFalse(segmentMetadataForOffset250Epoch0.isPresent());
+
+            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
+        } finally {
+            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
+        }
+    }
+
+    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
+    @MethodSource("remoteLogSegmentLifecycleManagers")
+    public void testCacheSegmentsWithDeleteSegmentFinishedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
+        try {
+            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
+
+            // Create a segment and move it to state DELETE_SEGMENT_FINISHED, and check for searching that segment and
+            // listing the segments.
+            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
+                                                                                    Collections.singletonMap(0, 301L),
+                                                                                    301L, 400L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
+
+            // Search should not return the above segment as their leader epoch state is cleared.
+            assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 350).isPresent());
+
+            RemoteLogSegmentMetadataUpdate segmentMetadataUpdate = new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(),
+                                                                                                      time.milliseconds(),
+                                                                                                      RemoteLogSegmentState.DELETE_SEGMENT_FINISHED,
+                                                                                                      BROKER_ID_1);
+            remoteLogSegmentLifecycleManager.updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
+
+            // listRemoteLogSegments(0) and listRemoteLogSegments() should not contain the above segment.
+            assertFalse(remoteLogSegmentLifecycleManager.listRemoteLogSegments(0).hasNext());
+            assertFalse(remoteLogSegmentLifecycleManager.listAllRemoteLogSegments().hasNext());
+        } finally {
+            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
+        }
+    }
+
+    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
+    @MethodSource("remoteLogSegmentLifecycleManagers")
+    public void testCacheListSegments(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
+        try {
+            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
+
+            // Create a few segments and add them to the cache.
+            RemoteLogSegmentMetadata segment0 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, Collections.singletonMap(0, 0L), 0,
+                                                                             100,
+                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+            RemoteLogSegmentMetadata segment1 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, Collections.singletonMap(0, 101L), 101,
+                                                                             200,
+                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+            Map<Integer, Long> segment2LeaderEpochs = new HashMap<>();
+            segment2LeaderEpochs.put(0, 201L);
+            segment2LeaderEpochs.put(1, 301L);
+            RemoteLogSegmentMetadata segment2 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, segment2LeaderEpochs, 201, 400,
+                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+
+            // listRemoteLogSegments(0) and listAllRemoteLogSegments() should contain all the above segments.
+            List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch0 = Arrays.asList(segment0, segment1, segment2);
+            assertTrue(TestUtils.sameElementsWithOrder(remoteLogSegmentLifecycleManager.listRemoteLogSegments(0),
+                                                                  expectedSegmentsForEpoch0.iterator()));
+            assertTrue(TestUtils.sameElementsWithoutOrder(remoteLogSegmentLifecycleManager.listAllRemoteLogSegments(),
+                                                                     expectedSegmentsForEpoch0.iterator()));
+
+            // listRemoteLogSegments(1) should contain only segment2.
+            List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch1 = Collections.singletonList(segment2);
+            assertTrue(TestUtils.sameElementsWithOrder(remoteLogSegmentLifecycleManager.listRemoteLogSegments(1),
+                                                                  expectedSegmentsForEpoch1.iterator()));
+        } finally {
+            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
+        }
+    }
+
+    private static Collection<Arguments> remoteLogSegmentLifecycleManagers() {
+        return Arrays.asList(Arguments.of(new RemoteLogMetadataCacheWrapper()), Arguments.of(new TopicBasedRemoteLogMetadataManagerWrapper()));
+    }
+
+    private void checkListSegments(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager,
+                                   int leaderEpoch,
+                                   RemoteLogSegmentMetadata expectedSegment)
+            throws RemoteStorageException {
+        // cache.listRemoteLogSegments(leaderEpoch) should contain the above segment.
+        Iterator<RemoteLogSegmentMetadata> segmentsIter = remoteLogSegmentLifecycleManager.listRemoteLogSegments(leaderEpoch);
+        assertTrue(segmentsIter.hasNext() && Objects.equals(segmentsIter.next(), expectedSegment));
+
+        // cache.listAllRemoteLogSegments() should contain the above segment.
+        Iterator<RemoteLogSegmentMetadata> allSegmentsIter = remoteLogSegmentLifecycleManager.listAllRemoteLogSegments();
+        assertTrue(allSegmentsIter.hasNext() && Objects.equals(allSegmentsIter.next(), expectedSegment));
     }
 
     private RemoteLogSegmentMetadata createSegmentUpdateWithState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager,
@@ -216,7 +370,7 @@ public class RemoteLogSegmentLifecycleTest {
             throws RemoteStorageException {
         RemoteLogSegmentId segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
         RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId, startOffset, endOffset, -1L, BROKER_ID_0,
-                                                                                time.milliseconds(), SEG_SIZE, segmentLeaderEpochs);
+                time.milliseconds(), SEG_SIZE, segmentLeaderEpochs);
         remoteLogSegmentLifecycleManager.addRemoteLogSegmentMetadata(segmentMetadata);
 
         RemoteLogSegmentMetadataUpdate segMetadataUpdate = new RemoteLogSegmentMetadataUpdate(segmentId, time.milliseconds(), state, BROKER_ID_1);
@@ -261,163 +415,12 @@ public class RemoteLogSegmentLifecycleTest {
         }
     }
 
-    private static Collection<Arguments> remoteLogSegmentLifecycleManagers() {
-        return Arrays.asList(Arguments.of(new RemoteLogMetadataCacheWrapper()), Arguments.of(new TopicBasedRemoteLogMetadataManagerWrapper()));
-    }
-
-    private void checkListSegments(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager,
-                                   int leaderEpoch,
-                                   RemoteLogSegmentMetadata expectedSegment)
-            throws RemoteStorageException {
-        // cache.listRemoteLogSegments(leaderEpoch) should contain the above segment.
-        Iterator<RemoteLogSegmentMetadata> segmentsIter = remoteLogSegmentLifecycleManager.listRemoteLogSegments(leaderEpoch);
-        Assertions.assertTrue(segmentsIter.hasNext() && Objects.equals(segmentsIter.next(), expectedSegment));
-
-        // cache.listAllRemoteLogSegments() should contain the above segment.
-        Iterator<RemoteLogSegmentMetadata> allSegmentsIter = remoteLogSegmentLifecycleManager.listAllRemoteLogSegments();
-        Assertions.assertTrue(allSegmentsIter.hasNext() && Objects.equals(allSegmentsIter.next(), expectedSegment));
-    }
-
-    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
-    @MethodSource("remoteLogSegmentLifecycleManagers")
-    public void testCacheSegmentWithCopySegmentStartedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
-
-        try {
-            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
-
-                // Create a segment with state COPY_SEGMENT_STARTED, and check for searching that segment and listing the
-            // segments.
-            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
-            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId, 0L, 50L, -1L, BROKER_ID_0,
-                                                                                    time.milliseconds(), SEG_SIZE, Collections.singletonMap(0, 0L));
-            remoteLogSegmentLifecycleManager.addRemoteLogSegmentMetadata(segmentMetadata);
-
-            // This segment should not be available as the state is not reached to COPY_SEGMENT_FINISHED.
-            Optional<RemoteLogSegmentMetadata> segMetadataForOffset0Epoch0 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 0);
-            Assertions.assertFalse(segMetadataForOffset0Epoch0.isPresent());
-
-            // cache.listRemoteLogSegments APIs should contain the above segment.
-            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
-        } finally {
-            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
-        }
-    }
-
-    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
-    @MethodSource("remoteLogSegmentLifecycleManagers")
-    public void testCacheSegmentWithCopySegmentFinishedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
-        try {
-            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
-
-            // Create a segment and move it to state COPY_SEGMENT_FINISHED. and check for searching that segment and
-            // listing the segments.
-            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
-                                                                                    Collections.singletonMap(0, 101L),
-                                                                                    101L, 200L, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-
-            // Search should return the above segment.
-            Optional<RemoteLogSegmentMetadata> segMetadataForOffset150 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 150);
-            Assertions.assertEquals(Optional.of(segmentMetadata), segMetadataForOffset150);
-
-            // cache.listRemoteLogSegments should contain the above segments.
-            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
-        } finally {
-            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
-        }
-    }
-
-    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
-    @MethodSource("remoteLogSegmentLifecycleManagers")
-    public void testCacheSegmentWithDeleteSegmentStartedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
-        try {
-            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
-
-            // Create a segment and move it to state DELETE_SEGMENT_STARTED, and check for searching that segment and
-            // listing the segments.
-            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
-                                                                                    Collections.singletonMap(0, 201L),
-                                                                                    201L, 300L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
-
-            // Search should not return the above segment as their leader epoch state is cleared.
-            Optional<RemoteLogSegmentMetadata> segmentMetadataForOffset250Epoch0 = remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 250);
-            Assertions.assertFalse(segmentMetadataForOffset250Epoch0.isPresent());
-
-            checkListSegments(remoteLogSegmentLifecycleManager, 0, segmentMetadata);
-        } finally {
-            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
-        }
-    }
-
-    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
-    @MethodSource("remoteLogSegmentLifecycleManagers")
-    public void testCacheSegmentsWithDeleteSegmentFinishedState(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
-        try {
-            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
-
-            // Create a segment and move it to state DELETE_SEGMENT_FINISHED, and check for searching that segment and
-            // listing the segments.
-            RemoteLogSegmentMetadata segmentMetadata = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager,
-                                                                                    Collections.singletonMap(0, 301L),
-                                                                                    301L, 400L, RemoteLogSegmentState.DELETE_SEGMENT_STARTED);
-
-            // Search should not return the above segment as their leader epoch state is cleared.
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.remoteLogSegmentMetadata(0, 350).isPresent());
-
-            RemoteLogSegmentMetadataUpdate segmentMetadataUpdate = new RemoteLogSegmentMetadataUpdate(segmentMetadata.remoteLogSegmentId(),
-                                                                                                      time.milliseconds(),
-                                                                                                      RemoteLogSegmentState.DELETE_SEGMENT_FINISHED,
-                                                                                                      BROKER_ID_1);
-            remoteLogSegmentLifecycleManager.updateRemoteLogSegmentMetadata(segmentMetadataUpdate);
-
-            // listRemoteLogSegments(0) and listRemoteLogSegments() should not contain the above segment.
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.listRemoteLogSegments(0).hasNext());
-            Assertions.assertFalse(remoteLogSegmentLifecycleManager.listAllRemoteLogSegments().hasNext());
-        } finally {
-            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
-        }
-    }
-
-    @ParameterizedTest(name = "remoteLogSegmentLifecycleManager = {0}")
-    @MethodSource("remoteLogSegmentLifecycleManagers")
-    public void testCacheListSegments(RemoteLogSegmentLifecycleManager remoteLogSegmentLifecycleManager) throws Exception {
-        try {
-            remoteLogSegmentLifecycleManager.initialize(topicIdPartition);
-
-            // Create a few segments and add them to the cache.
-            RemoteLogSegmentMetadata segment0 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, Collections.singletonMap(0, 0L), 0,
-                                                                             100,
-                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-            RemoteLogSegmentMetadata segment1 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, Collections.singletonMap(0, 101L), 101,
-                                                                             200,
-                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-            Map<Integer, Long> segment2LeaderEpochs = new HashMap<>();
-            segment2LeaderEpochs.put(0, 201L);
-            segment2LeaderEpochs.put(1, 301L);
-            RemoteLogSegmentMetadata segment2 = createSegmentUpdateWithState(remoteLogSegmentLifecycleManager, segment2LeaderEpochs, 201, 400,
-                                                                             RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-
-            // listRemoteLogSegments(0) and listAllRemoteLogSegments() should contain all the above segments.
-            List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch0 = Arrays.asList(segment0, segment1, segment2);
-            Assertions.assertTrue(TestUtils.sameElementsWithOrder(remoteLogSegmentLifecycleManager.listRemoteLogSegments(0),
-                                                                  expectedSegmentsForEpoch0.iterator()));
-            Assertions.assertTrue(TestUtils.sameElementsWithoutOrder(remoteLogSegmentLifecycleManager.listAllRemoteLogSegments(),
-                                                                     expectedSegmentsForEpoch0.iterator()));
-
-            // listRemoteLogSegments(1) should contain only segment2.
-            List<RemoteLogSegmentMetadata> expectedSegmentsForEpoch1 = Collections.singletonList(segment2);
-            Assertions.assertTrue(TestUtils.sameElementsWithOrder(remoteLogSegmentLifecycleManager.listRemoteLogSegments(1),
-                                                                  expectedSegmentsForEpoch1.iterator()));
-        } finally {
-            Utils.closeQuietly(remoteLogSegmentLifecycleManager, "RemoteLogSegmentLifecycleManager");
-        }
-    }
-
     /**
      * This is a wrapper with {@link TopicBasedRemoteLogMetadataManager} implementing {@link RemoteLogSegmentLifecycleManager}.
      * This is passed to {@link #testRemoteLogSegmentLifeCycle(RemoteLogSegmentLifecycleManager)} to test
      * {@code RemoteLogMetadataCache} for several lifecycle operations.
      * <p>
-     * This starts a Kafka cluster with {@link #initialize(Set)} with {@link #brokerCount()} no of servers. It also
+     * This starts a Kafka cluster with {@link #initialize(TopicIdPartition)} with {@link #brokerCount()} no of servers. It also
      * creates the remote log metadata topic required for {@code TopicBasedRemoteLogMetadataManager}. This cluster will
      * be stopped by invoking {@link #close()}.
      */
@@ -469,7 +472,7 @@ public class RemoteLogSegmentLifecycleTest {
 
         @Override
         public int brokerCount() {
-            return 3;
+            return super.brokerCount();
         }
     }
 

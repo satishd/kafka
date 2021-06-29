@@ -44,6 +44,7 @@ public final class RemoteLogManagerConfig {
     public static final String REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP = "remote.log.storage.manager.impl.prefix";
     public static final String REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_DOC = "Prefix used for properties to be passed to RemoteStorageManager " +
             "implementation. For example this value can be `rsm.s3.`.";
+    public static final String DEFAULT_REMOTE_STORAGE_MANAGER_CONFIG_PREFIX = "rsm.config.";
 
     /**
      * Prefix used for properties to be passed to {@link RemoteLogMetadataManager} implementation. Remote log subsystem collects all the properties having
@@ -52,6 +53,7 @@ public final class RemoteLogManagerConfig {
     public static final String REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_PROP = "remote.log.metadata.manager.impl.prefix";
     public static final String REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_DOC = "Prefix used for properties to be passed to RemoteLogMetadataManager " +
             "implementation. For example this value can be `rlmm.s3.`.";
+    public static final String DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX = "rlmm.config.";
 
     public static final String REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP = "remote.log.storage.system.enable";
     public static final String REMOTE_LOG_STORAGE_SYSTEM_ENABLE_DOC = "Whether to enable tier storage functionality in a broker or not. Valid values " +
@@ -134,13 +136,13 @@ public final class RemoteLogManagerConfig {
                                   REMOTE_LOG_STORAGE_SYSTEM_ENABLE_DOC)
                   .defineInternal(REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP,
                                   STRING,
-                                  null,
+                                  DEFAULT_REMOTE_STORAGE_MANAGER_CONFIG_PREFIX,
                                   new ConfigDef.NonEmptyString(),
                                   MEDIUM,
                                   REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_DOC)
                   .defineInternal(REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_PROP,
                                   STRING,
-                                  null,
+                                  DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX,
                                   new ConfigDef.NonEmptyString(),
                                   MEDIUM,
                                   REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX_DOC)
