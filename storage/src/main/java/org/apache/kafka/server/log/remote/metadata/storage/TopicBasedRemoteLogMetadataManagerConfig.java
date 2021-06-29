@@ -66,7 +66,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
     public static final String BROKER_ID = "broker.id";
     public static final String LOG_DIR = "log.dir";
 
-    private static final String REMOTE_LOG_METADATA_CLIENT_PREFIX = "__remote_log_metadata_client";
+    public static final String REMOTE_LOG_METADATA_CLIENT_PREFIX = "__remote_log_metadata_client";
 
     private static final ConfigDef CONFIG = new ConfigDef();
     static {

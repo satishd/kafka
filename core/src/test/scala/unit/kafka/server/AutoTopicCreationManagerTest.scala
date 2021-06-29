@@ -25,7 +25,7 @@ import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.utils.TestUtils
 import kafka.utils.TestUtils.createBroker
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME}
+import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, REMOTE_LOG_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME}
 import org.apache.kafka.common.message.CreateTopicsRequestData
 import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
 import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseTopic
@@ -83,6 +83,11 @@ class AutoTopicCreationManagerTest {
   def testCreateTxnTopic(): Unit = {
     Mockito.when(transactionCoordinator.transactionTopicConfigs).thenReturn(new Properties)
     testCreateTopic(TRANSACTION_STATE_TOPIC_NAME, true, internalTopicPartitions, internalTopicReplicationFactor)
+  }
+
+  @Test
+  def testCreateRemoteLogTopic(): Unit = {
+    testCreateTopic(REMOTE_LOG_METADATA_TOPIC_NAME, true)
   }
 
   @Test

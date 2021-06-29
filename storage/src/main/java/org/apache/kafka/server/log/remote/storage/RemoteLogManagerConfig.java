@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import static org.apache.kafka.common.config.ConfigDef.Importance.LOW;
 import static org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM;
@@ -236,6 +237,10 @@ public final class RemoteLogManagerConfig {
     private final String remoteLogMetadataManagerPrefix;
     private final HashMap<String, Object> remoteLogMetadataManagerProps;
     private final String remoteLogMetadataManagerListenerName;
+
+    public RemoteLogManagerConfig(Properties props) {
+        this(new AbstractConfig(CONFIG_DEF, props));
+    }
 
     public RemoteLogManagerConfig(AbstractConfig config) {
         this(config.getBoolean(REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP),

@@ -21,8 +21,6 @@ import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.{Collections, Optional, Properties}
 import java.{lang, util}
-
-import kafka.cluster.EndPoint
 import kafka.log._
 import kafka.server.QuotaFactory.UnboundedQuota
 import kafka.server._
@@ -30,7 +28,7 @@ import kafka.server.checkpoints.LazyOffsetCheckpoints
 import kafka.server.metadata.CachedConfigRepository
 import kafka.utils.{MockScheduler, MockTime, TestUtils}
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.{TopicIdPartition, TopicPartition}
+import org.apache.kafka.common.{Endpoint, TopicIdPartition, TopicPartition}
 import org.apache.kafka.common.config.AbstractConfig
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
 import org.apache.kafka.common.metrics.Metrics
@@ -40,7 +38,7 @@ import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.server.log.remote.storage.{RemoteLogSegmentMetadata, RemoteStorageManager, _}
-import org.easymock.EasyMock
+import org.easymock.EasyMock.{anyObject, anyString, createMock, expect, replay, reset}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 
@@ -62,7 +60,7 @@ class RemoteLogManagerTest {
   var tmpDir: File = _
   var replicaManager: ReplicaManager = _
   var logManager: LogManager = _
-  var rlmMock: RemoteLogManager = EasyMock.createMock(classOf[RemoteLogManager])
+  var rlmMock: RemoteLogManager = createMock(classOf[RemoteLogManager])
   val configRepository = new CachedConfigRepository()
 
   val rlmConfig: RemoteLogManagerConfig = {
@@ -88,34 +86,33 @@ class RemoteLogManagerTest {
     val logDir1 = TestUtils.randomPartitionLogDir(tmpDir)
     val logDir2 = TestUtils.randomPartitionLogDir(tmpDir)
     logManager = TestUtils.createLogManager(logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig,
-      cleanerConfig = CleanerConfig(enableCleaner = false), time = time)
+      cleanerConfig = CleanerConfig(enableCleaner = false), time = time, remoteLogManagerConfig = rlmConfig)
     logManager.startup(Set.empty)
 
     val brokerProps = TestUtils.createBrokerConfig(brokerId, TestUtils.MockZkConnect)
     brokerProps.put(KafkaConfig.LogDirsProp, Seq(logDir1, logDir2).map(_.getAbsolutePath).mkString(","))
     val brokerConfig = KafkaConfig.fromProps(brokerProps)
-    val kafkaZkClient: Option[KafkaZkClient] = Some(EasyMock.createMock(classOf[KafkaZkClient]))
+    val kafkaZkClient: Option[KafkaZkClient] = Some(createMock(classOf[KafkaZkClient]))
     val quotaManagers = QuotaFactory.instantiate(brokerConfig, metrics, time, "")
     val alterIsrManager = TestUtils.createAlterIsrManager()
-    // FIXME(@kamalcph): Add mockrlm to replica manager
     replicaManager = new ReplicaManager(
        brokerConfig, metrics, time, kafkaZkClient, new MockScheduler(time),
-      logManager, new AtomicBoolean(false), quotaManagers,
+      logManager, Some(rlmMock), new AtomicBoolean(false), quotaManagers,
       brokerTopicStats, new ZkMetadataCache(brokerId), new LogDirFailureChannel(brokerConfig.logDirs.size),
       alterIsrManager, configRepository)
 
-    EasyMock.expect(kafkaZkClient.get.getEntityConfigs(EasyMock.anyString(), EasyMock.anyString())).andReturn(
+    expect(kafkaZkClient.get.getEntityConfigs(anyString(), anyString())).andReturn(
       logProps).anyTimes()
-    EasyMock.expect(
-      kafkaZkClient.get.conditionalUpdatePath(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(),
-        EasyMock.anyObject()))
+    expect(
+      kafkaZkClient.get.conditionalUpdatePath(anyObject(), anyObject(), anyObject(),
+        anyObject()))
       .andReturn((true, 0)).anyTimes()
-    EasyMock.replay(kafkaZkClient.get)
+    replay(kafkaZkClient.get)
   }
 
   @AfterEach
   def tearDown(): Unit = {
-    EasyMock.reset(rlmMock)
+    reset(rlmMock)
     brokerTopicStats.close()
     metrics.close()
 
@@ -145,7 +142,9 @@ class RemoteLogManagerTest {
     val logsDirTmp = Files.createTempDirectory("kafka-").toString
     val remoteLogManager = new RemoteLogManager(logFetcher, lsoUpdater, rlmConfig, time, 1, "", logsDirTmp, new BrokerTopicStats)
     val securityProtocol = SecurityProtocol.PLAINTEXT
-    remoteLogManager.onEndpointCreated(EndPoint( "localhost", 9092, ListenerName.forSecurityProtocol(securityProtocol), securityProtocol))
+    val listenerName = ListenerName.forSecurityProtocol(securityProtocol)
+    val endpoint = new Endpoint(listenerName.value(), securityProtocol, "localhost", 9092)
+    remoteLogManager.onEndpointCreated(endpoint)
 
     assertEquals(rsmConfig.size,
       rsmConfig.count { case (k, v) =>
@@ -157,8 +156,8 @@ class RemoteLogManagerTest {
   @Test
   def testRemoteLogRecordsFetch(): Unit = {
     // return the lastOffset to verify when out of range offsets are requested.
-    EasyMock.expect(rlmMock.close()).anyTimes()
-    EasyMock.replay(rlmMock)
+    expect(rlmMock.close()).anyTimes()
+    replay(rlmMock)
 
     val leaderEpoch = 1
     val partition = replicaManager.createPartition(topicPartition)

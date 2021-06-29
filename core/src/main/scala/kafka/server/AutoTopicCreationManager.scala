@@ -28,7 +28,7 @@ import kafka.utils.Logging
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.errors.InvalidTopicException
 import org.apache.kafka.common.internals.Topic
-import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME}
+import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, REMOTE_LOG_METADATA_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME}
 import org.apache.kafka.common.message.CreateTopicsRequestData
 import org.apache.kafka.common.message.CreateTopicsRequestData.{CreatableTopic, CreateableTopicConfig, CreateableTopicConfigCollection}
 import org.apache.kafka.common.message.MetadataResponseData.MetadataResponseTopic
@@ -231,6 +231,12 @@ class DefaultAutoTopicCreationManager(
           .setReplicationFactor(config.transactionTopicReplicationFactor)
           .setConfigs(convertToTopicConfigCollections(
             txnCoordinator.transactionTopicConfigs))
+      case REMOTE_LOG_METADATA_TOPIC_NAME =>
+        // FIXME(@kamalcph): Pass the remote log metadata topic configuration
+        new CreatableTopic()
+          .setName(topic)
+          .setNumPartitions(config.numPartitions)
+          .setReplicationFactor(config.defaultReplicationFactor.shortValue)
       case topicName =>
         new CreatableTopic()
           .setName(topicName)

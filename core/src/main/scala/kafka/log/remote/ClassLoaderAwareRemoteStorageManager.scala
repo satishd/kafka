@@ -37,7 +37,6 @@ class ClassLoaderAwareRemoteStorageManager(val rsm: RemoteStorageManager,
     }
   }
 
-  // FIXME: Remove
   def delegate(): RemoteStorageManager = {
     rsm
   }
@@ -50,23 +49,28 @@ class ClassLoaderAwareRemoteStorageManager(val rsm: RemoteStorageManager,
     rsm.configure(configs)
   }
 
-  override def copyLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, logSegmentData: LogSegmentData): Unit = {
+  override def copyLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                                  logSegmentData: LogSegmentData): Unit = withClassLoader {
     rsm.copyLogSegmentData(remoteLogSegmentMetadata, logSegmentData)
   }
 
-  override def fetchLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, startPosition: Int): InputStream = {
+  override def fetchLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                               startPosition: Int): InputStream = withClassLoader {
     rsm.fetchLogSegment(remoteLogSegmentMetadata, startPosition)
   }
 
-  override def fetchLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, startPosition: Int, endPosition: Int): InputStream = {
+  override def fetchLogSegment(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                               startPosition: Int,
+                               endPosition: Int): InputStream = withClassLoader {
     rsm.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition)
   }
 
-  override def fetchIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata, indexType: RemoteStorageManager.IndexType): InputStream = {
+  override def fetchIndex(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                          indexType: RemoteStorageManager.IndexType): InputStream = withClassLoader {
     rsm.fetchIndex(remoteLogSegmentMetadata, indexType)
   }
 
-  override def deleteLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {
+  override def deleteLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = withClassLoader {
     rsm.deleteLogSegmentData(remoteLogSegmentMetadata)
   }
 }

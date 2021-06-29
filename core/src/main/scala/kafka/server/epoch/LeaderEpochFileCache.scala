@@ -243,6 +243,20 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
     }
   }
 
+  def epochForOffset(offset: Long): Option[Int] = {
+    inReadLock(lock) {
+      var previousEpoch = earliestEntry.map(_.epoch)
+      epochs.values().iterator().forEachRemaining(entry => {
+        if (entry.startOffset == offset)
+          return Some(entry.epoch)
+        if (entry.startOffset > offset)
+          return previousEpoch
+        previousEpoch = Some(entry.epoch)
+      })
+      previousEpoch
+    }
+  }
+
   /**
     * Clears old epoch entries. This method searches for the oldest epoch < offset, updates the saved epoch offset to
     * be offset, then clears any previous epoch entries.

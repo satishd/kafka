@@ -23,8 +23,7 @@ import java.util
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.{Collections, Optional}
-
-import kafka.cluster.{EndPoint, Partition}
+import kafka.cluster.Partition
 import kafka.common.KafkaException
 import kafka.log.Log
 import kafka.metrics.KafkaMetricsGroup
@@ -32,7 +31,7 @@ import kafka.server.checkpoints.LeaderEpochCheckpointFile
 import kafka.server.{BrokerTopicStats, FetchDataInfo, FetchTxnCommitted, KafkaConfig, LogOffsetMetadata, RemoteStorageFetchInfo}
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
-import org.apache.kafka.common.{TopicIdPartition, TopicPartition, Uuid}
+import org.apache.kafka.common.{Endpoint, TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.record.FileRecords.TimestampAndOffset
@@ -172,7 +171,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     rlmm
   }
 
-  private def configureRLMM(endPoint: EndPoint): Unit = {
+  private def configureRLMM(endPoint: Endpoint): Unit = {
     val rlmmProps = new util.HashMap[String, Any]()
     rlmConfig.remoteLogMetadataManagerProps().asScala.foreach { case (k, v) => rlmmProps.put(k, v) }
     rlmmProps.put(KafkaConfig.LogDirProp, logDir)
@@ -205,7 +204,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     convertToLeaderOrFollower(rlmTaskWithFuture.rlmTask)
   }
 
-  def onEndpointCreated(serverEndPoint: EndPoint): Unit = {
+  def onEndpointCreated(serverEndPoint: Endpoint): Unit = {
     // initialize and configure RSM and RLMM
     configureRSM()
     configureRLMM(serverEndPoint)
@@ -223,7 +222,9 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
    * @param partitionsBecomeLeader   partitions that have become leaders on this broker.
    * @param partitionsBecomeFollower partitions that have become followers on this broker.
    */
-  def onLeadershipChange(partitionsBecomeLeader: Set[Partition], partitionsBecomeFollower: Set[Partition], topicIds: Map[String, Uuid]): Unit = {
+  def onLeadershipChange(partitionsBecomeLeader: Set[Partition],
+                         partitionsBecomeFollower: Set[Partition],
+                         topicIds: util.Map[String, Uuid]): Unit = {
     debug(s"Received leadership changes for leaders:$partitionsBecomeLeader and followers: $partitionsBecomeFollower")
 
     // Partitions logs are available when this callback is invoked.
@@ -233,13 +234,13 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     }
     val partitionIds = scala.collection.mutable.Map[TopicPartition, TopicIdPartition]()
     val followerTopicPartitions = filterPartitions(partitionsBecomeFollower).map(partition => {
-      val topicIdPartition = new TopicIdPartition(topicIds(partition.topic), partition.topicPartition)
+      val topicIdPartition = new TopicIdPartition(topicIds.get(partition.topic), partition.topicPartition)
       partitionIds.put(topicIdPartition.topicPartition(), topicIdPartition)
       topicIdPartition
     })
     val filteredLeaderPartitions = filterPartitions(partitionsBecomeLeader)
     val leaderTopicPartitions = filteredLeaderPartitions.map(partition =>{
-      val topicIdPartition = new TopicIdPartition(topicIds(partition.topic), partition.topicPartition)
+      val topicIdPartition = new TopicIdPartition(topicIds.get(partition.topic), partition.topicPartition)
       partitionIds.put(topicIdPartition.topicPartition(), topicIdPartition)
       topicIdPartition
     } )
@@ -254,7 +255,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     followerTopicPartitions.foreach { tp => doHandleLeaderOrFollowerPartitions(tp, task => task.convertToFollower())}
 
     filteredLeaderPartitions.foreach { partition =>
-      doHandleLeaderOrFollowerPartitions(new TopicIdPartition(topicIds(partition.topic), partition.topicPartition),
+      doHandleLeaderOrFollowerPartitions(new TopicIdPartition(topicIds.get(partition.topic), partition.topicPartition),
         task => task.convertToLeader(partition.getLeaderEpoch))
     }
   }
@@ -467,7 +468,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
               remoteLogMetadataManager.listRemoteLogSegments(tp)
                 .forEachRemaining(metadata => totalSize += metadata.segmentSizeInBytes())
 
-              var remainingSize = log.config.retentionSize - totalSize
+              var remainingSize = totalSize - log.config.retentionSize
               var checkSizeRetention = log.config.retentionSize > -1
 
               def deleteRetentionTimeBreachedSegments(segmentMetadata: RemoteLogSegmentMetadata): Boolean = {
@@ -493,6 +494,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                   while ((checkTimeStampRetention || checkSizeRetention) && segmentsIterator.hasNext) {
                     val segmentMetadata = segmentsIterator.next()
                     // Set the max start offset, `segmentsIterator` is already returns them in ascending order.
+                    // FIXME(@kamalcph): If all the remote log segments are eligible for deletion, then the maxStartOffset should be set to None.
                     maxStartOffset = Some(segmentMetadata.startOffset())
 
                     var segmentDeletedWithRetentionTime = false
@@ -504,7 +506,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                       } else {
                         // If we have any segment that is having the timestamp not eligible for deletion then
                         // we will skip all the subsequent segments for the time retention checks.
-                        checkTimeStampRetention = false;
+                        checkTimeStampRetention = false
                       }
                     } else if(checkSizeRetention && !segmentDeletedWithRetentionTime) {
                       if(deleteRetentionSizeBreachedSegments(segmentMetadata)) {
@@ -512,13 +514,13 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                       } else {
                         // If we have exhausted of segments eligible for retention size, we will skip the subsequent
                         // segments.
-                        checkSizeRetention = false;
+                        checkSizeRetention = false
                       }
                     }
                   }
 
                   // Return only when both the retention checks are exhausted.
-                  (checkTimeStampRetention && checkSizeRetention)
+                  checkTimeStampRetention && checkSizeRetention
                 })
               })
 

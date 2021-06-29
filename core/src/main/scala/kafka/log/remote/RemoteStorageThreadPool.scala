@@ -54,7 +54,7 @@ abstract class RemoteStorageThreadPool(name: String,
     TimeUnit.MILLISECONDS,
     new LinkedBlockingQueue[Runnable](maxPendingTasks),
     new RemoteStorageThreadFactory(threadNamePrefix + "-")
-  ) with KafkaMetricsGroup {
+  ) with Logging with KafkaMetricsGroup {
 
   newGauge(metricNamePrefix.concat("TaskQueueSize"), () => {
     getQueue().size()
