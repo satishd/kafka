@@ -44,10 +44,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME;
+import static org.apache.kafka.common.internals.Topic.REMOTE_LOG_METADATA_TOPIC_NAME;
 
 /**
- * This class is responsible for consuming messages from remote log metadata topic ({@link TopicBasedRemoteLogMetadataManagerConfig#REMOTE_LOG_METADATA_TOPIC_NAME})
+ * This class is responsible for consuming messages from remote log metadata topic ({@code REMOTE_LOG_METADATA_TOPIC_NAME})
  * partitions and maintain the state of the remote log segment metadata. It gives an API to add or remove
  * for what topic partition's metadata should be consumed by this instance using
  * {{@link #addAssignmentsForPartitions(Set)}} and {@link #removeAssignmentsForPartitions(Set)} respectively.

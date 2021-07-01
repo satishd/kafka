@@ -449,8 +449,9 @@ class KafkaServer(
       }
       new RemoteLogManager(tp => logManager.getLog(tp), updateRemoteLogStartOffset, remoteLogManagerConfig, time,
         config.brokerId, clusterId, config.logDirs.head, brokerTopicStats)
+    } else {
+      null
     }
-    null
   }
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {

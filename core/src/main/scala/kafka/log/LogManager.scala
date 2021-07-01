@@ -349,9 +349,8 @@ class LogManager(logDirs: Seq[File],
 
         // ignore remote-log-index-cache directory as that is index cache but not any topic-partition dir
         val logsToLoad = Option(dir.listFiles).getOrElse(Array.empty).filter(logDir => {
-          logDir.isDirectory &&
-            Log.parseTopicPartitionName(logDir).topic != KafkaRaftServer.MetadataTopic &&
-            !logDir.getName.equals(RemoteIndexCache.DirName)
+          logDir.isDirectory && !logDir.getName.equals(RemoteIndexCache.DirName) &&
+            Log.parseTopicPartitionName(logDir).topic != KafkaRaftServer.MetadataTopic
         })
         val numLogsLoaded = new AtomicInteger(0)
         numTotalLogs += logsToLoad.length

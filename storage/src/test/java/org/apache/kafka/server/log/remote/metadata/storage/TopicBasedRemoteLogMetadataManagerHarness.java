@@ -141,8 +141,8 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
     private void createMetadataTopic() {
         Properties topicConfigs = new Properties();
         topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, Long.toString(METADATA_TOPIC_RETENTION_MS));
-        kafka.utils.TestUtils.createTopic(zkClient(), TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME, METADATA_TOPIC_PARTITIONS_COUNT,
-                              METADATA_TOPIC_REPLICATION_FACTOR, servers(), topicConfigs);
+        kafka.utils.TestUtils.createTopic(zkClient(), topicBasedRemoteLogMetadataManager.config().remoteLogMetadataTopicName(),
+                METADATA_TOPIC_PARTITIONS_COUNT, METADATA_TOPIC_REPLICATION_FACTOR, servers(), topicConfigs);
     }
 
     public void close() throws IOException {

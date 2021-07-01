@@ -35,11 +35,10 @@ import static org.apache.kafka.common.config.ConfigDef.Importance.LOW;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
 import static org.apache.kafka.common.config.ConfigDef.Type.LONG;
+import static org.apache.kafka.common.internals.Topic.REMOTE_LOG_METADATA_TOPIC_NAME;
 
 public final class TopicBasedRemoteLogMetadataManagerConfig {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManagerConfig.class.getName());
-
-    public static final String REMOTE_LOG_METADATA_TOPIC_NAME = "__remote_log_metadata";
 
     public static final String REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP = "remote.log.metadata.topic.replication.factor";
     public static final String REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP = "remote.log.metadata.topic.num.partitions";

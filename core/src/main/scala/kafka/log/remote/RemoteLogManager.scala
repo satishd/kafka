@@ -390,9 +390,10 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 val endOffset = nextOffset - 1
                 val producerIdSnapshotFile = log.producerStateManager.fetchSnapshot(nextOffset).orNull
 
-                // todo-tier build segment leader epochs
+                // FIXME(@satishd): tood-tier: Check and build the segment leader epochs
                 val remoteLogSegmentMetadata = new RemoteLogSegmentMetadata(id, segment.baseOffset, endOffset,
-                  segment.largestTimestamp, brokerId, System.currentTimeMillis(), segment.log.sizeInBytes(), Collections.emptyMap())
+                  segment.largestTimestamp, brokerId, System.currentTimeMillis(), segment.log.sizeInBytes(),
+                  Collections.singletonMap(0, 0L))
 
                 remoteLogMetadataManager.addRemoteLogSegmentMetadata(remoteLogSegmentMetadata)
 
@@ -425,7 +426,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 brokerTopicStats.topicStats(tp.topicPartition().topic()).remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
                 readOffset = endOffset
                 //todo-tier-storage
-//                log.updateRemoteIndexHighestOffset(readOffset)
+                log.updateRemoteIndexHighestOffset(readOffset)
               }
             }
           } else {
