@@ -35,6 +35,7 @@ import static org.apache.kafka.common.config.ConfigDef.Importance.LOW;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
 import static org.apache.kafka.common.config.ConfigDef.Type.LONG;
+import static org.apache.kafka.common.config.ConfigDef.Type.SHORT;
 import static org.apache.kafka.common.internals.Topic.REMOTE_LOG_METADATA_TOPIC_NAME;
 
 public final class TopicBasedRemoteLogMetadataManagerConfig {
@@ -47,7 +48,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
     public static final int DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS = 50;
     public static final long DEFAULT_REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS = -1L;
-    public static final int DEFAULT_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR = 3;
+    public static final short DEFAULT_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR = 3;
     public static final long DEFAULT_REMOTE_LOG_METADATA_CONSUME_WAIT_MS = 60 * 1000L;
 
     public static final String REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_DOC = "Replication factor of remote log metadata Topic.";
@@ -69,7 +70,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
     private static final ConfigDef CONFIG = new ConfigDef();
     static {
-        CONFIG.define(REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP, INT, DEFAULT_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR, atLeast(1), LOW,
+        CONFIG.define(REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP, SHORT, DEFAULT_REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR, atLeast(1), LOW,
                       REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_DOC)
               .define(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP, INT, DEFAULT_REMOTE_LOG_METADATA_TOPIC_PARTITIONS, atLeast(1), LOW,
                       REMOTE_LOG_METADATA_TOPIC_PARTITIONS_DOC)
@@ -81,6 +82,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
     private final String clientIdPrefix;
     private final int metadataTopicPartitionsCount;
+    private final short replicationFactor;
     private final String bootstrapServers;
     private final String logDir;
     private final long consumeWaitMs;
@@ -108,6 +110,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
         consumeWaitMs = (long) parsedConfigs.get(REMOTE_LOG_METADATA_CONSUME_WAIT_MS_PROP);
         metadataTopicPartitionsCount = (int) parsedConfigs.get(REMOTE_LOG_METADATA_TOPIC_PARTITIONS_PROP);
+        replicationFactor = (short) parsedConfigs.get(REMOTE_LOG_METADATA_TOPIC_REPLICATION_FACTOR_PROP);
         metadataTopicRetentionMillis = (long) parsedConfigs.get(REMOTE_LOG_METADATA_TOPIC_RETENTION_MILLIS_PROP);
         if (metadataTopicRetentionMillis != -1 && metadataTopicRetentionMillis <= 0) {
             throw new IllegalArgumentException("Invalid metadata topic retention in millis: " + metadataTopicRetentionMillis);
@@ -151,6 +154,10 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
 
     public int metadataTopicPartitionsCount() {
         return metadataTopicPartitionsCount;
+    }
+
+    public short metadataTopicReplicationFactor() {
+        return replicationFactor;
     }
 
     public long consumeWaitMs() {

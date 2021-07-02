@@ -30,128 +30,86 @@ import java.util.Optional;
 import java.util.Set;
 
 public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetadataManager {
-    private final ClassLoader loader;
     private final RemoteLogMetadataManager delegate;
+    private final ClassLoader loader;
 
     public ClassLoaderAwareRemoteLogMetadataManager(RemoteLogMetadataManager delegate,
                                                     ClassLoader loader) {
-        this.loader = loader;
         this.delegate = delegate;
+        this.loader = loader;
     }
 
     @Override
     public void addRemoteLogSegmentMetadata(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withClassLoader(() -> {
             delegate.addRemoteLogSegmentMetadata(remoteLogSegmentMetadata);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
     public void updateRemoteLogSegmentMetadata(RemoteLogSegmentMetadataUpdate remoteLogSegmentMetadataUpdate) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withClassLoader(() -> {
             delegate.updateRemoteLogSegmentMetadata(remoteLogSegmentMetadataUpdate);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
     public Optional<RemoteLogSegmentMetadata> remoteLogSegmentMetadata(TopicIdPartition topicIdPartition,
                                                                        int epochForOffset,
                                                                        long offset) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
-            return delegate.remoteLogSegmentMetadata(topicIdPartition, epochForOffset, offset);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+        return withClassLoader(() -> delegate.remoteLogSegmentMetadata(topicIdPartition, epochForOffset, offset));
     }
 
     @Override
     public Optional<Long> highestOffsetForEpoch(TopicIdPartition topicIdPartition,
                                                 int leaderEpoch) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
-            return delegate.highestOffsetForEpoch(topicIdPartition, leaderEpoch);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+        return withClassLoader(() -> delegate.highestOffsetForEpoch(topicIdPartition, leaderEpoch));
     }
 
     @Override
     public void putRemotePartitionDeleteMetadata(RemotePartitionDeleteMetadata remotePartitionDeleteMetadata) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withClassLoader(() -> {
             delegate.putRemotePartitionDeleteMetadata(remotePartitionDeleteMetadata);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
-            return delegate.listRemoteLogSegments(topicIdPartition);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+        return withClassLoader(() -> delegate.listRemoteLogSegments(topicIdPartition));
     }
 
     @Override
     public Iterator<RemoteLogSegmentMetadata> listRemoteLogSegments(TopicIdPartition topicIdPartition,
                                                                     int leaderEpoch) throws RemoteStorageException {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
-            return delegate.listRemoteLogSegments(topicIdPartition, leaderEpoch);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+        return withClassLoader(() -> delegate.listRemoteLogSegments(topicIdPartition, leaderEpoch));
     }
 
     @Override
     public void onPartitionLeadershipChanges(Set<TopicIdPartition> leaderPartitions,
                                              Set<TopicIdPartition> followerPartitions) {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withTryCatchClassLoader(() -> {
             delegate.onPartitionLeadershipChanges(leaderPartitions, followerPartitions);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
     public void onStopPartitions(Set<TopicIdPartition> partitions) {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withTryCatchClassLoader(() -> {
             delegate.onStopPartitions(partitions);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
     public void configure(Map<String, ?> configs) {
-        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(loader);
-        try {
+        withTryCatchClassLoader(() -> {
             delegate.configure(configs);
-        } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+            return null;
+        });
     }
 
     @Override
@@ -165,4 +123,28 @@ public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetada
         }
     }
 
+    @SuppressWarnings("UnusedReturnValue")
+    private <T> T withTryCatchClassLoader(Worker<T> worker) {
+        try {
+            return withClassLoader(worker);
+        } catch (final RemoteStorageException ex) {
+            // ignore, this exception is not thrown by the method.
+        }
+        return null;
+    }
+
+    private <T> T withClassLoader(Worker<T> worker) throws RemoteStorageException {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(loader);
+        try {
+            return worker.doWork();
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
+    }
+
+    @FunctionalInterface
+    public interface Worker<T> {
+        T doWork() throws RemoteStorageException;
+    }
 }

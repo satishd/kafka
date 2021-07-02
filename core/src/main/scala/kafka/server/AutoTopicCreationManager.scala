@@ -232,11 +232,11 @@ class DefaultAutoTopicCreationManager(
           .setConfigs(convertToTopicConfigCollections(
             txnCoordinator.transactionTopicConfigs))
       case REMOTE_LOG_METADATA_TOPIC_NAME =>
-        // FIXME(@kamalcph): Pass the remote log metadata topic configuration
+        // FIXME(@satishd): How to pass the RF and partition count for the internal topic?
         new CreatableTopic()
           .setName(topic)
-          .setNumPartitions(config.numPartitions)
-          .setReplicationFactor(config.defaultReplicationFactor.shortValue)
+          .setNumPartitions(50)
+          .setReplicationFactor(1)
       case topicName =>
         new CreatableTopic()
           .setName(topicName)
