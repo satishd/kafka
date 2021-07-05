@@ -214,8 +214,8 @@ public class RemoteLogMetadataCache {
             Integer leaderEpoch = entry.getKey();
             Long startOffset = entry.getValue();
             // leaderEpochEntries will be empty when resorting the metadata from snapshot.
-            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.computeIfAbsent(leaderEpoch,
-                    x -> new RemoteLogLeaderEpochState());
+            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.computeIfAbsent(
+                    leaderEpoch, x -> new RemoteLogLeaderEpochState());
             long leaderEpochEndOffset = highestOffsetForEpoch(leaderEpoch, existingMetadata);
             action.accept(remoteLogLeaderEpochState, startOffset, remoteLogSegmentId, leaderEpochEndOffset);
         }

@@ -321,7 +321,16 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     // When looking for new remote segments, we will only look for the remote segments that contains larger offsets
     // todo-tier no need to call listRemoteSegments but look for epoch and its highest offset that is available in
     // remote storage by going through the epochs in current leader-epoch cache in binary-search fashion.
-    private var readOffset: Long = {
+    private var readOffset: Long = loadRemoteLogSegmentEndOffset()
+
+    //todo-updating log with remote index highest offset
+    // fetchLog(tp.topicPartition()).foreach { log => log.updateRemoteIndexHighestOffset(readOffset) }
+
+    def loadRemoteLogSegmentEndOffset(): Long = {
+      // This is found by traversing from the latest leader epoch from leader epoch history and find the highest offset
+      // of a segment with that epoch copied into remote storage. If it can not find an entry then it checks for the
+      // previous leader epoch till it finds an entry, If there are no entries till the earliest leader epoch in leader
+      // epoch cache then it starts copying the segments from the earliest epoch entry’s offset.
       val metadatas = remoteLogMetadataManager.listRemoteLogSegments(tp)
       if(!metadatas.hasNext) -1 // Corner case when the first segment's base offset is 1 and contains only 1 record.
       else {
@@ -339,8 +348,11 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 //    fetchLog(tp.topicPartition()).foreach { log => log.updateRemoteIndexHighestOffset(readOffset) }
 
     def convertToLeader(leaderEpochVal: Int): Unit = {
-      if (leaderEpochVal < 0) throw new KafkaException(s"leaderEpoch value for topic partition $tp can not be negative")
+      if (leaderEpochVal < 0) {
+        throw new KafkaException(s"leaderEpoch value for topic partition $tp can not be negative")
+      }
       leaderEpoch = leaderEpochVal
+      readOffset = loadRemoteLogSegmentEndOffset()
     }
 
     def convertToFollower(): Unit = {
@@ -582,7 +594,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
             val offset = remoteLogMetadataManager.highestOffsetForEpoch(tp, 0)
             if (offset.isPresent) {
               // todo-tier update remote index highest offset.
-              // log.updateRemoteIndexHighestOffset(offset.get())
+              log.updateRemoteIndexHighestOffset(offset.get())
             }
           }
 
