@@ -36,7 +36,6 @@ import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
 import static org.apache.kafka.common.config.ConfigDef.Type.LONG;
 import static org.apache.kafka.common.config.ConfigDef.Type.SHORT;
-import static org.apache.kafka.common.internals.Topic.REMOTE_LOG_METADATA_TOPIC_NAME;
 
 /**
  * This class defines the configuration of topic based {@link org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager} implementation.
@@ -69,6 +68,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
     public static final String BROKER_ID = "broker.id";
     public static final String LOG_DIR = "log.dir";
 
+    public static final String REMOTE_LOG_METADATA_TOPIC_NAME = "__remote_log_metadata";
     public static final String REMOTE_LOG_METADATA_CLIENT_PREFIX = "__remote_log_metadata_client";
 
     private static final ConfigDef CONFIG = new ConfigDef();

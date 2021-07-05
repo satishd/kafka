@@ -16,11 +16,15 @@
  */
 package org.apache.kafka.server.log.remote.metadata.storage;
 
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.RetriableException;
-import org.apache.kafka.common.internals.Topic;
+import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.utils.KafkaThread;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadata;
@@ -35,6 +39,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -45,16 +52,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * This is the {@link RemoteLogMetadataManager} implementation with storage as an internal topic with name {@link Topic#REMOTE_LOG_METADATA_TOPIC_NAME}.
+ * This is the {@link RemoteLogMetadataManager} implementation with storage as an internal topic with name {@link TopicBasedRemoteLogMetadataManagerConfig#REMOTE_LOG_METADATA_TOPIC_NAME}.
  * This is used to publish and fetch {@link RemoteLogMetadata} for the registered user topic partitions with
  * {@link #onPartitionLeadershipChanges(Set, Set)}. Each broker will have an instance of this class and it subscribes
  * to metadata updates for the registered user topic partitions.
  */
 public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataManager {
     private static final Logger log = LoggerFactory.getLogger(TopicBasedRemoteLogMetadataManager.class);
+    private static final long INITIALIZATION_RETRY_INTERVAL_MS = 30000L;
 
     private final Time time = Time.SYSTEM;
     private final boolean startConsumerThread;
+
+    private volatile boolean configured = false;
 
     // It indicates whether the close process of this instance is started or not via #close() method.
     // Using AtomicBoolean instead of volatile as it may encounter http://findbugs.sourceforge.net/bugDescriptions.html#SP_SPIN_ON_FIELD
@@ -62,6 +72,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private final AtomicBoolean closing = new AtomicBoolean(false);
     private final AtomicBoolean initialized = new AtomicBoolean(false);
 
+    private Thread initializationThread;
     private volatile ProducerManager producerManager;
     private volatile ConsumerManager consumerManager;
 
@@ -72,6 +83,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     private RemotePartitionMetadataStore remotePartitionMetadataStore;
     private volatile TopicBasedRemoteLogMetadataManagerConfig rlmmConfig;
     private volatile RemoteLogMetadataTopicPartitioner rlmmTopicPartitioner;
+    private volatile Set<TopicIdPartition> pendingAssignPartitions  = Collections.synchronizedSet(new HashSet<>());
 
     public TopicBasedRemoteLogMetadataManager() {
         this(true);
@@ -242,30 +254,54 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
         Objects.requireNonNull(leaderPartitions, "leaderPartitions can not be null");
         Objects.requireNonNull(followerPartitions, "followerPartitions can not be null");
 
+        log.info("Received leadership notifications with leader partitions {} and follower partitions {}",
+                 leaderPartitions, followerPartitions);
+
+        HashSet<TopicIdPartition> allPartitions = new HashSet<>(leaderPartitions);
+        allPartitions.addAll(followerPartitions);
         lock.readLock().lock();
         try {
-            log.info("Received leadership notifications with leader partitions {} and follower partitions {}",
-                    leaderPartitions, followerPartitions);
-            ensureInitializedAndNotClosed();
-
-            HashSet<TopicIdPartition> allPartitions = new HashSet<>(leaderPartitions);
-            allPartitions.addAll(followerPartitions);
-            for (TopicIdPartition partition : allPartitions) {
-                remotePartitionMetadataStore.maybeLoadPartition(partition);
+            if (closing.get()) {
+                throw new IllegalStateException("This instance is in closing state");
             }
 
-            consumerManager.addAssignmentsForPartitions(allPartitions);
+            if (!initialized.get()) {
+                // If it is not yet initialized, then keep them as pending partitions and assign them
+                // when it is initialized successfully in initializeResources().
+                this.pendingAssignPartitions.addAll(allPartitions);
+            } else {
+                this.pendingAssignPartitions.clear();
+                assignPartitions(allPartitions);
+            }
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    private void assignPartitions(Set<TopicIdPartition> allPartitions) {
+        for (TopicIdPartition partition : allPartitions) {
+            remotePartitionMetadataStore.maybeLoadPartition(partition);
+        }
+
+        consumerManager.addAssignmentsForPartitions(allPartitions);
     }
 
     @Override
     public void onStopPartitions(Set<TopicIdPartition> partitions) {
         lock.readLock().lock();
         try {
-            ensureInitializedAndNotClosed();
-            consumerManager.removeAssignmentsForPartitions(partitions);
+            if (closing.get()) {
+                throw new IllegalStateException("This instance is in closing state");
+            }
+
+            if (!initialized.get()) {
+                // If it is not yet initialized, then remove them from the pending partitions if any.
+                if (!pendingAssignPartitions.isEmpty()) {
+                    pendingAssignPartitions.removeAll(partitions);
+                }
+            } else {
+                consumerManager.removeAssignmentsForPartitions(partitions);
+            }
         } finally {
             lock.readLock().unlock();
         }
@@ -277,19 +313,45 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
 
         lock.writeLock().lock();
         try {
-            if (initialized.get()) {
-                log.info("Skipping configure as it is already initialized.");
+            if (configured) {
+                log.info("Skipping configure as it is already configured.");
                 return;
             }
+
             log.info("Started initializing with configs: {}", configs);
+
             rlmmConfig = new TopicBasedRemoteLogMetadataManagerConfig(configs);
             rlmmTopicPartitioner = new RemoteLogMetadataTopicPartitioner(rlmmConfig.metadataTopicPartitionsCount());
             remotePartitionMetadataStore = new RemotePartitionMetadataStore(new File(rlmmConfig.logDir()).toPath());
+            configured = true;
             log.info("Successfully initialized with rlmmConfig: {}", rlmmConfig);
 
-            log.info("Initializing the resources.");
-            // Stop if it is already initialized or closing.
-            while (!(initialized.get() || closing.get())) {
+            // Scheduling the initialization producer/consumer managers in a separate thread. Required resources may
+            // not yet be available now. This thread makes sure that it is retried at regular intervals until it is
+            // successful.
+            initializationThread = KafkaThread.nonDaemon("RLMMInitializationThread", () -> initializeResources());
+            initializationThread.start();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private void initializeResources() {
+        log.info("Initializing the resources.");
+        final NewTopic remoteLogMetadataTopicRequest = createRemoteLogMetadataTopicRequest();
+
+        // Stop if it is already initialized or closing.
+        while (!(initialized.get() || closing.get())) {
+            // There were dead locks observed when the remote log metadata topic created as part of on internal
+            // topic creation(with auto create enabled) when multiple brokers were getting started and RLMM creating
+            // the respective producer and consumer instances.
+            if (!createTopic(remoteLogMetadataTopicRequest)) {
+                // try to create the topic again if it could not be created.
+                log.info("Sleep for : {} ms before it is retried again.", INITIALIZATION_RETRY_INTERVAL_MS);
+                Utils.sleep(INITIALIZATION_RETRY_INTERVAL_MS);
+            } else {
+                // Create producer and consumer managers.
+                lock.writeLock().lock();
                 try {
                     producerManager = new ProducerManager(rlmmConfig, rlmmTopicPartitioner);
                     consumerManager = new ConsumerManager(rlmmConfig, remotePartitionMetadataStore, rlmmTopicPartitioner, time);
@@ -299,16 +361,61 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
                         log.info("RLMM Consumer task thread is not configured to be started.");
                     }
 
+                    if (!pendingAssignPartitions.isEmpty()) {
+                        consumerManager.addAssignmentsForPartitions(pendingAssignPartitions);
+                        pendingAssignPartitions.clear();
+                    }
+
                     initialized.set(true);
                     log.info("Initialized resources successfully.");
                 } catch (Exception e) {
                     log.error("Encountered error while initializing producer/consumer", e);
-                    throw e;
+                    return;
+                } finally {
+                    lock.writeLock().unlock();
                 }
             }
-        } finally {
-            lock.writeLock().unlock();
         }
+    }
+
+    private NewTopic createRemoteLogMetadataTopicRequest() {
+        Map<String, String> topicConfigs = new HashMap<>();
+        topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, Long.toString(rlmmConfig.metadataTopicRetentionMs()));
+        topicConfigs.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE);
+        return new NewTopic(rlmmConfig.remoteLogMetadataTopicName(),
+                            rlmmConfig.metadataTopicPartitionsCount(),
+                            rlmmConfig.metadataTopicReplicationFactor()).configs(topicConfigs);
+    }
+
+    /**
+     * @param topic topic to be created.
+     * @return Returns true if the topic already exists or it is created successfully.
+     */
+    private boolean createTopic(NewTopic topic) {
+        boolean topicCreated = false;
+        AdminClient adminClient = null;
+        try {
+            adminClient = AdminClient.create(rlmmConfig.consumerProperties());
+            adminClient.createTopics(Collections.singleton(topic)).all().get();
+            topicCreated = true;
+        } catch (Exception e) {
+            if (e.getCause() instanceof TopicExistsException) {
+                topicCreated = true;
+            } else {
+                log.error("Encountered error while creating remote log metadata topic.", e);
+            }
+        } finally {
+            if (adminClient != null) {
+                try {
+                    adminClient.close(Duration.ofSeconds(10));
+                } catch (Exception e) {
+                    // Ignore the error.
+                    log.debug("Error occurred while closing the admin client", e);
+                }
+            }
+        }
+
+        return topicCreated;
     }
 
     public boolean isInitialized() {
@@ -341,6 +448,14 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
         if (closing.compareAndSet(false, true)) {
             lock.writeLock().lock();
             try {
+                if (initializationThread != null) {
+                    try {
+                        initializationThread.join();
+                    } catch (InterruptedException e) {
+                        log.error("Initialization thread was interrupted while waiting to join on close.", e);
+                    }
+                }
+
                 Utils.closeQuietly(producerManager, "ProducerTask");
                 Utils.closeQuietly(consumerManager, "RLMMConsumerManager");
                 Utils.closeQuietly(remotePartitionMetadataStore, "RemotePartitionMetadataStore");
