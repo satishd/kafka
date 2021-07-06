@@ -22,6 +22,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadata;
@@ -151,16 +152,16 @@ class ConsumerTask implements Runnable, Closeable {
         try {
             while (!closing) {
                 maybeWaitForPartitionsAssignment();
-
-                log.info("Polling consumer to receive remote log metadata topic records");
-                ConsumerRecords<byte[], byte[]> consumerRecords
-                        = consumer.poll(Duration.ofSeconds(POLL_INTERVAL_MS));
+                ConsumerRecords<byte[], byte[]> consumerRecords = consumer.poll(Duration.ofSeconds(POLL_INTERVAL_MS));
+                log.debug("Processing {} records recieved from remote log metadata topic", consumerRecords.count());
                 for (ConsumerRecord<byte[], byte[]> record : consumerRecords) {
                     handleRemoteLogMetadata(serde.deserialize(record.value()));
                     partitionToConsumedOffsets.put(record.partition(), record.offset());
                 }
                 syncCommittedDataAndOffsets(false);
             }
+        } catch (WakeupException ex) {
+            // ignore
         } catch (Exception e) {
             log.error("Error occurred in consumer task, close:[{}]", closing, e);
         } finally {

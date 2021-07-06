@@ -473,7 +473,7 @@ final class TieredStorageTestBuilder {
   private val defaultProducedBatchSize = 1
   private val defaultEarliestOffsetExpectedInLogDirectory = 0
 
-  // topicPartition -> (records, batchSize, earliestLogOffset)
+  // topicPartition -> (records, batchSize, earliestLocalLogOffset)
   private var producables:
     mutable.Map[TopicPartition, (mutable.Buffer[ProducerRecord[String, String]], Int, Long)] = mutable.Map()
 

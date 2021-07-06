@@ -213,15 +213,11 @@ public class RemoteLogMetadataCache {
         for (Map.Entry<Integer, Long> entry : leaderEpochToOffset.entrySet()) {
             Integer leaderEpoch = entry.getKey();
             Long startOffset = entry.getValue();
-            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.get(leaderEpoch);
-
-            if (remoteLogLeaderEpochState == null) {
-                throw new IllegalStateException("RemoteLogLeaderEpochState does not exist for the leader epoch: "
-                                                + leaderEpoch);
-            } else {
-                long leaderEpochEndOffset = highestOffsetForEpoch(leaderEpoch, existingMetadata);
-                action.accept(remoteLogLeaderEpochState, startOffset, remoteLogSegmentId, leaderEpochEndOffset);
-            }
+            // leaderEpochEntries will be empty when resorting the metadata from snapshot.
+            RemoteLogLeaderEpochState remoteLogLeaderEpochState = leaderEpochEntries.computeIfAbsent(leaderEpoch,
+                    x -> new RemoteLogLeaderEpochState());
+            long leaderEpochEndOffset = highestOffsetForEpoch(leaderEpoch, existingMetadata);
+            action.accept(remoteLogLeaderEpochState, startOffset, remoteLogSegmentId, leaderEpochEndOffset);
         }
     }
 

@@ -88,15 +88,12 @@ public class ProducerManager implements Closeable {
     }
 
     public void close() {
-        // If it is already closed, return from here.
         if (closing.compareAndSet(false, true)) {
-            return;
-        }
-
-        try {
-            producer.close(Duration.ofSeconds(30));
-        } catch (Exception e) {
-            log.error("Error encountered while closing the producer", e);
+            try {
+                producer.close(Duration.ofSeconds(30));
+            } catch (Exception e) {
+                log.error("Error encountered while closing the producer", e);
+            }
         }
     }
 
