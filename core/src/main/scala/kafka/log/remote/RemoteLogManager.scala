@@ -125,7 +125,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   private val rlmScheduledThreadPool = new RLMScheduledThreadPool(poolSize)
 
   // topic ids received on leadership changes
-  private val topicPartitionIds: mutable.Map[String, Uuid] = mutable.Map.empty
+  private val topicIds: mutable.Map[String, Uuid] = mutable.Map.empty
 
   @volatile private var closed = false
 
@@ -227,7 +227,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                          partitionsBecomeFollower: Set[Partition],
                          topicIds: util.Map[String, Uuid]): Unit = {
     debug(s"Received leadership changes for leaders: $partitionsBecomeLeader and followers: $partitionsBecomeFollower")
-    topicIds.forEach((topic, uuid) => topicPartitionIds.put(topic, uuid))
+    topicIds.forEach((topic, uuid) => this.topicIds.put(topic, uuid))
 
     // Partitions logs are available when this callback is invoked.
     // Compact topics and internal topics are filtered here as they are not supported with tiered storage.
@@ -267,7 +267,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   def stopPartitions(topicPartition: TopicPartition, delete: Boolean): Unit = {
     // unassign topic partitions from RLM leader/follower
     val topicIdPartition =
-      topicPartitionIds.remove(topicPartition.topic()) match {
+      topicIds.remove(topicPartition.topic()) match {
         case Some(uuid) => Some(new TopicIdPartition(uuid, topicPartition))
         case None => None
       }
@@ -687,7 +687,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                                     offset: Long,
                                     epochForOffset: Int): RemoteLogSegmentMetadata = {
     val topicIdPartition =
-      topicPartitionIds.get(tp.topic()) match {
+      topicIds.get(tp.topic()) match {
         case Some(uuid) => Some(new TopicIdPartition(uuid, tp))
         case None => None
       }
@@ -757,7 +757,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     //todo-tier Here also, we do not need to go through all the remote log segments to find the segments
     // containing the timestamp. We should find the  epoch for the startingOffset and then  traverse  through those
     // offsets and subsequent leader epochs to find the target timestamp/offset.
-    topicPartitionIds.get(tp.topic()) match {
+    topicIds.get(tp.topic()) match {
       case Some(uuid) =>
         val topicIdPartition = new TopicIdPartition(uuid, tp)
         remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition).asScala.foreach(rlsMetadata =>
