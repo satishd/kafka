@@ -142,11 +142,11 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
             }
         }
 
-        HashMap<String, Object> allProducerConfigs = new HashMap<>(commonClientConfigs);
+        Map<String, Object> allProducerConfigs = new HashMap<>(commonClientConfigs);
         allProducerConfigs.putAll(producerOnlyConfigs);
         producerProps = createProducerProps(allProducerConfigs);
 
-        HashMap<String, Object> allConsumerConfigs = new HashMap<>(commonClientConfigs);
+        Map<String, Object> allConsumerConfigs = new HashMap<>(commonClientConfigs);
         allConsumerConfigs.putAll(consumerOnlyConfigs);
         consumerProps = createConsumerProps(allConsumerConfigs);
     }
@@ -183,7 +183,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
         return producerProps;
     }
 
-    private Map<String, Object> createConsumerProps(HashMap<String, Object> allConsumerConfigs) {
+    private Map<String, Object> createConsumerProps(Map<String, Object> allConsumerConfigs) {
         Map<String, Object> props = new HashMap<>(allConsumerConfigs);
 
         props.put(CommonClientConfigs.CLIENT_ID_CONFIG, clientIdPrefix + "_consumer");
@@ -195,7 +195,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
         return props;
     }
 
-    private Map<String, Object> createProducerProps(HashMap<String, Object> allProducerConfigs) {
+    private Map<String, Object> createProducerProps(Map<String, Object> allProducerConfigs) {
         Map<String, Object> props = new HashMap<>(allProducerConfigs);
 
         props.put(ProducerConfig.CLIENT_ID_CONFIG, clientIdPrefix + "_producer");

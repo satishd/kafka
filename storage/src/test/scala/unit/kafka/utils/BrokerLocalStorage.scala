@@ -66,6 +66,7 @@ final class BrokerLocalStorage(val brokerId: Int,
     val (files, dirs) = brokerStorageDirectory.listFiles().partition(_.isFile)
     files.foreach(_.delete())
     dirs.flatMap((_: File).listFiles()).foreach(_.delete())
+    dirs.foreach(_.delete())
   }
 
   private def getEarliestOffset(topicPartition: TopicPartition): (Long, Seq[String]) = {

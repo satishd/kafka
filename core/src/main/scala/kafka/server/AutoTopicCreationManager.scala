@@ -235,7 +235,7 @@ class DefaultAutoTopicCreationManager(
         // FIXME(@satishd): How to pass the RF and partition count for the internal topic?
         new CreatableTopic()
           .setName(topic)
-          .setNumPartitions(50)
+          .setNumPartitions(5)
           .setReplicationFactor(1)
       case topicName =>
         new CreatableTopic()
