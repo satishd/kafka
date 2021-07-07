@@ -54,6 +54,9 @@ public class TopicBasedRemoteLogMetadataManagerHarness extends IntegrationTestHa
         // Call setup to start the cluster.
         super.setUp();
 
+        // Make sure the remote log metadata topic is created before it is used.
+        createMetadataTopic();
+
         topicBasedRemoteLogMetadataManager = new TopicBasedRemoteLogMetadataManager();
 
         // Initialize TopicBasedRemoteLogMetadataManager.
