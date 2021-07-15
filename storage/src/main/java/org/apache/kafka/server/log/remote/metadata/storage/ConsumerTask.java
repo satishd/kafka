@@ -120,7 +120,7 @@ class ConsumerTask implements Runnable, Closeable {
                 log.info("Created file: [{}] successfully", file);
             } else {
                 // load committed offset and assign them in the consumer
-                final Map<Integer, Long> committedOffsets = committedOffsetsFile.read();
+                final Map<Integer, Long> committedOffsets = committedOffsetsFile.readEntries();
                 final Set<Map.Entry<Integer, Long>> entries = committedOffsets.entrySet();
 
                 if (!entries.isEmpty()) {
@@ -185,7 +185,7 @@ class ConsumerTask implements Runnable, Closeable {
                 remotePartitionMetadataEventHandler.syncLogMetadataDataFile(topicIdPartition, metadataPartition, partitionToConsumedOffsets.get(metadataPartition));
             }
 
-            committedOffsetsFile.write(partitionToConsumedOffsets);
+            committedOffsetsFile.writeEntries(partitionToConsumedOffsets);
             committedPartitionToConsumedOffsets = new HashMap<>(partitionToConsumedOffsets);
             lastSyncedTimeMs = time.milliseconds();
         } catch (IOException e) {
