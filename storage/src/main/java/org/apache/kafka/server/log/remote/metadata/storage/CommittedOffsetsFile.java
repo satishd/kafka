@@ -14,73 +14,77 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.kafka.server.log.remote.metadata.storage;
 
-import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.common.SnapshotFile;
+import org.apache.kafka.server.common.CheckpointFileFormatter;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
+import java.util.Optional;
 
 /**
- * This class represents a file containing the committed offsets of remote log metadata partitions.
+ * This class represents a file containing the committed offsets of remote log metadata partitions. This will be used
+ * by the default {@link org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager} to store consumed
+ * offsets of the remote log metadata topic.
  */
 public class CommittedOffsetsFile {
-    private static final String SEPARATOR = " ";
-    private final File offsetsFile;
+    private static final int CURRENT_VERSION = 0;
 
-    private static final Pattern MINIMUM_ONE_WHITESPACE = Pattern.compile("\\s+");
-
-    CommittedOffsetsFile(File offsetsFile) {
-        this.offsetsFile = offsetsFile;
-    }
-
-    public synchronized void write(Map<Integer, Long> committedOffsets) throws IOException {
-        // Write to a temporary file.
-        File newOffsetsFile = new File(offsetsFile.getAbsolutePath() + ".new");
-
-        // Overwrite the file if it exists.
-        try (FileOutputStream fos = new FileOutputStream(newOffsetsFile);
-             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(fos, StandardCharsets.UTF_8))) {
-            for (Map.Entry<Integer, Long> entry : committedOffsets.entrySet()) {
-                // Each entry is stored in a new line as <partition-num offset>
-                writer.write(entry.getKey() + SEPARATOR + entry.getValue());
-                writer.newLine();
-            }
-
-            writer.flush();
-            fos.getFD().sync();
+    private static final CheckpointFileFormatter<PartitionOffsetEntry> FORMATTER = new CheckpointFileFormatter<PartitionOffsetEntry>() {
+        @Override
+        public String toLine(PartitionOffsetEntry entry) {
+            return entry.partition + " " + entry.offset;
         }
 
-        // Move the temporary file to the actual file.
-        Utils.atomicMoveWithFallback(newOffsetsFile.toPath(), offsetsFile.toPath());
+        @Override
+        public Optional<PartitionOffsetEntry> fromLine(String line) {
+            String[] strings = line.split(" ");
+            if (strings.length != 2) {
+                return Optional.empty();
+            }
+
+            return Optional.of(new PartitionOffsetEntry(Integer.parseInt(strings[0]), Long.parseLong(strings[1])));
+        }
+    };
+
+    private final SnapshotFile<PartitionOffsetEntry> delegate;
+
+    public CommittedOffsetsFile(File offsetsFile) {
+        delegate = new SnapshotFile<>(offsetsFile, CURRENT_VERSION, FORMATTER);
     }
 
-    public synchronized Map<Integer, Long> read() throws IOException {
-        Map<Integer, Long> partitionToOffsets = new HashMap<>();
-
-        try (BufferedReader bufferedReader = Files.newBufferedReader(offsetsFile.toPath(), StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                String[] strings = MINIMUM_ONE_WHITESPACE.split(line);
-                if (strings.length != 2) {
-                    throw new IOException("Invalid format in line: " + line);
-                }
-                int partition = Integer.parseInt(strings[0]);
-                long offset = Long.parseLong(strings[1]);
-                partitionToOffsets.put(partition, offset);
-            }
+    public Map<Integer, Long> readEntries() throws IOException {
+        List<PartitionOffsetEntry> entriesList = delegate.read();
+        Map<Integer, Long> result = new HashMap<>(entriesList.size());
+        for (PartitionOffsetEntry entry : entriesList) {
+            result.put(entry.partition, entry.offset);
         }
 
-        return partitionToOffsets;
+        return result;
+    }
+
+    public void writeEntries(Map<Integer, Long> partitionToConsumedOffsets) throws IOException {
+        List<PartitionOffsetEntry> result = new ArrayList<>(partitionToConsumedOffsets.size());
+        for (Map.Entry<Integer, Long> entry : partitionToConsumedOffsets.entrySet()) {
+            result.add(new PartitionOffsetEntry(entry.getKey(), entry.getValue()));
+        }
+
+        delegate.write(result);
+    }
+
+    public static class PartitionOffsetEntry {
+        private final int partition;
+        private final long offset;
+
+        private PartitionOffsetEntry(int partition,
+                                     long offset) {
+            this.partition = partition;
+            this.offset = offset;
+        }
     }
 }

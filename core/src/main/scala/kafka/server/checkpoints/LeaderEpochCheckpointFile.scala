@@ -16,12 +16,13 @@
  */
 package kafka.server.checkpoints
 
-import java.io._
-import java.util.regex.Pattern
-
 import kafka.server.LogDirFailureChannel
 import kafka.server.epoch.EpochEntry
+import org.apache.kafka.server.common.CheckpointFileFormatter
 
+import java.io._
+import java.util.Optional
+import java.util.regex.Pattern
 import scala.collection._
 
 trait LeaderEpochCheckpoint {
@@ -40,11 +41,11 @@ object LeaderEpochCheckpointFile {
 
     override def toLine(entry: EpochEntry): String = s"${entry.epoch} ${entry.startOffset}"
 
-    override def fromLine(line: String): Option[EpochEntry] = {
+    override def fromLine(line: String): Optional[EpochEntry] = {
       WhiteSpacesPattern.split(line) match {
         case Array(epoch, offset) =>
-          Some(EpochEntry(epoch.toInt, offset.toLong))
-        case _ => None
+          Optional.of(EpochEntry(epoch.toInt, offset.toLong))
+        case _ => Optional.empty()
       }
     }
 
