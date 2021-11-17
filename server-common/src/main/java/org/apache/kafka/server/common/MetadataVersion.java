@@ -161,7 +161,10 @@ public enum MetadataVersion {
     IBP_3_3_IV2(6, "3.3", "IV2", true),
 
     // Adds InControlledShutdown state to RegisterBrokerRecord and BrokerRegistrationChangeRecord (KIP-841).
-    IBP_3_3_IV3(7, "3.3", "IV3", true);
+    IBP_3_3_IV3(7, "3.3", "IV3", true),
+
+    // Support for tiered storage (KIP-405)
+    IBP_3_3_IV4(8, "3.3", "IV4");
 
     // NOTE: update the default version in @ClusterTest annotation to point to the latest version
     
