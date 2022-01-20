@@ -27,9 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 
@@ -58,10 +56,8 @@ public class ConsumerManager implements Closeable {
         this.time = time;
 
         //Create a task to consume messages and submit the respective events to RemotePartitionMetadataEventHandler.
-        Path committedOffsetsPath = new File(rlmmConfig.logDir(), COMMITTED_OFFSETS_FILE_NAME).toPath();
         consumerTask = new PrimaryConsumerTask(rlmmConfig.consumerProperties(), remotePartitionMetadataEventHandler,
-                                               topicPartitioner, committedOffsetsPath,
-                                               rlmmConfig.secondaryConsumerSubscriptionIntervalMs(), time, 60_000L);
+                                               topicPartitioner);
         consumerTaskThread = KafkaThread.nonDaemon("RLMMConsumerTask", consumerTask);
     }
 
@@ -138,6 +134,6 @@ public class ConsumerManager implements Closeable {
     }
 
     boolean isUserPartitionAssignedToPrimary(TopicIdPartition partition) {
-        return consumerTask.isUserPartitionAssignedToPrimary(partition);
+        return consumerTask.isUserPartitionAssigned(partition);
     }
 }

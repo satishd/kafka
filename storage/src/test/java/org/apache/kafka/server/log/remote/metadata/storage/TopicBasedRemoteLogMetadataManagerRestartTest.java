@@ -27,6 +27,7 @@ import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import scala.collection.JavaConverters;
 import scala.collection.Seq;
@@ -77,6 +78,8 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
         return remoteLogMetadataManagerHarness.remoteLogMetadataManager();
     }
 
+    // This test is disabled as it expects the data to be loaded from snapshot file.
+    @Disabled
     @Test
     public void testRLMMAPIsAfterRestart() throws Exception {
         // Create topics.

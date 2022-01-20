@@ -27,6 +27,7 @@ import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,7 +102,7 @@ public class TopicBasedRemoteLogMetadataManagerMultipleSubscriptionsTest {
 
         final TopicIdPartition leaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(leaderTopic, 0));
         final TopicIdPartition followerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(followerTopic, 0));
-        final TopicIdPartition emptyTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(followerTopic, 0));
+        final TopicIdPartition emptyTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition(topicWithNoMessages, 0));
 
         RemoteLogMetadataTopicPartitioner partitioner = new RemoteLogMetadataTopicPartitioner(10) {
             @Override
@@ -151,31 +152,9 @@ public class TopicBasedRemoteLogMetadataManagerMultipleSubscriptionsTest {
         rlmm().onPartitionLeadershipChanges(Collections.singleton(emptyTopicIdPartition),
                                                       Collections.singleton(followerTopicIdPartition));
 
-        // Wait until this partition metadata is loaded by the secondary consumer and moved it to primary consumer.
-        waitUntilPartitionMovedToPrimary(followerTopicIdPartition, 300_000L);
         // In this state, all the metadata should be available in RLMM for both leader and follower partitions.
-        Assertions.assertTrue(rlmm().listRemoteLogSegments(leaderTopicIdPartition).hasNext());
-        Assertions.assertTrue(rlmm().listRemoteLogSegments(followerTopicIdPartition).hasNext());
-    }
-
-    private void waitUntilPartitionMovedToPrimary(TopicIdPartition topicIdPartition, long timeoutMs) throws TimeoutException {
-        long sleepMs = 5000L;
-        long time = System.currentTimeMillis();
-
-        while (true) {
-            if (System.currentTimeMillis() - time > timeoutMs) {
-                throw new TimeoutException("Timed out after " + timeoutMs + "ms ");
-            }
-
-            // If both the leader and follower partitions are mapped to the same metadata partition which is 0, it
-            // should have at least 2 messages. That means, received offset should be >= 1 (including duplicate messages if any).
-            if (rlmm().isUserPartitionAssignedToPrimary(topicIdPartition)) {
-                break;
-            }
-
-            log.debug("Sleeping for: " + sleepMs);
-            Utils.sleep(sleepMs);
-        }
+        TestUtils.waitForCondition(() -> rlmm().listRemoteLogSegments(leaderTopicIdPartition).hasNext(), "No segments found");
+        TestUtils.waitForCondition(() -> rlmm().listRemoteLogSegments(followerTopicIdPartition).hasNext(), "No segments found");
     }
 
     private void waitUntilConsumerCatchesup(long timeoutMs) throws TimeoutException {
