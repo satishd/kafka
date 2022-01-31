@@ -152,15 +152,15 @@ class PrimaryConsumerTask implements Runnable, Closeable {
             final Set<TopicPartition> remoteLogPartitions = getRemoteLogPartitions(metaPartitionSnapshot);
             consumer.assign(remoteLogPartitions);
             // for newly assigned user-partitions, read from the beginning of the corresponding metadata partition
-            final Set<TopicPartition> seekBackToBeginOffset = assignedUserTopicPartitions.stream()
+            final Set<TopicPartition> seekToBeginOffsetPartitions = assignedUserTopicPartitions.stream()
                     .filter(tpId -> !readOffsetsByUserTopicPartition.containsKey(tpId))
                     .map(userTpId -> new TopicPartition(REMOTE_LOG_METADATA_TOPIC_NAME, partitioner.metadataPartition(userTpId)))
                     .collect(Collectors.toSet());
-            consumer.seekToBeginning(seekBackToBeginOffset);
+            consumer.seekToBeginning(seekToBeginOffsetPartitions);
 
             // for other metadata partitions, read from the offset where the processing left last time.
             remoteLogPartitions.stream()
-                    .filter(tp -> !seekBackToBeginOffset.contains(tp))
+                    .filter(tp -> !seekToBeginOffsetPartitions.contains(tp))
                     .forEach(tp -> consumer.seek(tp, currentPosition.get(tp)));
         }
     }
