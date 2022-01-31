@@ -16,7 +16,7 @@
  */
 package kafka.log.remote
 
-import java.io.{ByteArrayInputStream, File, InputStream}
+import java.io.{File, InputStream}
 import java.nio.file.{Files, Path}
 import java.util
 import java.util.concurrent.LinkedBlockingQueue
