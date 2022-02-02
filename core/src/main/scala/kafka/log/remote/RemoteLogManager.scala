@@ -452,7 +452,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 brokerTopicStats.allTopicsStats.remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
                 readOffsetOption = Some(endOffset)
                 //todo-tier-storage
-                log.updateRemoteIndexHighestOffset(readOffset)
+                log.updateRemoteIndexHighestOffset(endOffset)
                 info(s"Copied $fileName to remote storage with segment-id: ${rlsmAfterCreate.remoteLogSegmentId()}")
               }
             }
