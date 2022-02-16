@@ -16,13 +16,20 @@
   */
 package kafka.server
 
+import java.io.{BufferedWriter, ByteArrayInputStream, ByteArrayOutputStream, InputStream, OutputStreamWriter}
 import java.nio.charset.StandardCharsets
-import java.util.{Collections, Optional}
+import java.nio.charset.StandardCharsets.UTF_8
+import java.util
+import java.util.{Collections, Optional, Properties}
 
 import kafka.api.{ApiVersion, KAFKA_2_6_IV0}
 import kafka.cluster.{BrokerEndPoint, Partition}
-import kafka.log.{Log, LogAppendInfo, LogManager}
+import kafka.log.LogConfig.RemoteLogStorageEnableProp
+import kafka.log.remote.RemoteLogManager
+import kafka.log.{Log, LogAppendInfo, LogConfig, LogManager, ProducerStateManager}
 import kafka.server.QuotaFactory.UnboundedQuota
+import kafka.server.checkpoints.{CheckpointWriteBuffer, LeaderEpochCheckpoint, LeaderEpochCheckpointFile}
+import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
 import kafka.server.epoch.util.ReplicaFetcherMockBlockingSend
 import kafka.utils.TestUtils
 import org.apache.kafka.common.TopicPartition
@@ -36,13 +43,15 @@ import org.apache.kafka.common.record.{CompressionType, MemoryRecords, Records, 
 import org.apache.kafka.common.requests.OffsetsForLeaderEpochResponse.{UNDEFINED_EPOCH, UNDEFINED_EPOCH_OFFSET}
 import org.apache.kafka.common.requests.FetchResponse
 import org.apache.kafka.common.utils.SystemTime
+import org.apache.kafka.server.log.remote.storage.{RemoteLogSegmentMetadata, RemoteStorageManager}
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType.{LEADER_EPOCH, PRODUCER_SNAPSHOT}
 import org.easymock.EasyMock._
 import org.easymock.{Capture, CaptureType}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, Test}
 
 import scala.jdk.CollectionConverters._
-import scala.collection.{Map, mutable}
+import scala.collection.{Map, Seq, mutable}
 
 class ReplicaFetcherThreadTest {
 
@@ -907,6 +916,88 @@ class ReplicaFetcherThreadTest {
     assertProcessPartitionDataWhen(isReassigning = false)
   }
 
+  @Test
+  def shouldRequestMetadataFromEarliestLocalLogStartOffsetMinusOneWhenLeaderEpochIsDefined(): Unit = {
+    val props = TestUtils.createBrokerConfig(1, "localhost:1234")
+    val config = KafkaConfig.fromProps(props)
+    val mockBlockingSend: BlockingSend = createMock(classOf[BlockingSend])
+
+    // Create the following log:
+    //
+    //  Leader Epoch  |  Start Offset  |  Storage
+    //  -----------------------------------------
+    //       0        |       0        |  Remote
+    //       1        |       1        |  Remote
+    //       3        |       2        |  Local
+    //
+    //  Log start offset = 0
+    //  Leader local start offset = 2
+    //  Current Leader Epoch = 4
+    //  Log end offset = 5
+    //
+    val leaderLocalStartOffset = 2
+    val epochBeforeLeaderLocalStartOffset = 1
+    val logEndOffset = 5
+
+    val leaderEpochCache = createLeaderEpochCache(t1p0, logEndOffset)
+    leaderEpochCache.assign(epoch = 0, startOffset = 0)
+    leaderEpochCache.assign(epoch = 1, startOffset = 1)
+    leaderEpochCache.assign(epoch = 3, startOffset = 2)
+
+    val log: Log = createNiceMock(classOf[Log])
+    expect(log.config).andReturn(createLogConfig())
+    expect(log.rlmEnabled).andReturn(true)
+    expect(log.leaderEpochCache).andReturn(Some(leaderEpochCache)).times(4)
+
+    val partition: Partition = mock(classOf[Partition])
+    val rlsMetadata: RemoteLogSegmentMetadata = mock(classOf[RemoteLogSegmentMetadata])
+
+    val rsm: RemoteStorageManager = mock(classOf[RemoteStorageManager])
+    expect(rsm.fetchIndex(rlsMetadata, LEADER_EPOCH)).andReturn(serializeLeaderEpochCache(leaderEpochCache))
+    expect(rsm.fetchIndex(rlsMetadata, PRODUCER_SNAPSHOT)).andReturn(new ByteArrayInputStream(Array[Byte]()))
+
+    val rlm: RemoteLogManager = mock(classOf[RemoteLogManager])
+
+    //
+    // The expectation is that the follower retrieves the rlsMetadata from the local start offset - 1 and its corresponding epoch.
+    //
+    expect(rlm.fetchRemoteLogSegmentMetadata(t1p0, epochBeforeLeaderLocalStartOffset, leaderLocalStartOffset - 1)).andReturn(Optional.of(rlsMetadata))
+    expect(rlm.storageManager()).andReturn(rsm).times(2)
+
+    val producerStateManager: ProducerStateManager = mock(classOf[ProducerStateManager])
+    expect(producerStateManager.reloadSegments()).times(1)
+    expect(log.producerStateManager).andReturn(producerStateManager)
+    expect(log.loadProducerState(2, false)).times(1)
+
+    val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+    expect(replicaManager.brokerTopicStats).andReturn(mock(classOf[BrokerTopicStats]))
+    expect(replicaManager.localLog(t1p0)).andReturn(Some(log))
+    expect(replicaManager.remoteLogManager).andReturn(Some(rlm))
+    expect(replicaManager.getPartitionOrException(t1p0)).andReturn(partition)
+
+    replay(replicaManager, log, rlm, rsm, producerStateManager)
+
+    val thread = new ReplicaFetcherThread(
+      name = "bob",
+      fetcherId = 0,
+      sourceBroker = brokerEndPoint,
+      brokerConfig = config,
+      failedPartitions = failedPartitions,
+      replicaMgr = replicaManager,
+      metrics =  new Metrics(),
+      time = new SystemTime(),
+      quota = null,
+      leaderEndpointBlockingSend = Some(mockBlockingSend))
+
+    thread.buildRemoteLogAuxState(
+      partition = t1p0,
+      currentLeaderEpoch = 3,
+      leaderLocalLogStartOffset = 2,
+      leaderLogStartOffset = 0)
+
+    verify(replicaManager, log, rlm, rsm, producerStateManager)
+  }
+
   private def newOffsetForLeaderPartitionResult(
    tp: TopicPartition,
    leaderEpoch: Int,
@@ -989,5 +1080,37 @@ class ReplicaFetcherThreadTest {
     val props = TestUtils.createBrokerConfig(1, "localhost:1234")
     props.setProperty(KafkaConfig.InterBrokerProtocolVersionProp, KAFKA_2_6_IV0.version)
     KafkaConfig.fromProps(props)
+  }
+
+  private def createLogConfig(): LogConfig = {
+    val props = new Properties
+    props.put(RemoteLogStorageEnableProp, true.toString)
+    LogConfig.fromProps(new util.HashMap, props)
+  }
+
+  private def createLeaderEpochCache(tp: TopicPartition, logEndOffset: Long): LeaderEpochFileCache = {
+    val checkpoint: LeaderEpochCheckpoint = new LeaderEpochCheckpoint {
+      private var epochs: Seq[EpochEntry] = Seq()
+      override def write(epochs: Iterable[EpochEntry]): Unit = this.epochs = epochs.toSeq
+      override def read(): Seq[EpochEntry] = this.epochs
+    }
+
+    new LeaderEpochFileCache(tp, () => logEndOffset, checkpoint)
+  }
+
+  private def serializeLeaderEpochCache(cache: LeaderEpochFileCache): InputStream = {
+    val stream = new ByteArrayOutputStream()
+    val writer = new BufferedWriter(new OutputStreamWriter(stream, UTF_8))
+    val writeBuffer = new CheckpointWriteBuffer[EpochEntry](writer, version = 0, LeaderEpochCheckpointFile.Formatter)
+
+    try {
+      writeBuffer.write(cache.epochEntries)
+      writer.flush()
+
+      new ByteArrayInputStream(stream.toByteArray)
+
+    } finally {
+      writer.close()
+    }
   }
 }

@@ -392,7 +392,8 @@ class ReplicaFetcherThread(name: String,
     !fetchState.isReplicaInSync && quota.isThrottled(topicPartition) && quota.isQuotaExceeded
   }
 
-  override protected def buildRemoteLogAuxState(partition: TopicPartition,
+  // Visible for testing
+  override protected[server] def buildRemoteLogAuxState(partition: TopicPartition,
                                                 currentLeaderEpoch: Int,
                                                 leaderLocalLogStartOffset: Long,
                                                 leaderLogStartOffset: Long): Unit = {
@@ -400,9 +401,9 @@ class ReplicaFetcherThread(name: String,
       if (log.rlmEnabled && log.config.remoteStorageEnable) {
         replicaMgr.remoteLogManager.foreach { rlm =>
           var rlsMetadata: Optional[RemoteLogSegmentMetadata] = Optional.empty()
-          val epoch = log.leaderEpochCache.flatMap(cache => cache.epochForOffset(leaderLocalLogStartOffset))
+          val epoch = log.leaderEpochCache.flatMap(cache => cache.epochForOffset(leaderLocalLogStartOffset - 1))
           if (epoch.isDefined) {
-            rlsMetadata = rlm.fetchRemoteLogSegmentMetadata(partition, epoch.get, leaderLocalLogStartOffset)
+            rlsMetadata = rlm.fetchRemoteLogSegmentMetadata(partition, epoch.get, leaderLocalLogStartOffset - 1)
           } else {
             // If epoch is not available, then it might be possible that this broker might lost its entire local storage.
             // We may also have to build the leader epoch cache. To find out the remote log segment metadata for the
