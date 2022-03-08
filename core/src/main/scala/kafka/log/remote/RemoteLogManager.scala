@@ -275,19 +275,22 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       if (topicId.isDefined) {
         val tpIds = partitions.map(new TopicIdPartition(topicId.get, _))
         tpIds.foreach(tpId => {
-          val partition = tpId.topicPartition()
+          val topicPartition = tpId.topicPartition()
           try {
             val task = leaderOrFollowerTasks.remove(tpId)
             if (task != null) {
-              info(s"Cancelling the RLM task for tp: $partition")
+              info(s"Cancelling the RLM task for tp: $topicPartition")
               task.cancel()
             }
             if (delete) {
               debug(s"Deleting the remote log segments for partition: $tpId")
               remoteLogMetadataManager.listRemoteLogSegments(tpId).forEachRemaining(elt => deleteRemoteLogSegment(elt, _ => true))
             }
+
+            brokerTopicStats.tierLagStats(topicPartition.topic()).removeTierLag(topicPartition.partition())
+
           } catch {
-            case ex: Throwable => errorHandler(partition, ex)
+            case ex: Throwable => errorHandler(topicPartition, ex)
           }
         })
         if (delete) {
@@ -450,6 +453,22 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 brokerTopicStats.topicStats(tpId.topicPartition().topic())
                   .remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
                 brokerTopicStats.allTopicsStats.remoteBytesOutRate.mark(remoteLogSegmentMetadata.segmentSizeInBytes())
+
+                //
+                // The tier lag of a topic-partition is defined as the number of records in non-active segments
+                // not yet uploaded to the remote storage.
+                //
+                // The active segment base offset and remote log segment metadata end offset are both inclusive
+                // (i.e. these offsets are included in their respective segments).
+                //
+                // Note that we use log.activeSegment.baseOffset rather than the previously assigned value
+                // "activeSegBaseOffset" since the active segment before the segment upload may now have been
+                // rolled over and replaced by a new segment.
+                //
+                val lag = (log.activeSegment.baseOffset - 1) - endOffset
+                val (topic, partition) = (tpId.topicPartition().topic(), tpId.topicPartition().partition())
+                brokerTopicStats.tierLagStats(topic).setTierLag(partition, lag)
+
                 readOffsetOption = Some(endOffset)
                 //todo-tier-storage
                 log.updateRemoteIndexHighestOffset(endOffset)
