@@ -21,7 +21,7 @@ import kafka.log.{AbortedTxn, Log, OffsetPosition}
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.checkpoints.{CheckpointWriteBuffer, LeaderEpochCheckpoint, LeaderEpochCheckpointFile}
-import kafka.server.epoch.EpochEntry
+import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common._
@@ -34,7 +34,6 @@ import org.apache.kafka.common.requests.FetchResponse.AbortedTransaction
 import org.apache.kafka.common.utils.{ChildFirstClassLoader, KafkaThread, Time, Utils}
 import org.apache.kafka.server.log.remote.metadata.storage.{ClassLoaderAwareRemoteLogMetadataManager, TopicBasedRemoteLogMetadataManagerConfig}
 import org.apache.kafka.server.log.remote.storage._
-
 import java.io.{BufferedWriter, ByteArrayOutputStream, Closeable, InputStream, OutputStreamWriter}
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
@@ -43,6 +42,7 @@ import java.util.Optional
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicInteger
 import java.{lang, util}
+
 import scala.collection.Searching._
 import scala.collection.mutable.ListBuffer
 import scala.collection.{Seq, Set}
@@ -847,25 +847,30 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
    * @param startingOffset The starting offset to search.
    * @return the timestamp and offset of the first message that meets the requirements. None will be returned if there is no such message.
    */
-  def findOffsetByTimestamp(tp: TopicPartition, timestamp: Long, startingOffset: Long): Option[TimestampAndOffset] = {
-    //todo-tier Here also, we do not need to go through all the remote log segments to find the segments
-    // containing the timestamp. We should find the  epoch for the startingOffset and then  traverse  through those
-    // offsets and subsequent leader epochs to find the target timestamp/offset.
+  def findOffsetByTimestamp(tp: TopicPartition, timestamp: Long, startingOffset: Long,
+                            leaderEpochCache: LeaderEpochFileCache): Option[TimestampAndOffset] = {
     topicPartitionIds.get(tp) match {
       case Some(uuid) =>
         val topicIdPartition = new TopicIdPartition(uuid, tp)
-        remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition).asScala.foreach(rlsMetadata =>
-          if (rlsMetadata.maxTimestampMs() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
-            val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
-            if (timestampOffset.isDefined)
-              return timestampOffset
-          }
-        )
-        None
-      case None => None
-    }
-  }
+        // Get the respective epoch in which the starting offset exists.
+        var maybeEpoch = leaderEpochCache.epochForOffset(startingOffset)
+        while (maybeEpoch.nonEmpty) {
+          val epoch = maybeEpoch.get
+          remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition, epoch).asScala.foreach(rlsMetadata =>
+            if (rlsMetadata.maxTimestampMs() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
+              val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
+              if (timestampOffset.isDefined)
+                return timestampOffset
+            }
+          )
 
+          // Move to the next epoch if not found with the current epoch.
+          maybeEpoch = leaderEpochCache.findNextEpoch(epoch)
+        }
+      case None => throw new KafkaException("Topic id does not exist for topic partition: " + tp);
+    }
+    None
+  }
   /**
    * A remote log read task returned by asyncRead(). The caller of asyncRead() can use this object to cancel a
    * pending task or check if the task is done.

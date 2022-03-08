@@ -1780,7 +1780,7 @@ class Log(@volatile private var _dir: File,
    * @return The offset of the first message whose timestamp is greater than or equals to the given timestamp.
    *         None if no such message is found.
    */
-  def fetchOffsetByTimestamp(targetTimestamp: Long, remoteLogManager: Option[RemoteLogManager] = None): Option[TimestampAndOffset] = {
+  def fetchOffsetByTimestamp(targetTimestamp: Long, maybeRemoteLogManager: Option[RemoteLogManager] = None): Option[TimestampAndOffset] = {
     maybeHandleIOException(s"Error while fetching offset by timestamp for $topicPartition in dir ${dir.getParent}") {
       debug(s"Searching offset for timestamp $targetTimestamp")
 
@@ -1792,10 +1792,6 @@ class Log(@volatile private var _dir: File,
         throw new UnsupportedForMessageFormatException(s"Cannot search offsets based on timestamp because message format version " +
           s"for partition $topicPartition is ${config.messageFormatVersion} which is earlier than the minimum " +
           s"required version $KAFKA_0_10_0_IV0")
-
-      // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
-      // constant time access while being safe to use with concurrent collections unlike `toArray`.
-      val segmentsCopy = logSegments.toBuffer
 
       // For the earliest and latest, we do not need to return the timestamp.
       if (targetTimestamp == ListOffsetsRequest.EARLIEST_TIMESTAMP ||
@@ -1823,33 +1819,28 @@ class Log(@volatile private var _dir: File,
         val epochOptional = Optional.ofNullable(latestEpochOpt.orNull)
         Some(new TimestampAndOffset(RecordBatch.NO_TIMESTAMP, logEndOffset, epochOptional))
       } else {
-        var isFirstSegment = false
-        val targetSeg: Option[LogSegment] = {
-          // Get all the segments whose largest timestamp is smaller than target timestamp
-          val earlierSegs = segmentsCopy.takeWhile(_.largestTimestamp < targetTimestamp)
-          // We need to search the first segment whose largest timestamp is greater than the target timestamp if there is one.
-          if (earlierSegs.length < segmentsCopy.length) {
-            isFirstSegment = earlierSegs.isEmpty
-            Some(segmentsCopy(earlierSegs.length))
-          } else {
-            None
+        val remoteOffset = if (remoteLogEnabled()) {
+          if (maybeRemoteLogManager.isEmpty) {
+            throw new KafkaException("RemoteLogManager is empty even though the remote log storage is enabled.");
           }
-        }
+          if (leaderEpochCache.isEmpty) {
+            throw new KafkaException("Tiered storage is supported only with versions supporting leader epochs, that means RecordVersion must be >= 2.")
+          }
 
-        if (isFirstSegment && remoteLogEnabled()) {
-          val localOffset = targetSeg.get.findOffsetByTimestamp(targetTimestamp, localLogStartOffset)
-          val remoteOffset = remoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset)
+          maybeRemoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset, leaderEpochCache.get)
+        } else None
 
-          if (localOffset.isEmpty)
-            remoteOffset
-          else if (remoteOffset.isEmpty)
-            localOffset
-          else if (localOffset.get.offset <= remoteOffset.get.offset)
-            localOffset
-          else
-            remoteOffset
+        if (remoteOffset.nonEmpty) {
+          remoteOffset
         } else {
-          targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, logStartOffset))
+          // If it is not found in remote storage, search in the local storage starting with local log start offset.
+
+          // Cache to avoid race conditions. `toBuffer` is faster than most alternatives and provides
+          // constant time access while being safe to use with concurrent collections unlike `toArray`.
+          val segmentsCopy = logSegments.toBuffer
+
+          val targetSeg = segmentsCopy.find(_.largestTimestamp >= targetTimestamp)
+          targetSeg.flatMap(_.findOffsetByTimestamp(targetTimestamp, localLogStartOffset))
         }
       }
     }
