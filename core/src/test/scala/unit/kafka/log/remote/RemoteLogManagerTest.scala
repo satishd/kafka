@@ -27,12 +27,12 @@ import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.utils.Utils
-import org.apache.kafka.common.{TopicIdPartition, TopicPartition, Uuid}
+import org.apache.kafka.common.{KafkaException, TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.server.log.remote.storage._
 import org.easymock.{CaptureType, EasyMock}
 import org.easymock.EasyMock._
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertThrows, assertTrue}
+import org.junit.jupiter.api.Assertions.{assertDoesNotThrow, assertEquals, assertFalse, assertThrows, assertTrue}
 import org.junit.jupiter.api.{AfterEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -73,6 +73,72 @@ class RemoteLogManagerTest {
     val rlmmConfig = rlmConfig.remoteLogMetadataManagerProps()
     assertEquals(props.get(rlmmConfigPrefix + key), rlmmConfig.get(key))
     assertFalse(rlmmConfig.containsKey("remote.log.metadata.y"))
+  }
+
+  @Test
+  def testTopicIdCacheUpdates(): Unit = {
+    val leaderTopicIdPartition =  new TopicIdPartition(Uuid.randomUuid(),
+      new TopicPartition("Leader", 0))
+    val followerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(),
+      new TopicPartition("Follower", 0))
+    val topicIds: util.Map[String, Uuid] = Map(
+      leaderTopicIdPartition.topicPartition().topic() -> leaderTopicIdPartition.topicId(),
+      followerTopicIdPartition.topicPartition().topic() -> followerTopicIdPartition.topicId()
+    ).asJava
+
+    def mockPartition(topicIdPartition: TopicIdPartition) = {
+      val tp = topicIdPartition.topicPartition()
+
+      val partition: Partition = niceMock(classOf[Partition])
+      expect(partition.topicPartition).andReturn(tp).anyTimes()
+      expect(partition.topic).andReturn(tp.topic()).anyTimes()
+      expect(partition.log).andReturn(None).anyTimes()
+
+      partition
+    }
+
+    val mockLeaderPartition = mockPartition(leaderTopicIdPartition)
+    val mockFollowerPartition = mockPartition(followerTopicIdPartition)
+
+    val rlmm: RemoteLogMetadataManager = createNiceMock(classOf[RemoteLogMetadataManager])
+    expect(rlmm.listRemoteLogSegments(anyObject()))
+      .andAnswer(() => Iterator[RemoteLogSegmentMetadata]().asJava).anyTimes()
+
+    replay(rlmm, mockLeaderPartition, mockFollowerPartition)
+
+    val remoteLogManager = new RemoteLogManager(_ => None,
+      (_, _) => {}, rlmConfig, time, 1, clusterId, logsDir, brokerTopicStats) {
+      override private[remote] def createRemoteLogMetadataManager(): RemoteLogMetadataManager = rlmm
+    }
+
+    // We use the internal implementation details of fetchRemoteLogSegmentMetadata to check that the topic is
+    // in the cache
+    def verifyInCache(topicIdPartitions: TopicIdPartition*): Unit = {
+      topicIdPartitions.foreach(topicIdPartition => {
+        assertDoesNotThrow(() => remoteLogManager.fetchRemoteLogSegmentMetadata(topicIdPartition.topicPartition(), 0, 0))
+      })
+    }
+
+    def verifyNotInCache(topicIdPartitions: TopicIdPartition*): Unit = {
+      topicIdPartitions.foreach(topicIdPartition => {
+        assertThrows(classOf[KafkaException],
+          () => remoteLogManager.fetchRemoteLogSegmentMetadata(topicIdPartition.topicPartition(), 0, 0))
+      })
+    }
+
+    verifyNotInCache(followerTopicIdPartition, leaderTopicIdPartition)
+    // Load cache
+    remoteLogManager.onLeadershipChange(Set(mockLeaderPartition), Set(mockFollowerPartition), topicIds)
+    verifyInCache(followerTopicIdPartition, leaderTopicIdPartition)
+
+    // Evict from cache
+    remoteLogManager.stopPartitions(Set(leaderTopicIdPartition.topicPartition()), delete = true, (_, _) => {})
+    verifyNotInCache(leaderTopicIdPartition)
+    verifyInCache(followerTopicIdPartition)
+
+    // Evict from cache
+    remoteLogManager.stopPartitions(Set(followerTopicIdPartition.topicPartition()), delete = true, (_, _) => {})
+    verifyNotInCache(leaderTopicIdPartition, followerTopicIdPartition)
   }
 
   @Test

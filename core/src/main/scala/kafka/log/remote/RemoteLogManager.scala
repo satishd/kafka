@@ -22,7 +22,6 @@ import kafka.metrics.KafkaMetricsGroup
 import kafka.server._
 import kafka.server.checkpoints.{CheckpointWriteBuffer, LeaderEpochCheckpoint, LeaderEpochCheckpointFile}
 import kafka.server.epoch.EpochEntry
-import kafka.utils.Implicits._
 import kafka.utils.Logging
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.common._
@@ -46,7 +45,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.{lang, util}
 import scala.collection.Searching._
 import scala.collection.mutable.ListBuffer
-import scala.collection.{Seq, Set, mutable}
+import scala.collection.{Seq, Set}
+import scala.collection.concurrent
 import scala.jdk.CollectionConverters._
 import scala.jdk.OptionConverters.RichOptional
 
@@ -121,8 +121,9 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
   private val poolSize = rlmConfig.remoteLogManagerThreadPoolSize
   private val rlmScheduledThreadPool = new RLMScheduledThreadPool(poolSize)
 
-  // topic ids that are received on leadership changes, this map is NEVER cleared
-  private val topicIds: mutable.Map[String, Uuid] = mutable.Map.empty
+  // topic ids that are received on leadership changes, this map is cleared on stop partitions
+  private val topicPartitionIds: concurrent.Map[TopicPartition, Uuid] = new ConcurrentHashMap[TopicPartition, Uuid]().asScala
+
 
   @volatile private var closed = false
 
@@ -246,10 +247,23 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition) -> p).toMap
     val followerPartitions = partitionsBecomeFollower.filterNot(nonSupported)
       .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition))
+
+    def cacheTopicPartitionIds(topicIdPartition: TopicIdPartition): Unit = {
+      val maybePreviousTopicId = topicPartitionIds.put(topicIdPartition.topicPartition(), topicIdPartition.topicId())
+      maybePreviousTopicId.filter(_ != topicIdPartition.topicId())
+        .foreach { previousTopicId =>
+          warn(s"Previous cached topic id $previousTopicId for ${topicIdPartition.topicPartition()} does " +
+            s"not match update topic id ${topicIdPartition.topicId()}")
+        }
+    }
+
     if (leaderPartitions.nonEmpty || followerPartitions.nonEmpty) {
       debug(s"Effective topic partitions after filtering compact and internal topics, " +
         s"leaders: ${leaderPartitions.keySet} and followers: $followerPartitions")
-      topicIds.forEach((topic, uuid) => this.topicIds.put(topic, uuid))
+
+      leaderPartitions.keySet.foreach(cacheTopicPartitionIds)
+      followerPartitions.foreach(cacheTopicPartitionIds)
+
       remoteLogMetadataManager.onPartitionLeadershipChanges(leaderPartitions.keySet.asJava, followerPartitions.asJava)
       followerPartitions.foreach {
         topicIdPartition => doHandleLeaderOrFollowerPartitions(topicIdPartition, _.convertToFollower())
@@ -270,36 +284,34 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
    */
   def stopPartitions(allPartitions: Set[TopicPartition], delete: Boolean, errorHandler: (TopicPartition, Throwable) => Unit): Unit = {
     debug(s"Stopping ${allPartitions.size} partitions, delete: $delete")
-    val partitionsByTopic = allPartitions.groupBy(_.topic())
-    partitionsByTopic.forKeyValue((topic, partitions) => {
-      val topicId = topicIds.get(topic)
-      if (topicId.isDefined) {
-        val tpIds = partitions.map(new TopicIdPartition(topicId.get, _))
-        tpIds.foreach(tpId => {
-          val topicPartition = tpId.topicPartition()
-          try {
-            val task = leaderOrFollowerTasks.remove(tpId)
-            if (task != null) {
-              info(s"Cancelling the RLM task for tp: $topicPartition")
-              task.cancel()
-            }
-            if (delete) {
-              debug(s"Deleting the remote log segments for partition: $tpId")
-              remoteLogMetadataManager.listRemoteLogSegments(tpId).forEachRemaining(elt => deleteRemoteLogSegment(elt, _ => true))
-            }
+    val tpIds = allPartitions
+      .filter(topicPartitionIds contains)
+      .map(tp => new TopicIdPartition(topicPartitionIds(tp), tp))
+      .toSet
 
-            brokerTopicStats.tierLagStats(topicPartition.topic()).removePartition(topicPartition.partition())
-
-          } catch {
-            case ex: Throwable => errorHandler(topicPartition, ex)
-          }
-        })
-        if (delete) {
-          // NOTE: this#stopPartitions method is called when Replica state changes to Offline and ReplicaDeletionStarted
-          remoteLogMetadataManager.onStopPartitions(tpIds.asJava)
+    tpIds.foreach(tpId => {
+      val partition = tpId.topicPartition()
+      try {
+        val task = leaderOrFollowerTasks.remove(tpId)
+        if (task != null) {
+          info(s"Cancelling the RLM task for tp: $partition")
+          task.cancel()
         }
+        if (delete) {
+          info(s"Deleting the remote log segments for partition: $tpId")
+          remoteLogMetadataManager.listRemoteLogSegments(tpId).forEachRemaining(elt => deleteRemoteLogSegment(elt, _ => true))
+        }
+        brokerTopicStats.tierLagStats(partition.topic()).removePartition(partition.partition())
+      } catch {
+        case ex: Throwable => errorHandler(partition, ex)
       }
     })
+
+    if (delete) {
+      // NOTE: this#stopPartitions method is called when Replica state changes to Offline and ReplicaDeletionStarted
+      remoteLogMetadataManager.onStopPartitions(tpIds.asJava)
+      topicPartitionIds --= allPartitions
+    }
   }
 
   private def deleteRemoteLogSegment(segmentMetadata: RemoteLogSegmentMetadata, predicate: RemoteLogSegmentMetadata => Boolean): Boolean = {
@@ -772,7 +784,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                                     epochForOffset: Int,
                                     offset: Long): Optional[RemoteLogSegmentMetadata] = {
     val topicIdPartition =
-      topicIds.get(tp.topic()) match {
+      topicPartitionIds.get(tp) match {
         case Some(uuid) => Some(new TopicIdPartition(uuid, tp))
         case None => None
       }
@@ -839,7 +851,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     //todo-tier Here also, we do not need to go through all the remote log segments to find the segments
     // containing the timestamp. We should find the  epoch for the startingOffset and then  traverse  through those
     // offsets and subsequent leader epochs to find the target timestamp/offset.
-    topicIds.get(tp.topic()) match {
+    topicPartitionIds.get(tp) match {
       case Some(uuid) =>
         val topicIdPartition = new TopicIdPartition(uuid, tp)
         remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition).asScala.foreach(rlsMetadata =>
