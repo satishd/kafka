@@ -287,7 +287,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
               remoteLogMetadataManager.listRemoteLogSegments(tpId).forEachRemaining(elt => deleteRemoteLogSegment(elt, _ => true))
             }
 
-            brokerTopicStats.tierLagStats(topicPartition.topic()).removeTierLag(topicPartition.partition())
+            brokerTopicStats.tierLagStats(topicPartition.topic()).removePartition(topicPartition.partition())
 
           } catch {
             case ex: Throwable => errorHandler(topicPartition, ex)
@@ -341,7 +341,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     checkpoint
   }
 
-  class RLMTask(tpId: TopicIdPartition) extends CancellableRunnable with Logging {
+  private[remote] class RLMTask(tpId: TopicIdPartition) extends CancellableRunnable with Logging {
     this.logIdent = s"[RemoteLogManager=$brokerId partition=$tpId] "
     @volatile private var leaderEpoch: Int = -1
 
@@ -467,7 +467,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                 //
                 val lag = (log.activeSegment.baseOffset - 1) - endOffset
                 val (topic, partition) = (tpId.topicPartition().topic(), tpId.topicPartition().partition())
-                brokerTopicStats.tierLagStats(topic).setTierLag(partition, lag)
+                brokerTopicStats.tierLagStats(topic).setLag(partition, lag)
 
                 readOffsetOption = Some(endOffset)
                 //todo-tier-storage

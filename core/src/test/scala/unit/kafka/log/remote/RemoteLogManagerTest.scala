@@ -34,11 +34,11 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.{AfterEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
-
 import java.io.{File, FileInputStream}
 import java.nio.file.{Files, Paths}
 import java.util.{Collections, Optional, Properties}
 import java.{lang, util}
+
 import scala.collection.{Seq, mutable}
 import scala.jdk.CollectionConverters._
 
@@ -639,6 +639,130 @@ class RemoteLogManagerTest {
 
     Files.write(tmpFile.toPath, checkpoint.readAsByteBuffer().array())
     assertEquals(epochs, new LeaderEpochCheckpointFile(tmpFile).read())
+  }
+
+  /**
+    * This test verifies the calculation of the tier lag associated to a topic-partition after upload to the
+    * remote storage.
+    */
+  @Test
+  def updateTotalTierLagAfterSegmentUpload(): Unit = {
+    //
+    // In order to validate the tier lag calculation, a segment upload is exercised via
+    // RLMTask#copyLogSegmentsToRemote(). The following logs are present in the local storage before upload:
+    //
+    // - SegmentToUpload
+    // - SegmentNotToUpload
+    // - ActiveSegment
+    //
+    // with the following configuration:
+    //
+    //                    SegmentToUpload        SegmentNotToUpload      ActiveSegment
+    // --------------  -------------------------------------------------------------------
+    //    ...    110|  | 111     ...      159 | 160 161   ...    169 | 170    180  ...
+    // --------------  -------------------------------------------------------------------
+    //                   ELO                        LSO
+    // ..............  ....................................................................
+    //  Tiered Log                                 Local log
+    //
+    // SegmentNotToUpload contains the LSO and is not uploaded. ActiveSegment is not uploaded. Only SegmentToUpload
+    // is uploaded. The tier lag at the end of the execution of the RLM task is expected to be 169 - 159 = 10.
+    //
+    // Note: this test is unreadable. The RLM needs to be refactored to make it testable.
+    //
+    val epochCheckpoints = Seq(0 -> 0, 1 -> 20, 3 -> 50, 4 -> 100)
+    epochCheckpoints.foreach { case (epoch, startOffset) => cache.assign(epoch, startOffset) }
+
+    val activeSegment: LogSegment = createMock(classOf[LogSegment])
+    expect(activeSegment.baseOffset).andReturn(170).anyTimes()
+
+    val fileRecords: FileRecords = createMock(classOf[FileRecords])
+    val file: File = createMock(classOf[File])
+
+    val lazyOffsetIndex: LazyIndex[OffsetIndex] = createMock(classOf[LazyIndex[OffsetIndex]])
+    val lazyTimeIndex: LazyIndex[TimeIndex] = createMock(classOf[LazyIndex[TimeIndex]])
+    val offsetIndex: OffsetIndex = createMock(classOf[OffsetIndex])
+    val timeIndex: TimeIndex = createMock(classOf[TimeIndex])
+    val txIndex: TransactionIndex = createMock(classOf[TransactionIndex])
+
+    expect(lazyOffsetIndex.get).andReturn(offsetIndex)
+    expect(lazyTimeIndex.get).andReturn(timeIndex)
+    expect(offsetIndex.path).andReturn(Paths.get("home", "pinkf"))
+    expect(timeIndex.path).andReturn(Paths.get("home", "nellyf"))
+    expect(txIndex.path).andReturn(Paths.get("home", "amyl"))
+
+    val segmentToUpload: LogSegment = createMock(classOf[LogSegment])
+    expect(segmentToUpload.baseOffset).andReturn(111).anyTimes()
+    expect(segmentToUpload.log).andReturn(fileRecords).anyTimes()
+    expect(segmentToUpload.readNextOffset).andReturn(160)
+    expect(segmentToUpload.largestTimestamp).andReturn(8L)
+    expect(segmentToUpload.lazyOffsetIndex).andReturn(lazyOffsetIndex)
+    expect(segmentToUpload.lazyTimeIndex).andReturn(lazyTimeIndex)
+    expect(segmentToUpload.txnIndex).andReturn(txIndex)
+
+    val segmentNotToUpload: LogSegment = createMock(classOf[LogSegment])
+    expect(segmentNotToUpload.baseOffset).andReturn(160).anyTimes()
+    expect(segmentNotToUpload.log).andReturn(fileRecords).anyTimes()
+    expect(segmentNotToUpload.readNextOffset).andReturn(170)
+    expect(segmentNotToUpload.largestTimestamp).andReturn(8L)
+    expect(segmentNotToUpload.lazyOffsetIndex).andReturn(lazyOffsetIndex)
+    expect(segmentNotToUpload.lazyTimeIndex).andReturn(lazyTimeIndex)
+    expect(segmentNotToUpload.txnIndex).andReturn(txIndex)
+
+    expect(fileRecords.file).andReturn(file).anyTimes()
+    expect(fileRecords.sizeInBytes()).andReturn(1024)
+    expect(file.getName).andReturn("00000000000111.log").anyTimes()
+    expect(file.toPath).andReturn(Paths.get("home", "philc")).anyTimes()
+
+    val logConfig: LogConfig = createMock(classOf[LogConfig])
+
+    val producerStateManager: ProducerStateManager = createMock(classOf[ProducerStateManager])
+    expect(producerStateManager.fetchSnapshot(anyLong())).andReturn(Some(file))
+
+    val log: Log = createMock(classOf[Log])
+    expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
+    expect(log.config).andReturn(logConfig).anyTimes()
+    expect(log.producerStateManager).andReturn(producerStateManager).anyTimes()
+
+    expect(log.lastStableOffset).andReturn(161)
+    expect(log.activeSegment).andReturn(activeSegment).anyTimes()
+    expect(log.logStartOffset).andReturn(0)
+    expect(log.logSegments(EasyMock.eq(111L), EasyMock.eq(161L))).andReturn(Seq(segmentToUpload, segmentNotToUpload))
+    expect(log.updateRemoteIndexHighestOffset(EasyMock.eq(159L)))
+
+    var logStartOffset: Option[Long] = None
+    val rsmManager: ClassLoaderAwareRemoteStorageManager = createMock(classOf[ClassLoaderAwareRemoteStorageManager])
+
+    val rlmmManager: RemoteLogMetadataManager = createMock(classOf[RemoteLogMetadataManager])
+    expect(rlmmManager.addRemoteLogSegmentMetadata(anyObject(classOf[RemoteLogSegmentMetadata]))).anyTimes()
+    expect(rlmmManager.updateRemoteLogSegmentMetadata(anyObject(classOf[RemoteLogSegmentMetadataUpdate]))).anyTimes()
+
+    expect(rlmmManager.highestOffsetForEpoch(EasyMock.eq(topicIdPartition), EasyMock.eq(0)))
+      .andReturn(Optional.of(19L)).anyTimes()
+    expect(rlmmManager.highestOffsetForEpoch(EasyMock.eq(topicIdPartition), EasyMock.eq(1)))
+      .andReturn(Optional.of(49L)).anyTimes()
+    expect(rlmmManager.highestOffsetForEpoch(EasyMock.eq(topicIdPartition), EasyMock.eq(3)))
+      .andReturn(Optional.of(99L)).anyTimes()
+    expect(rlmmManager.highestOffsetForEpoch(EasyMock.eq(topicIdPartition), EasyMock.eq(4)))
+      .andReturn(Optional.of(110L)).anyTimes()
+
+    replay(log, rlmmManager, activeSegment, segmentToUpload, segmentNotToUpload, fileRecords, file,
+      producerStateManager, lazyOffsetIndex, lazyTimeIndex, offsetIndex, timeIndex, txIndex)
+
+    val remoteLogManager =
+      new RemoteLogManager(_ => Option(log), (_, startOffset) => logStartOffset = Option(startOffset), rlmConfig, time,
+        brokerId, clusterId, logsDir, brokerTopicStats) {
+        override private[remote] def createRemoteStorageManager(): ClassLoaderAwareRemoteStorageManager = rsmManager
+        override private[remote] def createRemoteLogMetadataManager() = rlmmManager
+      }
+
+    val task = new remoteLogManager.RLMTask(topicIdPartition)
+    task.convertToLeader(4)
+
+    task.copyLogSegmentsToRemote()
+
+    val lag = brokerTopicStats.tierLagStats(topicIdPartition.topicPartition().topic()).lag()
+    assertEquals(10L, lag)
   }
 
   private def listRemoteLogSegmentMetadataByTime(segmentCount: Int,
