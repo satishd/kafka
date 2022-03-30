@@ -524,6 +524,17 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         updateRemoteLogStartOffset(topicPartition, remoteLogStartOffset)
       }
 
+      def totalLogSize(segmentMetadataList: scala.Seq[RemoteLogSegmentMetadata], log: Log): Long = {
+        val localLogStartOffset = log.localLogStartOffset // Cache the value
+        val remoteOnlyLogSize = segmentMetadataList
+          .filter(_.endOffset() < localLogStartOffset)
+          .map(_.segmentSizeInBytes()).sum
+
+        val localLogSize = log.validLogSegmentsSize
+
+        localLogSize + remoteOnlyLogSize
+      }
+
       try {
         // cleanup remote log segments and update the log start offset if applicable.
         // Compute total size, this can be pushed to RLMM by introducing a new method instead of going through
@@ -532,7 +543,8 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         if (segmentMetadataList.nonEmpty) {
           fetchLog(tpId.topicPartition()).foreach { log =>
             val retentionMs = log.config.retentionMs
-            val totalSize = log.size + segmentMetadataList.map(_.segmentSizeInBytes()).sum
+            val totalSize = totalLogSize(segmentMetadataList, log)
+
             val (checkTimestampRetention, cleanupTs) = (retentionMs > -1, time.milliseconds() - retentionMs)
             val checkSizeRetention = log.config.retentionSize > -1
             var remainingSize = totalSize - log.config.retentionSize

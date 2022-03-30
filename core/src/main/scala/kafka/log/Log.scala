@@ -323,9 +323,11 @@ class Log(@volatile private var _dir: File,
 
   @volatile var topicId : Uuid = Uuid.ZERO_UUID
 
-  @volatile private var localLogStartOffset: Long = logStartOffset
+  @volatile private var _localLogStartOffset: Long = logStartOffset
 
   @volatile private var highestOffsetWithRemoteIndex: Long = -1L
+
+  private[log] def localLogStartOffset: Long = _localLogStartOffset
 
   private[kafka] def remoteLogEnabled(): Boolean = {
     // remote logging is enabled only for non-compact and non-internal topics
@@ -871,7 +873,7 @@ class Log(@volatile private var _dir: File,
   }
 
   private def updateLocalLogStartOffset(offset: Long): Unit = {
-    localLogStartOffset = offset
+    _localLogStartOffset = offset
 
     if (highWatermark < offset) {
       updateHighWatermark(offset)
@@ -1455,7 +1457,7 @@ class Log(@volatile private var _dir: File,
 
         checkIfMemoryMappedBufferClosed()
         if (newLogStartOffset > logStartOffset) {
-          localLogStartOffset = math.max(newLogStartOffset, localLogStartOffset)
+          _localLogStartOffset = math.max(newLogStartOffset, localLogStartOffset)
 
           // it should always get updated  if tiered-storage is not enabled.
           if (!onlyLocalLogStartOffsetUpdate || !remoteLogEnabled()) {
@@ -2046,8 +2048,28 @@ class Log(@volatile private var _dir: File,
 
   /**
    * The size of the log in bytes
+   *
+   * WARNING: with remote storage enabled, this size may include segments with offsets < localLogStartOffset. These
+   * segments are defined to be "invalid" since they should not exist in the local log. Such segments can temporarily
+   * exist since the remote and local logs are not deleted in lock-step.
+   *
+   * For example, if a segment that exists both in local and remote storage is deleted in the remote storage,
+   * the localLogStartOffset will be updated to reflect that. However, this segment may not be deleted from local
+   * storage immediately.
+   *
+   * If you need a precise calculation of the valid segments in the local log, use the
+   * log#validLogSegmentsSize method instead.
+   *
    */
   def size: Long = Log.sizeInBytes(logSegments)
+
+  /**
+   * The size of the log in bytes for segments with offsets >= localLogStartOffset. Any segment with
+   * offset < localLogStartOffset is considered invalid since it should not be in the local log.
+   *
+   * See log#size for why such segments might exist
+   */
+  def validLogSegmentsSize: Long = Log.sizeInBytes(logSegments.filter(_.baseOffset >= localLogStartOffset))
 
   /**
    * The offset metadata of the next message that will be appended to the log
@@ -2293,7 +2315,7 @@ class Log(@volatile private var _dir: File,
             removeAndDeleteSegments(deletable, asyncDelete = true, LogTruncation)
             activeSegment.truncateTo(targetOffset)
 
-            this.localLogStartOffset = math.min(targetOffset, this.localLogStartOffset)
+            this._localLogStartOffset = math.min(targetOffset, this.localLogStartOffset)
             updateLogStartOffset(math.min(this.localLogStartOffset, this.logStartOffset))
 
             leaderEpochCache.foreach(_.truncateFromEnd(targetOffset))
