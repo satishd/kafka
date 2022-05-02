@@ -123,7 +123,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
   // topic ids that are received on leadership changes, this map is cleared on stop partitions
   private val topicPartitionIds: concurrent.Map[TopicPartition, Uuid] = new ConcurrentHashMap[TopicPartition, Uuid]().asScala
-
+  private val onLeadershipChangeLock = new Object
 
   @volatile private var closed = false
 
@@ -236,17 +236,14 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
                          topicIds: util.Map[String, Uuid]): Unit = {
     trace(s"Received leadership changes for partitionsBecomeLeader: $partitionsBecomeLeader " +
       s"and partitionsBecomeLeader: $partitionsBecomeLeader")
+
     // Compact topics and internal topics are filtered here as they are not supported with tiered storage.
     def nonSupported(partition: Partition): Boolean = {
       Topic.isInternal(partition.topic) ||
-        partition.log.exists(log => log.config.compact || !log.config.remoteStorageEnable) ||
+        // fetchLog should reflect up to date configuration
+        fetchLog(partition.topicPartition).exists(log => log.config.compact || !log.config.remoteStorageEnable) ||
         partition.topicPartition.topic().equals(TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME)
     }
-
-    val leaderPartitions = partitionsBecomeLeader.filterNot(nonSupported)
-      .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition) -> p).toMap
-    val followerPartitions = partitionsBecomeFollower.filterNot(nonSupported)
-      .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition))
 
     def cacheTopicPartitionIds(topicIdPartition: TopicIdPartition): Unit = {
       val maybePreviousTopicId = topicPartitionIds.put(topicIdPartition.topicPartition(), topicIdPartition.topicId())
@@ -257,20 +254,36 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         }
     }
 
-    if (leaderPartitions.nonEmpty || followerPartitions.nonEmpty) {
-      debug(s"Effective topic partitions after filtering compact and internal topics, " +
-        s"leaders: ${leaderPartitions.keySet} and followers: $followerPartitions")
+    /**
+     * The following scenarios are possible when the onLeadershipChange method is invoked:
+     *
+     * 1. LeaderAndIsrRequest arrives before ConfigHandler config change for remoteStorageEnable: In this case, there will be a separate call for config change.
+     * 2. LeaderAndIsrRequest arrives after ConfigHandler config for remoteStorageEnable: In this case, the config changes will not be lost as there is a fetchLog call now to fetch the log updates.
+     * 3. LeaderAndIsrRequest arrives at same time as ConfigHandler config for remoteStorageEnable: Falls in to 1 or 2 above depending on sequencing
+     *
+     * This method is safe for all the three scenarios and will be able to pick up the updated configuration.
+     */
+    onLeadershipChangeLock synchronized {
+      val leaderPartitions = partitionsBecomeLeader.filterNot(nonSupported)
+        .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition) -> p).toMap
+      val followerPartitions = partitionsBecomeFollower.filterNot(nonSupported)
+        .map(p => new TopicIdPartition(topicIds.get(p.topic), p.topicPartition))
 
-      leaderPartitions.keySet.foreach(cacheTopicPartitionIds)
-      followerPartitions.foreach(cacheTopicPartitionIds)
+      if (leaderPartitions.nonEmpty || followerPartitions.nonEmpty) {
+        debug(s"Effective topic partitions after filtering compact and internal topics, " +
+          s"leaders: ${leaderPartitions.keySet} and followers: $followerPartitions")
 
-      remoteLogMetadataManager.onPartitionLeadershipChanges(leaderPartitions.keySet.asJava, followerPartitions.asJava)
-      followerPartitions.foreach {
-        topicIdPartition => doHandleLeaderOrFollowerPartitions(topicIdPartition, _.convertToFollower())
-      }
-      leaderPartitions.foreach {
-        case (topicIdPartition, partition) =>
-          doHandleLeaderOrFollowerPartitions(topicIdPartition, _.convertToLeader(partition.getLeaderEpoch))
+        leaderPartitions.keySet.foreach(cacheTopicPartitionIds)
+        followerPartitions.foreach(cacheTopicPartitionIds)
+
+        remoteLogMetadataManager.onPartitionLeadershipChanges(leaderPartitions.keySet.asJava, followerPartitions.asJava)
+        followerPartitions.foreach {
+          topicIdPartition => doHandleLeaderOrFollowerPartitions(topicIdPartition, _.convertToFollower())
+        }
+        leaderPartitions.foreach {
+          case (topicIdPartition, partition) =>
+            doHandleLeaderOrFollowerPartitions(topicIdPartition, _.convertToLeader(partition.getLeaderEpoch))
+        }
       }
     }
   }

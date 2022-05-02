@@ -28,11 +28,11 @@ import kafka.log.LogConfig._
 import kafka.log.remote.RemoteLogManager
 import kafka.utils._
 import kafka.server.Constants._
-import kafka.zk.ConfigEntityChangeNotificationZNode
+import kafka.zk.{ConfigEntityChangeNotificationZNode, KafkaZkClient}
 import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.{Admin, AlterConfigOp, ConfigEntry}
 import org.apache.kafka.common.{TopicPartition, Uuid}
-import org.apache.kafka.common.config.ConfigResource
+import org.apache.kafka.common.config.{ConfigException, ConfigResource}
 import org.apache.kafka.common.config.internals.QuotaConfigs
 import org.apache.kafka.common.errors.{InvalidRequestException, UnknownTopicOrPartitionException}
 import org.apache.kafka.common.metrics.Quota
@@ -435,6 +435,60 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     assertTrue(followerPartitionsArg.getValue.isEmpty)
     assertEquals(Set(partition), leaderPartitionsArg.getValue)
     verify(partition, rlm, replicaManager, log)
+  }
+
+  @Test
+  def testEnableRemoteLogStorageOnTopicWhenLogReturnsZeroUUIDTopic(): Unit = {
+    val topic = "test-topic"
+    val tp = new TopicPartition(topic, 0)
+    val partition: Partition = mock(classOf[Partition])
+    expect(partition.isLeader).andReturn(true).once()
+    val rlm: RemoteLogManager = mock(classOf[RemoteLogManager])
+    val leaderPartitionsArg = newCapture[Set[Partition]]()
+    val followerPartitionsArg = newCapture[Set[Partition]]()
+    expect(rlm.onLeadershipChange(capture(leaderPartitionsArg), capture(followerPartitionsArg), anyObject())).once()
+    val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+    expect(replicaManager.remoteLogManager).andReturn(Some(rlm)).once()
+    expect(replicaManager.onlinePartition(tp)).andReturn(Some(partition)).once()
+    val log: Log = mock(classOf[Log])
+    expect(log.remoteLogEnabled()).andReturn(true).once()
+    expect(log.topicId).andReturn(Uuid.ZERO_UUID).once()
+    expect(log.topicPartition).andReturn(tp).once()
+    val zkClient: KafkaZkClient  = mock(classOf[KafkaZkClient])
+    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.randomUuid())).once()
+    replay(partition, rlm, replicaManager, log, zkClient)
+
+    val wasRemoteLogEnabledBeforeUpdate = false
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
+    configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> Uuid.randomUuid()), Seq(log), wasRemoteLogEnabledBeforeUpdate)
+    assertTrue(followerPartitionsArg.getValue.isEmpty)
+    assertEquals(Set(partition), leaderPartitionsArg.getValue)
+    verify(partition, rlm, replicaManager, log)
+  }
+
+  @Test
+  def testEnableRemoteLogStorageOnTopicWhenLogAndZkReturnsZeroUUIDTopic(): Unit = {
+    val topic = "test-topic"
+    val tp = new TopicPartition(topic, 0)
+    val partition: Partition = mock(classOf[Partition])
+    expect(partition.isLeader).andReturn(true).once()
+    val rlm: RemoteLogManager = mock(classOf[RemoteLogManager])
+    val leaderPartitionsArg = newCapture[Set[Partition]]()
+    val followerPartitionsArg = newCapture[Set[Partition]]()
+    expect(rlm.onLeadershipChange(capture(leaderPartitionsArg), capture(followerPartitionsArg), anyObject())).once()
+    val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
+    expect(replicaManager.remoteLogManager).andReturn(Some(rlm)).once()
+    expect(replicaManager.onlinePartition(tp)).andReturn(Some(partition)).once()
+    val log: Log = mock(classOf[Log])
+    expect(log.remoteLogEnabled()).andReturn(true).times(2)
+    expect(log.topicId).andReturn(Uuid.ZERO_UUID).once()
+    val zkClient: KafkaZkClient = mock(classOf[KafkaZkClient])
+    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.ZERO_UUID)).once()
+    replay(partition, rlm, replicaManager, log, zkClient)
+
+    val wasRemoteLogEnabledBeforeUpdate = false
+    val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
+    assertThrows(classOf[ConfigException], () => configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> Uuid.randomUuid()), Seq(log), wasRemoteLogEnabledBeforeUpdate))
   }
 
   @Test

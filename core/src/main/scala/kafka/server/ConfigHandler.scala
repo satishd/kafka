@@ -74,15 +74,27 @@ class TopicConfigHandler(private val replicaManager: ReplicaManager,
       // In Kafka v2.8, there is a bug when reading the topicId from the Log. The first LeaderAndIsr notification
       // doesn't set the topic-id in the Log which results to Uuid.ZERO_UUID. This has been fixed in the trunk.
       // So, loading the topic-id from ZK directly.
-      replicaManager.zkClient.map(_.getTopicIdsForTopics(Predef.Set(topic))).foreach { topicIds =>
-        maybeBootstrapRemoteLogComponents(topicIds, logs, wasRemoteLogEnabledBeforeUpdate)
-      }
+      val topicIds = maybeFetchTopicId(topic)
+      maybeBootstrapRemoteLogComponents(topicIds, logs, wasRemoteLogEnabledBeforeUpdate)
     }
+  }
+
+  private def maybeFetchTopicId(topic: String): Map[String, Uuid] = {
+    val topicId = Map(topic -> logs.head.topicId)
+      .filter(entry => entry._2 != Uuid.ZERO_UUID)
+      .getOrElse(topic,
+        replicaManager.zkClient.map(_.getTopicIdsForTopics(Predef.Set(topic))
+          .filter(entry => entry._2 != Uuid.ZERO_UUID))
+          .getOrElse(topic, throw new ConfigException(LogConfig.RemoteLogStorageEnableProp,
+            logs.head.remoteLogEnabled(), s"Error occurred while setting the configuration due to unavailability of topic ids for topic."))
+          )
+    Map(topic -> topicId)
   }
 
   private[server] def maybeBootstrapRemoteLogComponents(topicIds: Map[String, Uuid],
                                                         logs: Seq[Log],
                                                         wasRemoteLogEnabledBeforeUpdate: Boolean): Unit = {
+
     val isRemoteLogEnabled = logs.head.remoteLogEnabled()
     // Topic configs gets updated incrementally. This check is added to prevent redundant updates.
     if (!wasRemoteLogEnabledBeforeUpdate && isRemoteLogEnabled) {
