@@ -524,15 +524,110 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         updateRemoteLogStartOffset(topicPartition, remoteLogStartOffset)
       }
 
+      /*
+      A segment has leader epochs (remote leader epochs). A partition leader has leader epochs (local leader epochs).
+      For a segment to have a good lineage its leader epochs must be within the boundaries of the leader epochs
+      of the partition leader.
+      The first leader epoch in the segment always starts at the first offset of
+      the segment even if the partition leader's leader epoch started at an earlier log offset.
+      The last leader epoch in the segment always finishes at the last offset of
+      the segment even if the partition leader's leader epoch finishes at a further log offset.
+
+      CORRECT
+      Remote:             i1 ===================== i2
+      Local :        <=== j1 ======================================== j2 ===>
+
+      CORRECT
+      Remote:                                i1 ===================== i2
+      Local :        <=== j1 ======================================== j2 ===>
+
+      CORRECT
+      Remote:                      i1 ===================== i2
+      Local :        <=== j1 ======================================== j2 ===>
+
+      The below is a situation where the remote segment has the same leader epoch as the currently
+      ongoing local leader epoch.
+      CORRECT
+      Remote:                                i1 ===================== i2
+      Local :        <=== j1 ===============================================>
+
+      INCORRECT
+      Remote:                                       i1 ===================== i2
+      Local :        <=== j1 ======================================== j2 ===>
+
+      INCORRECT
+      Remote:   i1 ===================== i2
+      Local :        <=== j1 ======================================== j2 ===>
+      */
+      def doesRemoteSegmentHaveGoodLineage(validEpochs: util.TreeMap[Integer, lang.Long],
+                                           segmentMetadata: RemoteLogSegmentMetadata,
+                                           logEndOffset: lang.Long): Boolean = {
+        val segmentEpochs = segmentMetadata.segmentLeaderEpochs()
+        val segmentEndOffset = segmentMetadata.endOffset()
+        val firstSegmentEpochEntry = segmentEpochs.firstEntry()
+        segmentEpochs.entrySet().stream()
+          .allMatch(entry => {
+            val segmentEpochKey = entry.getKey
+            val segmentEpochStartOffset = entry.getValue
+            if (validEpochs.containsKey(segmentEpochKey)) {
+              val validEpochStartOffset = validEpochs.get(segmentEpochKey)
+              val validEpochEndEntry = validEpochs.higherEntry(segmentEpochKey)
+              val remoteEndEntry = segmentEpochs.higherEntry(segmentEpochKey)
+
+              if (validEpochEndEntry == null && remoteEndEntry != null) {
+                // Remote has more entries than local
+                // This should be impossible but we are erring on the side of defining the behaviour
+                val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
+                val topicIdPartition = segmentMetadata.topicIdPartition()
+                val extraneousSegmentLeaderEpoch = remoteEndEntry.getKey
+                warn(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has at least one more leader epoch ($extraneousSegmentLeaderEpoch) than locally ($segmentEpochKey)")
+                false
+              } else if (validEpochEndEntry != null && remoteEndEntry == null) {
+                // Remote has fewer entries than local
+                segmentEpochStartOffset >= validEpochStartOffset && segmentEndOffset < validEpochEndEntry.getValue
+              } else if (validEpochEndEntry != null && remoteEndEntry != null) {
+                // This is not the active leader epoch for both remote and local
+                if (firstSegmentEpochEntry.getKey == segmentEpochKey) {
+                  remoteEndEntry.getKey == validEpochEndEntry.getKey &&
+                    segmentEpochStartOffset >= validEpochStartOffset &&
+                    remoteEndEntry.getValue <= validEpochEndEntry.getValue
+                } else {
+                  remoteEndEntry.getKey == validEpochEndEntry.getKey &&
+                    segmentEpochStartOffset == validEpochStartOffset &&
+                    remoteEndEntry.getValue <= validEpochEndEntry.getValue
+                }
+              } else {
+                // This is the active leader epoch
+                segmentEndOffset < logEndOffset
+              }
+            } else {
+              val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
+              val topicIdPartition = segmentMetadata.topicIdPartition()
+              warn(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has a leader epoch ($segmentEpochKey) not found locally")
+              false
+            }
+          })
+      }
+
       def totalLogSize(segmentMetadataList: scala.Seq[RemoteLogSegmentMetadata], log: Log): Long = {
         val localLogStartOffset = log.localLogStartOffset // Cache the value
+
+        val validLeaderEpochs = fromLeaderEpochCacheToEpochs(log)
+
         val remoteOnlyLogSize = segmentMetadataList
           .filter(_.endOffset() < localLogStartOffset)
+          .filter(segmentMetadata => {
+            doesRemoteSegmentHaveGoodLineage(validLeaderEpochs, segmentMetadata, log.logEndOffset)
+          })
           .map(_.segmentSizeInBytes()).sum
 
         val localLogSize = log.validLogSegmentsSize
 
         localLogSize + remoteOnlyLogSize
+      }
+
+      def fromLeaderEpochCacheToEpochs(log: Log): util.TreeMap[Integer, lang.Long] = {
+        log.leaderEpochCache.map(_.getEpochs).getOrElse(new util.TreeMap)
       }
 
       try {

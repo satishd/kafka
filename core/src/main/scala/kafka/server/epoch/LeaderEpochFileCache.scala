@@ -18,7 +18,6 @@ package kafka.server.epoch
 
 import java.util
 import java.util.concurrent.locks.ReentrantReadWriteLock
-
 import kafka.server.checkpoints.LeaderEpochCheckpoint
 import kafka.utils.CoreUtils._
 import kafka.utils.Logging
@@ -327,6 +326,12 @@ class LeaderEpochFileCache(topicPartition: TopicPartition,
 
   // Visible for testing
   def epochEntries: Seq[EpochEntry] = epochs.values.asScala.toSeq
+
+  def getEpochs: util.TreeMap[Integer, java.lang.Long] = {
+    val navigableMap = new util.TreeMap[Integer, java.lang.Long]()
+    epochs.values().forEach(entry => navigableMap.put(entry.epoch, entry.startOffset))
+    navigableMap
+  }
 
   private def flush(): Unit = {
     checkpoint.write(epochs.values.asScala)

@@ -546,6 +546,8 @@ class RemoteLogManagerTest {
     epochCheckpoints.foreach { case (epoch, startOffset) => cache.assign(epoch, startOffset) }
     val currentLeaderEpoch = epochCheckpoints.last._1
 
+    val localLogSegmentsSize = 500L
+
     val logConfig: LogConfig = createMock(classOf[LogConfig])
     expect(logConfig.retentionMs).andReturn(1).anyTimes()
     expect(logConfig.retentionSize).andReturn(-1).anyTimes()
@@ -553,7 +555,9 @@ class RemoteLogManagerTest {
     val log: Log = createMock(classOf[Log])
     expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
     expect(log.config).andReturn(logConfig).anyTimes()
-    expect(log.validLogSegmentsSize).andReturn(0).anyTimes()
+    expect(log.logEndOffset).andReturn(segmentCount * recordsPerSegment + 1).anyTimes()
+    expect(log.size).andReturn(0).anyTimes()
+    expect(log.validLogSegmentsSize).andReturn(localLogSegmentsSize).anyTimes()
     val localLogStartOffset = recordsPerSegment * segmentCount
     expect(log.localLogStartOffset).andReturn(localLogStartOffset).anyTimes()
 
@@ -617,6 +621,7 @@ class RemoteLogManagerTest {
     val log: Log = createMock(classOf[Log])
     expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
     expect(log.config).andReturn(logConfig).anyTimes()
+    expect(log.logEndOffset).andReturn(segmentCount * recordsPerSegment + 1).anyTimes()
     expect(log.validLogSegmentsSize).andReturn(localLogSegmentsSize).anyTimes()
     val localLogStartOffset = recordsPerSegment * segmentCount - overlappingLogSegmentsSize
     expect(log.localLogStartOffset).andReturn(localLogStartOffset).anyTimes()
@@ -630,7 +635,7 @@ class RemoteLogManagerTest {
         override private[remote] def createRemoteStorageManager(): ClassLoaderAwareRemoteStorageManager = rsmManager
         override private[remote] def createRemoteLogMetadataManager() = rlmmManager
       }
-    val segmentMetadataList = listRemoteLogSegmentMetadata(segmentCount, recordsPerSegment)
+    val segmentMetadataList = listRemoteLogSegmentMetadataWithFaultyRemoteSegments(segmentCount, recordsPerSegment)
     expect(rlmmManager.highestOffsetForEpoch(EasyMock.eq(topicIdPartition), anyInt()))
       .andReturn(Optional.empty()).anyTimes()
     expect(rlmmManager.listRemoteLogSegments(topicIdPartition)).andReturn(segmentMetadataList.iterator.asJava).anyTimes()
@@ -683,9 +688,11 @@ class RemoteLogManagerTest {
     val log: Log = createMock(classOf[Log])
     expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
     expect(log.config).andReturn(logConfig).anyTimes()
+    expect(log.logEndOffset).andReturn(segmentCount * recordsPerSegment + 1).anyTimes()
     expect(log.validLogSegmentsSize).andReturn(localLogSegmentsSize).anyTimes()
     val localLogStartOffset = recordsPerSegment * segmentCount - overlappingLogSegmentsSize
     expect(log.localLogStartOffset).andReturn(localLogStartOffset).anyTimes()
+
 
     var logStartOffset: Option[Long] = None
     val rsmManager: ClassLoaderAwareRemoteStorageManager = createMock(classOf[ClassLoaderAwareRemoteStorageManager])
@@ -1010,6 +1017,59 @@ class RemoteLogManagerTest {
 
   private def listRemoteLogSegmentMetadata(segmentCount: Int, recordsPerSegment: Int): List[RemoteLogSegmentMetadata] = {
     listRemoteLogSegmentMetadataByTime(segmentCount, 0, recordsPerSegment)
+  }
+
+  private def faultyFirstEntry(firstEntry: RemoteLogSegmentMetadata): RemoteLogSegmentMetadata = {
+    val remoteEpochs = firstEntry.segmentLeaderEpochs()
+    val firstEpoch = remoteEpochs.firstEntry()
+    val secondEpoch = remoteEpochs.higherEntry(firstEpoch.getKey)
+    val faultyEpochs = new util.TreeMap[Integer, lang.Long]()
+    faultyEpochs.put(firstEpoch.getKey, firstEpoch.getValue)
+    faultyEpochs.put(secondEpoch.getKey, secondEpoch.getValue + 1)
+    faultyEpochs.putAll(remoteEpochs.subMap(secondEpoch.getKey, false, remoteEpochs.lastKey(), true))
+    new RemoteLogSegmentMetadata(
+      firstEntry.remoteLogSegmentId(),
+      firstEntry.startOffset(),
+      firstEntry.endOffset(),
+      firstEntry.maxTimestampMs(),
+      firstEntry.brokerId(),
+      firstEntry.eventTimestampMs(),
+      firstEntry.segmentSizeInBytes(),
+      faultyEpochs
+    )
+  }
+
+  private def faultyLastEntry(lastEntry: RemoteLogSegmentMetadata): RemoteLogSegmentMetadata = {
+    val remoteEpochs = lastEntry.segmentLeaderEpochs()
+    val lastEpoch = remoteEpochs.lastEntry()
+    val faultyEpochs = new util.TreeMap[Integer, lang.Long]()
+    faultyEpochs.putAll(remoteEpochs.subMap(remoteEpochs.firstKey(), true, remoteEpochs.lastKey(), false))
+    faultyEpochs.put(lastEpoch.getKey, lastEpoch.getValue - 1)
+    new RemoteLogSegmentMetadata(
+      lastEntry.remoteLogSegmentId(),
+      lastEntry.startOffset(),
+      lastEntry.endOffset(),
+      lastEntry.maxTimestampMs(),
+      lastEntry.brokerId(),
+      lastEntry.eventTimestampMs(),
+      lastEntry.segmentSizeInBytes(),
+      faultyEpochs
+    )
+  }
+
+  private def listRemoteLogSegmentMetadataWithFaultyRemoteSegments(segmentCount: Int, recordsPerSegment: Int): List[RemoteLogSegmentMetadata] = {
+    val correctList = listRemoteLogSegmentMetadata(segmentCount, recordsPerSegment)
+    val firstEntry = correctList(0)
+    val lastEntry = correctList(correctList.length - 1)
+    // We want the first leader epoch in the first entry to end higher than the local one
+    // and the last leader epoch in the last entry to start lower than the local one.
+    // To achieve the first we need to increase the start offset of the second leader epoch
+    // in the remote entry by one.
+    // To achieve the second we need to decrease the start offset of the last leader epoch
+    // by one.
+    val crookedFirstEntry = faultyFirstEntry(firstEntry)
+    val crookedLastEntry = faultyLastEntry(lastEntry)
+    crookedFirstEntry +: correctList :+ crookedLastEntry
   }
 
   private def nonExistentTempFile(): File = {
