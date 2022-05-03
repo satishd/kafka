@@ -621,6 +621,10 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     indexCache.lookupOffset(remoteLogSegmentMetadata, offset)
   }
 
+  /*
+   WARNING: Not all code-paths through the below function have been covered by unit tests.
+   Ensure that if you modify something you add tests!
+   */
   def read(remoteStorageFetchInfo: RemoteStorageFetchInfo): FetchDataInfo = {
     val fetchMaxBytes  = remoteStorageFetchInfo.fetchMaxBytes
     val tp = remoteStorageFetchInfo.topicPartition
@@ -631,23 +635,17 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     val offset = fetchInfo.fetchOffset
     val maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes)
 
-    // get the epoch for the requested  offset from local leader epoch cache
-    // FIXME(@kamal), use the epochForOffset API instead of latest epoch.
-    //  val epoch = fetchLog(tp).map(log => log.leaderEpochCache.map(cache => cache.epochForOffset()))
-    var rlsMetadata: Optional[RemoteLogSegmentMetadata] = Optional.empty()
-    fetchLog(tp).foreach { log =>
-      log.leaderEpochCache.foreach(cache => {
-        var epoch = cache.latestEpoch
-        while (!rlsMetadata.isPresent && epoch.isDefined) {
-          rlsMetadata = fetchRemoteLogSegmentMetadata(tp, epoch.get, offset)
-          epoch = cache.findPreviousEpoch(epoch.get)
-        }
-      })
+    val epoch = fetchLog(tp).flatMap(log => log.leaderEpochCache.flatMap(cache => cache.epochForOffset(offset)))
+    val rlsMetadata = if (epoch.isDefined) {
+      fetchRemoteLogSegmentMetadata(tp, epoch.get, offset)
+    } else {
+      Optional.empty()
     }
 
     if (!rlsMetadata.isPresent) {
+      val epochStr = if (epoch.isDefined) epoch.get.toString else "NOT AVAILABLE"
       throw new OffsetOutOfRangeException(
-        s"Received request for offset $offset for partition $tp which does not exist in remote tier. Try again later.")
+        s"Received request for offset $offset for leader epoch $epochStr and partition $tp which does not exist in remote tier. Try again later.")
     }
 
     val startPos = lookupPositionForOffset(rlsMetadata.get(), offset)
@@ -657,24 +655,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
       remoteSegInputStream = remoteLogStorageManager.fetchLogSegment(rlsMetadata.get(), startPos)
       val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
 
-      def findFirstBatch(): RecordBatch = {
-        var nextBatch: RecordBatch = null
-
-        def iterateNextBatch(): RecordBatch = {
-          nextBatch = remoteLogInputStream.nextBatch()
-          nextBatch
-        }
-        // Look for the batch which has the desired offset
-        // we will always have a batch in that segment as it is a non-compacted topic. For compacted topics, we may need
-        //to read from the subsequent segments if there is no batch available for the desired offset in the current
-        //segment. That means, desired offset is more than last offset of the current segment and immediate available
-        //offset exists in the next segment which can be higher than the desired offset.
-        while (iterateNextBatch() != null && nextBatch.lastOffset < offset) {
-        }
-        nextBatch
-      }
-
-      val firstBatch = findFirstBatch()
+      val firstBatch = findFirstBatch(remoteLogInputStream, offset)
 
       if (firstBatch == null)
         return FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.EMPTY,
@@ -705,6 +686,23 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     } finally {
       Utils.closeQuietly(remoteSegInputStream, "RemoteLogSegmentInputStream")
     }
+  }
+
+  private[remote] def findFirstBatch(remoteLogInputStream: RemoteLogInputStream, offset: Long): RecordBatch = {
+    var nextBatch: RecordBatch = null
+
+    def iterateNextBatch(): RecordBatch = {
+      nextBatch = remoteLogInputStream.nextBatch()
+      nextBatch
+    }
+    // Look for the batch which has the desired offset
+    // we will always have a batch in that segment as it is a non-compacted topic. For compacted topics, we may need
+    //to read from the subsequent segments if there is no batch available for the desired offset in the current
+    //segment. That means, desired offset is more than last offset of the current segment and immediate available
+    //offset exists in the next segment which can be higher than the desired offset.
+    while (iterateNextBatch() != null && nextBatch.lastOffset < offset) {
+    }
+    nextBatch
   }
 
   private[remote] def addAbortedTransactions(startOffset: Long,

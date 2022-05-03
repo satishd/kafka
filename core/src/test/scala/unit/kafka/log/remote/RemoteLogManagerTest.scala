@@ -23,14 +23,16 @@ import kafka.server.checkpoints.{LeaderEpochCheckpoint, LeaderEpochCheckpointFil
 import kafka.server.epoch.{EpochEntry, LeaderEpochFileCache}
 import kafka.utils.{MockTime, TestUtils}
 import org.apache.kafka.common.config.AbstractConfig
+import org.apache.kafka.common.errors.OffsetOutOfRangeException
 import org.apache.kafka.common.record._
+import org.apache.kafka.common.requests.FetchRequest.PartitionData
 import org.apache.kafka.common.utils.Utils
 import org.apache.kafka.common.{TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType
 import org.apache.kafka.server.log.remote.storage._
 import org.easymock.{CaptureType, EasyMock}
 import org.easymock.EasyMock._
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertThrows, assertTrue}
 import org.junit.jupiter.api.{AfterEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -763,6 +765,93 @@ class RemoteLogManagerTest {
 
     val lag = brokerTopicStats.tierLagStats(topicIdPartition.topicPartition().topic()).lag()
     assertEquals(10L, lag)
+  }
+
+  @Test
+  def testReadThrowsWhenWeCannotFindEpochAssociatedWithOffset(): Unit = {
+    val partitionData = new PartitionData(0, 0, 0, Optional.empty())
+
+    val fetchInfo: RemoteStorageFetchInfo = createMock(classOf[RemoteStorageFetchInfo])
+    expect(fetchInfo.fetchMaxBytes).andReturn(0).anyTimes()
+    expect(fetchInfo.topicPartition).andReturn(topicPartition)
+    expect(fetchInfo.fetchInfo).andReturn(partitionData)
+    expect(fetchInfo.fetchIsolation).andReturn(FetchTxnCommitted)
+
+    replay(fetchInfo)
+
+    val remoteLogManager = new RemoteLogManager(_ => Option.empty, (_, _) => {}, rlmConfig, time, brokerId = 1,
+      clusterId, logsDir, brokerTopicStats)
+
+    assertThrows(classOf[OffsetOutOfRangeException], () => remoteLogManager.read(fetchInfo))
+  }
+
+  @Test
+  def testReadThrowsWhenWeCanFindEpochAssociatedWithOffsetRemoteMetadata(): Unit = {
+    val cache: LeaderEpochFileCache = createMock(classOf[LeaderEpochFileCache])
+    expect(cache.epochForOffset(anyLong())).andReturn(Option.empty)
+
+    val log: Log = createMock(classOf[Log])
+    expect(log.leaderEpochCache).andReturn(Option(cache))
+
+    val partitionData = new PartitionData(0, 0, 0, Optional.empty())
+
+    val fetchInfo: RemoteStorageFetchInfo = createMock(classOf[RemoteStorageFetchInfo])
+    expect(fetchInfo.fetchMaxBytes).andReturn(0)
+    expect(fetchInfo.topicPartition).andReturn(topicPartition)
+    expect(fetchInfo.fetchInfo).andReturn(partitionData)
+    expect(fetchInfo.fetchIsolation).andReturn(FetchTxnCommitted)
+
+    replay(fetchInfo, log, cache)
+
+    val remoteLogManager = new RemoteLogManager(_ => Option(log), (_, _) => {}, rlmConfig, time, brokerId = 1,
+      clusterId, logsDir, brokerTopicStats)
+
+    assertThrows(classOf[OffsetOutOfRangeException], () => remoteLogManager.read(fetchInfo))
+  }
+
+  @Test
+  def testReadPasses(): Unit = {
+    val rsmManager: ClassLoaderAwareRemoteStorageManager = createMock(classOf[ClassLoaderAwareRemoteStorageManager])
+    expect(rsmManager.fetchLogSegment(anyObject(), anyInt())).andReturn(createMock(classOf[FileInputStream]))
+
+    val rlsMetadata: RemoteLogSegmentMetadata = createMock(classOf[RemoteLogSegmentMetadata])
+
+    val cache: LeaderEpochFileCache = createMock(classOf[LeaderEpochFileCache])
+    expect(cache.epochForOffset(anyLong())).andReturn(Option(1))
+
+    val log: Log = createMock(classOf[Log])
+    expect(log.leaderEpochCache).andReturn(Option(cache))
+
+    val partitionData = new PartitionData(0, 0, 0, Optional.empty())
+
+    val fetchInfo: RemoteStorageFetchInfo = createMock(classOf[RemoteStorageFetchInfo])
+    expect(fetchInfo.fetchMaxBytes).andReturn(0)
+    expect(fetchInfo.topicPartition).andReturn(topicPartition)
+    expect(fetchInfo.fetchInfo).andReturn(partitionData)
+    expect(fetchInfo.fetchIsolation).andReturn(FetchTxnCommitted)
+
+    replay(fetchInfo, log, cache, rsmManager)
+
+    val remoteLogManager = new RemoteLogManager(_ => Option(log), (_, _) => {}, rlmConfig, time, brokerId = 1,
+      clusterId, logsDir, brokerTopicStats) {
+      override private[remote] def createRemoteStorageManager(): ClassLoaderAwareRemoteStorageManager =
+        rsmManager
+
+      override def fetchRemoteLogSegmentMetadata(tp: TopicPartition,
+                                                 epochForOffset: Int,
+                                                 offset: Long): Optional[RemoteLogSegmentMetadata] =
+        Optional.of(rlsMetadata)
+
+      override def lookupPositionForOffset(remoteLogSegmentMetadata: RemoteLogSegmentMetadata,
+                                           offset: Long): Int = 1
+
+      override private[remote] def findFirstBatch(remoteLogInputStream: RemoteLogInputStream, offset: Long): RecordBatch = null
+    }
+
+    val fetchDataInfo = remoteLogManager.read(fetchInfo)
+    assertEquals(0, fetchDataInfo.fetchOffsetMetadata.messageOffset)
+    assertEquals(MemoryRecords.EMPTY, fetchDataInfo.records)
+    assertEquals(Some(List.empty), fetchDataInfo.abortedTransactions)
   }
 
   private def listRemoteLogSegmentMetadataByTime(segmentCount: Int,
