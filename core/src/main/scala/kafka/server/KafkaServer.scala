@@ -55,10 +55,6 @@ import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.zookeeper.client.ZKClientConfig
 
-import java.io.{File, IOException}
-import java.net.{InetAddress, SocketTimeoutException}
-import java.util.concurrent._
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import scala.collection.{Map, Seq}
 import scala.jdk.CollectionConverters._
 
