@@ -553,7 +553,9 @@ class RemoteLogManagerTest {
     val log: Log = createMock(classOf[Log])
     expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
     expect(log.config).andReturn(logConfig).anyTimes()
-    expect(log.size).andReturn(0).anyTimes()
+    expect(log.validLogSegmentsSize).andReturn(0).anyTimes()
+    val localLogStartOffset = recordsPerSegment * segmentCount
+    expect(log.localLogStartOffset).andReturn(localLogStartOffset).anyTimes()
 
     var logStartOffset: Option[Long] = None
     val rsmManager: ClassLoaderAwareRemoteStorageManager = createMock(classOf[ClassLoaderAwareRemoteStorageManager])
@@ -607,7 +609,7 @@ class RemoteLogManagerTest {
 
     val overlappingLogSegmentsSize = 3 * recordsPerSegment
     val localLogSegmentsSize = 500L + overlappingLogSegmentsSize
-    val retentionSize = (segmentCount - deletableSegmentCount) * 100 + (localLogSegmentsSize - overlappingLogSegmentsSize)
+    val retentionSize = ((segmentCount - deletableSegmentCount) * recordsPerSegment) + (localLogSegmentsSize - overlappingLogSegmentsSize)
     val logConfig: LogConfig = createMock(classOf[LogConfig])
     expect(logConfig.retentionMs).andReturn(-1).anyTimes()
     expect(logConfig.retentionSize).andReturn(retentionSize).anyTimes()
@@ -671,8 +673,9 @@ class RemoteLogManagerTest {
     epochCheckpoints.foreach { case (epoch, startOffset) => cache.assign(epoch, startOffset) }
     val currentLeaderEpoch = epochCheckpoints.last._1
 
-    val localLogSegmentsSize = 500L
-    val retentionSize = (segmentCount - deletableSegmentCountBySize) * 100 + localLogSegmentsSize
+    val overlappingLogSegmentsSize = 3 * recordsPerSegment
+    val localLogSegmentsSize = 500L + overlappingLogSegmentsSize
+    val retentionSize = (segmentCount - deletableSegmentCountBySize) * recordsPerSegment + (localLogSegmentsSize - overlappingLogSegmentsSize)
     val logConfig: LogConfig = createMock(classOf[LogConfig])
     expect(logConfig.retentionMs).andReturn(1).anyTimes()
     expect(logConfig.retentionSize).andReturn(retentionSize).anyTimes()
@@ -680,7 +683,9 @@ class RemoteLogManagerTest {
     val log: Log = createMock(classOf[Log])
     expect(log.leaderEpochCache).andReturn(Option(cache)).anyTimes()
     expect(log.config).andReturn(logConfig).anyTimes()
-    expect(log.size).andReturn(localLogSegmentsSize).anyTimes()
+    expect(log.validLogSegmentsSize).andReturn(localLogSegmentsSize).anyTimes()
+    val localLogStartOffset = recordsPerSegment * segmentCount - overlappingLogSegmentsSize
+    expect(log.localLogStartOffset).andReturn(localLogStartOffset).anyTimes()
 
     var logStartOffset: Option[Long] = None
     val rsmManager: ClassLoaderAwareRemoteStorageManager = createMock(classOf[ClassLoaderAwareRemoteStorageManager])
