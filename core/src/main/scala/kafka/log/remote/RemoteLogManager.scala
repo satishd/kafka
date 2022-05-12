@@ -48,6 +48,7 @@ import scala.collection.Searching._
 import scala.collection.mutable.ListBuffer
 import scala.collection.{Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
+import scala.jdk.OptionConverters.RichOptional
 
 class RLMScheduledThreadPool(poolSize: Int) extends Logging {
 
@@ -636,23 +637,17 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     val maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes)
 
     val epoch = fetchLog(tp).flatMap(log => log.leaderEpochCache.flatMap(cache => cache.epochForOffset(offset)))
-    val rlsMetadata = if (epoch.isDefined) {
-      fetchRemoteLogSegmentMetadata(tp, epoch.get, offset)
-    } else {
-      Optional.empty()
-    }
-
-    if (!rlsMetadata.isPresent) {
-      val epochStr = if (epoch.isDefined) epoch.get.toString else "NOT AVAILABLE"
+    val rlsMetadata = epoch.flatMap(epoch => fetchRemoteLogSegmentMetadata(tp, epoch, offset).toScala).getOrElse(
       throw new OffsetOutOfRangeException(
-        s"Received request for offset $offset for leader epoch $epochStr and partition $tp which does not exist in remote tier. Try again later.")
-    }
+        s"Received request for offset $offset for leader epoch ${epoch.map(_.toString).getOrElse("NOT AVAILABLE")} " +
+          s"and partition $tp which does not exist in remote tier. Try again later.")
+    )
 
-    val startPos = lookupPositionForOffset(rlsMetadata.get(), offset)
+    val startPos = lookupPositionForOffset(rlsMetadata, offset)
     var remoteSegInputStream: InputStream = null
     try {
       // Search forward for the position of the last offset that is greater than or equal to the target offset
-      remoteSegInputStream = remoteLogStorageManager.fetchLogSegment(rlsMetadata.get(), startPos)
+      remoteSegInputStream = remoteLogStorageManager.fetchLogSegment(rlsMetadata, startPos)
       val remoteLogInputStream = new RemoteLogInputStream(remoteSegInputStream)
 
       val firstBatch = findFirstBatch(remoteLogInputStream, offset)
@@ -680,7 +675,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
 
       var fetchDataInfo = FetchDataInfo(LogOffsetMetadata(offset), MemoryRecords.readableRecords(buffer))
       if (includeAbortedTxns) {
-        fetchDataInfo = addAbortedTransactions(firstBatch.baseOffset(), rlsMetadata.get(), fetchDataInfo)
+        fetchDataInfo = addAbortedTransactions(firstBatch.baseOffset(), rlsMetadata, fetchDataInfo)
       }
       fetchDataInfo
     } finally {
@@ -761,7 +756,7 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     val topicPartition = segmentMetadata.topicIdPartition().topicPartition()
     val nextSegmentBaseOffset = segmentMetadata.endOffset()+1
     var epoch = Option(segmentMetadata.segmentLeaderEpochs().lastEntry().getKey.toInt)
-    var result: Option[RemoteLogSegmentMetadata] = Option.empty;
+    var result: Option[RemoteLogSegmentMetadata] = Option.empty
     fetchLog(topicPartition).foreach ( log => {
       log.leaderEpochCache.foreach( cache => {
         while (result.isEmpty && epoch.isDefined) {
