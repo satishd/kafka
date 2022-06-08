@@ -414,7 +414,6 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
   @Test
   def testEnableRemoteLogStorageOnTopic(): Unit = {
     val topic = "test-topic"
-    val topicId = Uuid.randomUuid()
     val tp = new TopicPartition(topic, 0)
     val partition: Partition = mock(classOf[Partition])
     expect(partition.isLeader).andReturn(true).once()
@@ -428,10 +427,11 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val log: Log = mock(classOf[Log])
     expect(log.remoteLogEnabled()).andReturn(true).once()
     expect(log.topicPartition).andReturn(tp).once()
+    expect(log.topicId).andReturn(Uuid.randomUuid()).once()
     replay(partition, rlm, replicaManager, log)
     val isRemoteLogEnabledBeforeUpdate = false
     val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
-    configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> topicId), Seq(log), isRemoteLogEnabledBeforeUpdate)
+    configHandler.maybeBootstrapRemoteLogComponents(topic, Seq(log), isRemoteLogEnabledBeforeUpdate)
     assertTrue(followerPartitionsArg.getValue.isEmpty)
     assertEquals(Set(partition), leaderPartitionsArg.getValue)
     verify(partition, rlm, replicaManager, log)
@@ -447,20 +447,21 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val leaderPartitionsArg = newCapture[Set[Partition]]()
     val followerPartitionsArg = newCapture[Set[Partition]]()
     expect(rlm.onLeadershipChange(capture(leaderPartitionsArg), capture(followerPartitionsArg), anyObject())).once()
+    val zkClient: KafkaZkClient  = mock(classOf[KafkaZkClient])
+    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.randomUuid())).once()
     val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
     expect(replicaManager.remoteLogManager).andReturn(Some(rlm)).once()
     expect(replicaManager.onlinePartition(tp)).andReturn(Some(partition)).once()
+    expect(replicaManager.zkClient).andReturn(Some(zkClient)).once()
     val log: Log = mock(classOf[Log])
     expect(log.remoteLogEnabled()).andReturn(true).once()
     expect(log.topicId).andReturn(Uuid.ZERO_UUID).once()
     expect(log.topicPartition).andReturn(tp).once()
-    val zkClient: KafkaZkClient  = mock(classOf[KafkaZkClient])
-    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.randomUuid())).once()
     replay(partition, rlm, replicaManager, log, zkClient)
 
     val wasRemoteLogEnabledBeforeUpdate = false
     val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
-    configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> Uuid.randomUuid()), Seq(log), wasRemoteLogEnabledBeforeUpdate)
+    configHandler.maybeBootstrapRemoteLogComponents(topic, Seq(log), wasRemoteLogEnabledBeforeUpdate)
     assertTrue(followerPartitionsArg.getValue.isEmpty)
     assertEquals(Set(partition), leaderPartitionsArg.getValue)
     verify(partition, rlm, replicaManager, log)
@@ -476,25 +477,25 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     val leaderPartitionsArg = newCapture[Set[Partition]]()
     val followerPartitionsArg = newCapture[Set[Partition]]()
     expect(rlm.onLeadershipChange(capture(leaderPartitionsArg), capture(followerPartitionsArg), anyObject())).once()
+    val zkClient: KafkaZkClient = mock(classOf[KafkaZkClient])
+    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.ZERO_UUID)).once()
     val replicaManager: ReplicaManager = mock(classOf[ReplicaManager])
     expect(replicaManager.remoteLogManager).andReturn(Some(rlm)).once()
     expect(replicaManager.onlinePartition(tp)).andReturn(Some(partition)).once()
+    expect(replicaManager.zkClient).andReturn(Some(zkClient)).once()
     val log: Log = mock(classOf[Log])
     expect(log.remoteLogEnabled()).andReturn(true).times(2)
     expect(log.topicId).andReturn(Uuid.ZERO_UUID).once()
-    val zkClient: KafkaZkClient = mock(classOf[KafkaZkClient])
-    expect(zkClient.getTopicIdsForTopics(EasyMock.anyObject())).andReturn(Map(topic -> Uuid.ZERO_UUID)).once()
     replay(partition, rlm, replicaManager, log, zkClient)
 
     val wasRemoteLogEnabledBeforeUpdate = false
     val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
-    assertThrows(classOf[ConfigException], () => configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> Uuid.randomUuid()), Seq(log), wasRemoteLogEnabledBeforeUpdate))
+    assertThrows(classOf[ConfigException], () => configHandler.maybeBootstrapRemoteLogComponents(topic, Seq(log), wasRemoteLogEnabledBeforeUpdate))
   }
 
   @Test
   def testDisableRemoteLogStorageOnTopic(): Unit = {
     val topic = "test-topic"
-    val topicId = Uuid.randomUuid()
     val tp = new TopicPartition(topic, 0)
     val partition: Partition = mock(classOf[Partition])
     expect(partition.isLeader).andReturn(true).once()
@@ -509,11 +510,12 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     expect(log.remoteLogEnabled()).andReturn(false).times(2)
     expect(log.maybeIncrementLogStartOffsetAsRemoteLogStorageDisabled()).andReturn(true).times(2)
     expect(log.topicPartition).andReturn(tp).times(2)
+    expect(log.topicId).andReturn(Uuid.randomUuid()).times(2)
     replay(partition, rlm, replicaManager, log)
     val isRemoteLogEnabledBeforeUpdate = true
     val configHandler: TopicConfigHandler = new TopicConfigHandler(replicaManager, null, null, null)
-    configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> topicId), Seq(log), isRemoteLogEnabledBeforeUpdate)
-    configHandler.maybeBootstrapRemoteLogComponents(Map(topic -> topicId), Seq(log), isRemoteLogEnabledBeforeUpdate)
+    configHandler.maybeBootstrapRemoteLogComponents(topic, Seq(log), isRemoteLogEnabledBeforeUpdate)
+    configHandler.maybeBootstrapRemoteLogComponents(topic, Seq(log), isRemoteLogEnabledBeforeUpdate)
     verify(partition, rlm, replicaManager, log)
   }
 
