@@ -56,7 +56,7 @@ trait ConfigHandler {
 class TopicConfigHandler(private val replicaManager: ReplicaManager,
                          kafkaConfig: KafkaConfig, val quotas: QuotaManagers, kafkaController: KafkaController) extends ConfigHandler with Logging  {
 
-  private[server] def updateLogConfig(topic: String,
+  private def updateLogConfig(topic: String,
                               topicConfig: Properties,
                               configNamesToExclude: Set[String]): Unit = {
     val logManager = replicaManager.logManager
