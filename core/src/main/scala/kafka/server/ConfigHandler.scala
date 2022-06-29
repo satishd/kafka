@@ -80,15 +80,13 @@ class TopicConfigHandler(private val replicaManager: ReplicaManager,
                                                         wasRemoteLogEnabledBeforeUpdate: Boolean): Unit = {
 
     def maybeFetchTopicId(topic: String, logs: Seq[Log]): Map[String, Uuid] = {
-      val topicId = Map(topic -> logs.head.topicId)
+      val topicId = replicaManager.zkClient.getOrElse(throw new ConfigException(LogConfig.RemoteLogStorageEnableProp,
+        logs.head.remoteLogEnabled(), s"Error occurred while setting the configuration as ZkClient is missing"))
+        .getTopicIdsForTopics(Predef.Set(topic))
         .filter(entry => entry._2 != Uuid.ZERO_UUID)
-        .getOrElse(topic,
-          replicaManager.zkClient.map(_.getTopicIdsForTopics(Predef.Set(topic))
-            .filter(entry => entry._2 != Uuid.ZERO_UUID)
-            .getOrElse(topic, throw new ConfigException(LogConfig.RemoteLogStorageEnableProp,
-              logs.head.remoteLogEnabled(), s"Error occurred while setting the configuration due to unavailability of topic ids for $topic")))
-            .getOrElse(throw new ConfigException(LogConfig.RemoteLogStorageEnableProp,
-              logs.head.remoteLogEnabled(), s"Error occurred while setting the configuration as ZkClient is missing")))
+        .getOrElse(topic, throw new ConfigException(LogConfig.RemoteLogStorageEnableProp,
+          logs.head.remoteLogEnabled(), s"Error occurred while setting the configuration due to unavailability of topic ids for $topic"))
+
       Map(topic -> topicId)
     }
 
