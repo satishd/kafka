@@ -2772,7 +2772,7 @@ class LogTest {
     val rlm: RemoteLogManager = EasyMock.niceMock(classOf[RemoteLogManager])
     val remoteTimestampAndOffset = new TimestampAndOffset(2, 2L, Optional.of(2))
 
-    EasyMock.expect(rlm.findOffsetByTimestamp(anyObject(), anyObject(), anyObject(), anyObject()))
+    EasyMock.expect(rlm.findOffsetByTimestamp(anyObject(), anyObject(), anyObject(), anyObject(), anyObject()))
       .andReturn(Some(remoteTimestampAndOffset))
       .andReturn(None)
     EasyMock.replay(rlm)

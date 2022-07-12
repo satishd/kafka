@@ -367,6 +367,98 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
     checkpoint
   }
 
+  /*
+A segment has leader epochs (remote leader epochs). A partition leader has leader epochs (local leader epochs).
+For a segment to have a good lineage its leader epochs must be within the boundaries of the leader epochs
+of the partition leader.
+The first leader epoch in the segment always starts at the first offset of
+the segment even if the partition leader's leader epoch started at an earlier log offset.
+The last leader epoch in the segment always finishes at the last offset of
+the segment even if the partition leader's leader epoch finishes at a further log offset.
+
+CORRECT
+Remote:             i1 ===================== i2
+Local :        <=== j1 ======================================== j2 ===>
+
+CORRECT
+Remote:                                i1 ===================== i2
+Local :        <=== j1 ======================================== j2 ===>
+
+CORRECT
+Remote:                      i1 ===================== i2
+Local :        <=== j1 ======================================== j2 ===>
+
+The below is a situation where the remote segment has the same leader epoch as the currently
+ongoing local leader epoch.
+CORRECT
+Remote:                                i1 ===================== i2
+Local :        <=== j1 ===============================================>
+
+INCORRECT
+Remote:                                       i1 ===================== i2
+Local :        <=== j1 ======================================== j2 ===>
+
+INCORRECT
+Remote:   i1 ===================== i2
+Local :        <=== j1 ======================================== j2 ===>
+*/
+  private[remote] def isRemoteSegmentConsistentWithLeaderLineage(validEpochs: util.TreeMap[Integer, lang.Long],
+                                                                 segmentMetadata: RemoteLogSegmentMetadata,
+                                                                 logEndOffset: lang.Long): lang.Boolean = {
+    val segmentEpochs = segmentMetadata.segmentLeaderEpochs()
+    val segmentEndOffset = segmentMetadata.endOffset()
+    val firstEpochInSegmentEntry = segmentEpochs.firstEntry()
+    segmentEpochs.entrySet().stream()
+      .allMatch(entry => {
+        val segmentEpochKey = entry.getKey
+        val segmentEpochStartOffset = entry.getValue
+        if (validEpochs.containsKey(segmentEpochKey)) {
+          val validEpochStartOffset = validEpochs.get(segmentEpochKey)
+          val validEpochNextEntry = validEpochs.higherEntry(segmentEpochKey)
+          val remoteSegmentEpochNextEntry = segmentEpochs.higherEntry(segmentEpochKey)
+
+          if (validEpochNextEntry == null && remoteSegmentEpochNextEntry != null) {
+            // Segment in remote has a greater leader epoch than local.
+            val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
+            val topicIdPartition = segmentMetadata.topicIdPartition()
+            val extraneousSegmentLeaderEpoch = remoteSegmentEpochNextEntry.getKey
+            warn(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has at least one more leader epoch ($extraneousSegmentLeaderEpoch) than locally ($segmentEpochKey)")
+            false
+          } else if (validEpochNextEntry != null && remoteSegmentEpochNextEntry == null) {
+            // Remote has fewer entries than local
+            if (firstEpochInSegmentEntry.getKey == segmentEpochKey) {
+              segmentEpochStartOffset >= validEpochStartOffset && segmentEndOffset < validEpochNextEntry.getValue
+            } else {
+              segmentEpochStartOffset == validEpochStartOffset && segmentEndOffset < validEpochNextEntry.getValue
+            }
+          } else if (validEpochNextEntry != null && remoteSegmentEpochNextEntry != null) {
+            // This is not the active leader epoch for both remote and local
+            if (firstEpochInSegmentEntry.getKey == segmentEpochKey) {
+              remoteSegmentEpochNextEntry.getKey == validEpochNextEntry.getKey &&
+                segmentEpochStartOffset >= validEpochStartOffset &&
+                remoteSegmentEpochNextEntry.getValue == validEpochNextEntry.getValue
+            } else {
+              remoteSegmentEpochNextEntry.getKey == validEpochNextEntry.getKey &&
+                segmentEpochStartOffset == validEpochStartOffset &&
+                remoteSegmentEpochNextEntry.getValue == validEpochNextEntry.getValue
+            }
+          } else {
+            // This is the active leader epoch
+            segmentEndOffset < logEndOffset
+          }
+        } else {
+          // Scenario where the leader epoch found in the segment is not part of the leader epoch history.
+          // This could happened in situations where we have a divergence in leader epoch history between local and
+          // remote tier due to unclean leader election.
+          val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
+          val topicIdPartition = segmentMetadata.topicIdPartition()
+          info(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has a leader epoch ($segmentEpochKey) not found locally")
+          false
+        }
+      })
+  }
+
+
   private[remote] class RLMTask(tpId: TopicIdPartition) extends CancellableRunnable with Logging {
     this.logIdent = s"[RemoteLogManager=$brokerId partition=$tpId] "
     @volatile private var leaderEpoch: Int = -1
@@ -524,106 +616,15 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         updateRemoteLogStartOffset(topicPartition, remoteLogStartOffset)
       }
 
-      /*
-      A segment has leader epochs (remote leader epochs). A partition leader has leader epochs (local leader epochs).
-      For a segment to have a good lineage its leader epochs must be within the boundaries of the leader epochs
-      of the partition leader.
-      The first leader epoch in the segment always starts at the first offset of
-      the segment even if the partition leader's leader epoch started at an earlier log offset.
-      The last leader epoch in the segment always finishes at the last offset of
-      the segment even if the partition leader's leader epoch finishes at a further log offset.
-
-      CORRECT
-      Remote:             i1 ===================== i2
-      Local :        <=== j1 ======================================== j2 ===>
-
-      CORRECT
-      Remote:                                i1 ===================== i2
-      Local :        <=== j1 ======================================== j2 ===>
-
-      CORRECT
-      Remote:                      i1 ===================== i2
-      Local :        <=== j1 ======================================== j2 ===>
-
-      The below is a situation where the remote segment has the same leader epoch as the currently
-      ongoing local leader epoch.
-      CORRECT
-      Remote:                                i1 ===================== i2
-      Local :        <=== j1 ===============================================>
-
-      INCORRECT
-      Remote:                                       i1 ===================== i2
-      Local :        <=== j1 ======================================== j2 ===>
-
-      INCORRECT
-      Remote:   i1 ===================== i2
-      Local :        <=== j1 ======================================== j2 ===>
-      */
-      def doesRemoteSegmentHaveGoodLineage(validEpochs: util.TreeMap[Integer, lang.Long],
-                                           segmentMetadata: RemoteLogSegmentMetadata,
-                                           logEndOffset: lang.Long): Boolean = {
-        val segmentEpochs = segmentMetadata.segmentLeaderEpochs()
-        val segmentEndOffset = segmentMetadata.endOffset()
-        val firstSegmentEpochEntry = segmentEpochs.firstEntry()
-        segmentEpochs.entrySet().stream()
-          .allMatch(entry => {
-            val segmentEpochKey = entry.getKey
-            val segmentEpochStartOffset = entry.getValue
-            if (validEpochs.containsKey(segmentEpochKey)) {
-              val validEpochStartOffset = validEpochs.get(segmentEpochKey)
-              val validEpochEndEntry = validEpochs.higherEntry(segmentEpochKey)
-              val remoteEndEntry = segmentEpochs.higherEntry(segmentEpochKey)
-
-              if (validEpochEndEntry == null && remoteEndEntry != null) {
-                // Remote has more entries than local
-                // This should be impossible but we are erring on the side of defining the behaviour
-                val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
-                val topicIdPartition = segmentMetadata.topicIdPartition()
-                val extraneousSegmentLeaderEpoch = remoteEndEntry.getKey
-                warn(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has at least one more leader epoch ($extraneousSegmentLeaderEpoch) than locally ($segmentEpochKey)")
-                false
-              } else if (validEpochEndEntry != null && remoteEndEntry == null) {
-                // Remote has fewer entries than local
-                segmentEpochStartOffset >= validEpochStartOffset && segmentEndOffset < validEpochEndEntry.getValue
-              } else if (validEpochEndEntry != null && remoteEndEntry != null) {
-                // This is not the active leader epoch for both remote and local
-                if (firstSegmentEpochEntry.getKey == segmentEpochKey) {
-                  remoteEndEntry.getKey == validEpochEndEntry.getKey &&
-                    segmentEpochStartOffset >= validEpochStartOffset &&
-                    remoteEndEntry.getValue <= validEpochEndEntry.getValue
-                } else {
-                  remoteEndEntry.getKey == validEpochEndEntry.getKey &&
-                    segmentEpochStartOffset == validEpochStartOffset &&
-                    remoteEndEntry.getValue <= validEpochEndEntry.getValue
-                }
-              } else {
-                // This is the active leader epoch
-                segmentEndOffset < logEndOffset
-              }
-            } else {
-              val remoteLogSegmentId = segmentMetadata.remoteLogSegmentId()
-              val topicIdPartition = segmentMetadata.topicIdPartition()
-              warn(s"[Segment $remoteLogSegmentId; TopicPartition $topicIdPartition]: Segment has a leader epoch ($segmentEpochKey) not found locally")
-              false
-            }
-          })
-      }
-
-      def totalLogSize(segmentMetadataList: scala.Seq[RemoteLogSegmentMetadata], log: Log): Long = {
-        val localLogStartOffset = log.localLogStartOffset // Cache the value
-
+      def calculateTotalLogSize(segmentMetadataList: scala.Seq[RemoteLogSegmentMetadata], log: Log): Long = {
         val validLeaderEpochs = fromLeaderEpochCacheToEpochs(log)
 
         val remoteOnlyLogSize = segmentMetadataList
-          .filter(_.endOffset() < localLogStartOffset)
-          .filter(segmentMetadata => {
-            doesRemoteSegmentHaveGoodLineage(validLeaderEpochs, segmentMetadata, log.logEndOffset)
-          })
+          .filter(isRemoteSegmentConsistentWithLeaderLineage(validLeaderEpochs, _, log.logEndOffset))
+          .distinctBy(_.remoteLogSegmentId.id())
           .map(_.segmentSizeInBytes()).sum
 
-        val localLogSize = log.validLogSegmentsSize
-
-        localLogSize + remoteOnlyLogSize
+        log.localOnlyLogSegmentsSize + remoteOnlyLogSize
       }
 
       def fromLeaderEpochCacheToEpochs(log: Log): util.TreeMap[Integer, lang.Long] = {
@@ -634,62 +635,69 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
         // cleanup remote log segments and update the log start offset if applicable.
         // Compute total size, this can be pushed to RLMM by introducing a new method instead of going through
         // the collection every time.
-        val segmentMetadataList = remoteLogMetadataManager.listRemoteLogSegments(tpId).asScala.toSeq
-        if (segmentMetadataList.nonEmpty) {
-          fetchLog(tpId.topicPartition()).foreach { log =>
-            val retentionMs = log.config.retentionMs
-            val totalSize = totalLogSize(segmentMetadataList, log)
 
-            val (checkTimestampRetention, cleanupTs) = (retentionMs > -1, time.milliseconds() - retentionMs)
-            val checkSizeRetention = log.config.retentionSize > -1
-            var remainingSize = totalSize - log.config.retentionSize
-            var logStartOffset: Option[Long] = None
+        fetchLog(tpId.topicPartition()).foreach { log =>
+          val retentionMs = log.config.retentionMs
+          val (checkTimestampRetention, cleanupTs) = (retentionMs > -1, time.milliseconds() - retentionMs)
 
-            def deleteRetentionTimeBreachedSegments(metadata: RemoteLogSegmentMetadata): Boolean = {
-              val isSegmentDeleted = deleteRemoteLogSegment(
-                metadata, checkTimestampRetention && _.maxTimestampMs() <= cleanupTs)
-              if (isSegmentDeleted) {
-                remainingSize = Math.max(0, remainingSize - metadata.segmentSizeInBytes())
-                // It is fine to have logStartOffset as `metadata.endOffset() + 1` as the segment offset intervals
-                // are ascending with in an epoch.
-                logStartOffset = Some(metadata.endOffset() + 1)
-                info(s"Deleted remote log segment ${metadata.remoteLogSegmentId()} due to retention time " +
-                  s"${retentionMs}ms breach based on the largest record timestamp in the segment")
-              }
-              isSegmentDeleted
+          val shouldDeleteBySize = log.config.retentionSize > -1
+          val segmentMetadataList = log.leaderEpochCache.get.epochEntries.iterator
+            .flatMap(epochEntry => remoteLogMetadataManager.listRemoteLogSegments(tpId, epochEntry.epoch).asScala).toSeq
+          val totalSize = calculateTotalLogSize(segmentMetadataList, log)
+          var remainingSize =
+            if (shouldDeleteBySize) totalSize - log.config.retentionSize
+            else 0
+
+          var logStartOffset: Option[Long] = None
+
+          def deleteRetentionTimeBreachedSegments(metadata: RemoteLogSegmentMetadata): Boolean = {
+            val isSegmentDeleted = deleteRemoteLogSegment(
+              metadata, checkTimestampRetention && _.maxTimestampMs() <= cleanupTs)
+            if (isSegmentDeleted) {
+              remainingSize = Math.max(0, remainingSize - metadata.segmentSizeInBytes())
+              // It is fine to have logStartOffset as `metadata.endOffset() + 1` as the segment offset intervals
+              // are ascending with in an epoch.
+              logStartOffset = Some(metadata.endOffset() + 1)
+              info(s"Deleted remote log segment ${metadata.remoteLogSegmentId()} due to retention time " +
+                s"${retentionMs}ms breach based on the largest record timestamp in the segment")
             }
-
-            def deleteRetentionSizeBreachedSegments(metadata: RemoteLogSegmentMetadata): Boolean = {
-              val isSegmentDeleted = deleteRemoteLogSegment(metadata, metadata => {
-                // Assumption that segments contain size > 0
-                if (checkSizeRetention && remainingSize > 0) {
-                  remainingSize -= metadata.segmentSizeInBytes()
-                  remainingSize >= 0
-                } else false
-              })
-              if (isSegmentDeleted) {
-                logStartOffset = Some(metadata.endOffset() + 1)
-                info(s"Deleted remote log segment ${metadata.remoteLogSegmentId()} due to retention size " +
-                  s"${log.config.retentionSize} breach. Log size after deletion will be " +
-                  s"${remainingSize + log.config.retentionSize}.")
-              }
-              isSegmentDeleted
-            }
-
-            log.leaderEpochCache.foreach { cache =>
-              cache.epochEntries.find { epochEntry =>
-                val segmentsIterator = remoteLogMetadataManager.listRemoteLogSegments(tpId, epochEntry.epoch)
-                var isSegmentDeleted = true
-                while (isSegmentDeleted && segmentsIterator.hasNext) {
-                  val metadata = segmentsIterator.next()
-                  isSegmentDeleted = deleteRetentionTimeBreachedSegments(metadata) ||
-                    deleteRetentionSizeBreachedSegments(metadata)
-                }
-                !isSegmentDeleted
-              }
-            }
-            logStartOffset.foreach(handleLogStartOffsetUpdate(tpId.topicPartition(), _))
+            isSegmentDeleted
           }
+
+          def deleteRetentionSizeBreachedSegments(metadata: RemoteLogSegmentMetadata): Boolean = {
+            val isSegmentDeleted = deleteRemoteLogSegment(metadata, metadata => {
+              // Assumption that segments contain size > 0
+              if (shouldDeleteBySize && remainingSize > 0) {
+                remainingSize -= metadata.segmentSizeInBytes()
+                remainingSize >= 0
+              } else false
+            })
+            if (isSegmentDeleted) {
+              logStartOffset = Some(metadata.endOffset() + 1)
+              info(s"Deleted remote log segment ${metadata.remoteLogSegmentId()} due to retention size " +
+                s"${log.config.retentionSize} breach. Log size after deletion will be " +
+                s"${remainingSize + log.config.retentionSize}.")
+            }
+            isSegmentDeleted
+          }
+
+          val validLeaderEpochs = fromLeaderEpochCacheToEpochs(log)
+          log.leaderEpochCache.foreach { cache =>
+            cache.epochEntries.find { epochEntry =>
+              val segmentsIterator =
+                remoteLogMetadataManager.listRemoteLogSegments(tpId, epochEntry.epoch).asScala
+                  .filter(isRemoteSegmentConsistentWithLeaderLineage(validLeaderEpochs, _, log.logEndOffset))
+
+              var isSegmentDeleted = true
+              while (isSegmentDeleted && segmentsIterator.hasNext) {
+                val metadata = segmentsIterator.next()
+                isSegmentDeleted = deleteRetentionTimeBreachedSegments(metadata) ||
+                  deleteRetentionSizeBreachedSegments(metadata)
+              }
+              !isSegmentDeleted
+            }
+          }
+          logStartOffset.foreach(handleLogStartOffsetUpdate(tpId.topicPartition(), _))
         }
       } catch {
         case ex: Exception =>
@@ -968,26 +976,27 @@ class RemoteLogManager(fetchLog: TopicPartition => Option[Log],
    * @return the timestamp and offset of the first message that meets the requirements. None will be returned if there is no such message.
    */
   def findOffsetByTimestamp(tp: TopicPartition, timestamp: Long, startingOffset: Long,
-                            leaderEpochCache: LeaderEpochFileCache): Option[TimestampAndOffset] = {
-    topicPartitionIds.get(tp) match {
-      case Some(uuid) =>
-        val topicIdPartition = new TopicIdPartition(uuid, tp)
-        // Get the respective epoch in which the starting offset exists.
-        var maybeEpoch = leaderEpochCache.epochForOffset(startingOffset)
-        while (maybeEpoch.nonEmpty) {
-          val epoch = maybeEpoch.get
-          remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition, epoch).asScala.foreach(rlsMetadata =>
-            if (rlsMetadata.maxTimestampMs() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
-              val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
-              if (timestampOffset.isDefined)
-                return timestampOffset
-            }
-          )
+                            leaderEpochCache: LeaderEpochFileCache, logEndOffset: Long): Option[TimestampAndOffset] = {
+    val topicId = topicPartitionIds.get(tp)
+    if (topicId.isEmpty) {
+      throw new KafkaException("Topic id does not exist for topic partition: " + tp)
+    }
+    // Get the respective epoch in which the starting offset exists.
+    var maybeEpoch = leaderEpochCache.epochForOffset(startingOffset)
+    while (maybeEpoch.nonEmpty) {
+      val epoch = maybeEpoch.get
+      remoteLogMetadataManager.listRemoteLogSegments(new TopicIdPartition(topicId.get, tp), epoch).asScala
+        .foreach(rlsMetadata =>
+          if (isRemoteSegmentConsistentWithLeaderLineage(leaderEpochCache.getEpochs, rlsMetadata, logEndOffset) &&
+            rlsMetadata.maxTimestampMs() >= timestamp && rlsMetadata.endOffset() >= startingOffset) {
+            val timestampOffset = lookupTimestamp(rlsMetadata, timestamp, startingOffset)
+            if (timestampOffset.isDefined)
+              return timestampOffset
+          }
+        )
 
-          // Move to the next epoch if not found with the current epoch.
-          maybeEpoch = leaderEpochCache.findNextEpoch(epoch)
-        }
-      case None => throw new KafkaException("Topic id does not exist for topic partition: " + tp);
+      // Move to the next epoch if not found with the current epoch.
+      maybeEpoch = leaderEpochCache.findNextEpoch(epoch)
     }
     None
   }

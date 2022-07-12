@@ -1829,7 +1829,7 @@ class Log(@volatile private var _dir: File,
             throw new KafkaException("Tiered storage is supported only with versions supporting leader epochs, that means RecordVersion must be >= 2.")
           }
 
-          maybeRemoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset, leaderEpochCache.get)
+          maybeRemoteLogManager.get.findOffsetByTimestamp(topicPartition, targetTimestamp, logStartOffset, leaderEpochCache.get, logEndOffset)
         } else None
 
         if (remoteOffset.nonEmpty) {
@@ -2070,6 +2070,11 @@ class Log(@volatile private var _dir: File,
    * See log#size for why such segments might exist
    */
   def validLogSegmentsSize: Long = Log.sizeInBytes(logSegments.filter(_.baseOffset >= localLogStartOffset))
+
+  /**
+   * The size of the log in bytes for segments not yet in remote storage
+   */
+  def localOnlyLogSegmentsSize: Long = Log.sizeInBytes(logSegments.filter(_.baseOffset > highestOffsetWithRemoteIndex))
 
   /**
    * The offset metadata of the next message that will be appended to the log
