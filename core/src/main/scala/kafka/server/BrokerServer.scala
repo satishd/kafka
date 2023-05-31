@@ -582,7 +582,7 @@ class BrokerServer(
             log.updateLogStartOffsetFromRemoteTier(remoteLogStartOffset)
           })
         },
-        brokerTopicStats));
+        brokerTopicStats))
     } else {
       None
     }
