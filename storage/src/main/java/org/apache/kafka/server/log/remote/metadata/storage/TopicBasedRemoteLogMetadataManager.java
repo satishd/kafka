@@ -335,7 +335,7 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
             remoteLogSize += remoteLogSegmentMetadata.segmentSizeInBytes();
         }
         return remoteLogSize;
-     }
+    }
 
     @Override
     public void configure(Map<String, ?> configs) {
