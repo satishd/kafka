@@ -861,20 +861,6 @@ public class RemoteLogManager implements Closeable {
                 return isSegmentDeleted;
             }
 
-            // It removes the segments beyond the current leader's earliest epoch. Those segments are considered as
-            // unreferenced because they are not part of the current leader epoch lineage.
-            private boolean deleteLogSegmentsDueToLeaderEpochCacheTruncation(EpochEntry earliestEpochEntry, RemoteLogSegmentMetadata metadata) throws RemoteStorageException, ExecutionException, InterruptedException {
-                boolean isSegmentDeleted = deleteRemoteLogSegment(metadata, x ->
-                        x.segmentLeaderEpochs().keySet().stream().allMatch(epoch -> epoch < earliestEpochEntry.epoch));
-                if (isSegmentDeleted) {
-                    logger.info("Deleted remote log segment {} due to leader epoch cache truncation. Current earliest epoch: {}, segmentEndOffset: {} and segmentEpochs: {}",
-                            metadata.remoteLogSegmentId(), earliestEpochEntry, metadata.endOffset(), metadata.segmentLeaderEpochs().keySet());
-                }
-
-                // No need to update the log-start-offset as these epochs/offsets are earlier to that value.
-                return isSegmentDeleted;
-            }
-
             private boolean deleteRemoteLogSegment(RemoteLogSegmentMetadata segmentMetadata, Predicate<RemoteLogSegmentMetadata> predicate)
                     throws RemoteStorageException, ExecutionException, InterruptedException {
                 if (predicate.test(segmentMetadata)) {
@@ -926,23 +912,10 @@ public class RemoteLogManager implements Closeable {
                 return;
             }
 
-            final Set<Integer> epochsSet = new HashSet<>();
-            // Good to have an API from RLMM to get all the remote leader epochs of all the segments of a partition
-            // instead of going through all the segments and building it here.
-            while (segmentMetadataIter.hasNext()) {
-                RemoteLogSegmentMetadata segmentMetadata = segmentMetadataIter.next();
-                epochsSet.addAll(segmentMetadata.segmentLeaderEpochs().keySet());
-            }
-
-            // All the leader epochs in sorted order that exists in remote storage
-            final List<Integer> remoteLeaderEpochs = new ArrayList<>(epochsSet);
-            Collections.sort(remoteLeaderEpochs);
-
             LeaderEpochFileCache leaderEpochCache = leaderEpochCacheOption.get();
             // Build the leader epoch map by filtering the epochs that do not have any records.
             NavigableMap<Integer, Long> epochWithOffsets = buildFilteredLeaderEpochMap(leaderEpochCache.epochWithOffsets());
-            Optional<EpochEntry> earliestEpochEntryOptional = leaderEpochCache.earliestEntry();
-
+            
             long logStartOffset = log.logStartOffset();
             long logEndOffset = log.logEndOffset();
             Optional<RetentionSizeData> retentionSizeData = buildRetentionSizeData(log.config().retentionSize,
@@ -968,26 +941,6 @@ public class RemoteLogManager implements Closeable {
                                 remoteLogRetentionHandler.deleteRetentionTimeBreachedSegments(metadata) ||
                                         remoteLogRetentionHandler.deleteRetentionSizeBreachedSegments(metadata) ||
                                         remoteLogRetentionHandler.deleteLogStartOffsetBreachedSegments(metadata, logStartOffset);
-                    }
-                }
-            }
-
-            // Remove the remote log segments whose segment-leader-epochs are less than the earliest-epoch known
-            // to the leader. This will remove the unreferenced segments in the remote storage. This is needed for
-            // unclean leader election scenarios as the remote storage can have epochs earlier to the current leader's
-            // earliest leader epoch.
-            if (earliestEpochEntryOptional.isPresent()) {
-                EpochEntry earliestEpochEntry = earliestEpochEntryOptional.get();
-                Iterator<Integer> epochsToClean = remoteLeaderEpochs.stream().filter(x -> x < earliestEpochEntry.epoch).iterator();
-                while (epochsToClean.hasNext()) {
-                    int epoch = epochsToClean.next();
-                    Iterator<RemoteLogSegmentMetadata> segmentsToBeCleaned = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition, epoch);
-                    while (segmentsToBeCleaned.hasNext()) {
-                        if (isCancelled() || !isLeader()) {
-                            return;
-                        }
-                        // No need to update the log-start-offset even though the segment is deleted as these epochs/offsets are earlier to that value.
-                        remoteLogRetentionHandler.deleteLogSegmentsDueToLeaderEpochCacheTruncation(earliestEpochEntry, segmentsToBeCleaned.next());
                     }
                 }
             }
