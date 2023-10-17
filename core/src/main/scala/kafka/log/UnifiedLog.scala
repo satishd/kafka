@@ -1918,6 +1918,7 @@ object UnifiedLog extends Logging {
   val DeleteDirSuffix = LocalLog.DELETE_DIR_SUFFIX
 
   val FutureDirSuffix = LocalLog.FUTURE_DIR_SUFFIX
+
   val StrayDirSuffix = LocalLog.STRAY_DIR_SUFFIX
 
   private[log] val DeleteDirPattern = LocalLog.DELETE_DIR_PATTERN

@@ -330,7 +330,6 @@ public class LocalLog {
         }
     }
 
-
     /**
      * Update end offset of the log, and update the recoveryPoint.
      *

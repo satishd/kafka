@@ -16,8 +16,9 @@
  */
 package kafka.log;
 
-import java.util.Collection;
 import org.apache.kafka.storage.internals.log.LogSegment;
+
+import java.util.Collection;
 
 /**
  * Holds the result of splitting a segment into one or more segments, see LocalLog.splitOverflowedSegment().
