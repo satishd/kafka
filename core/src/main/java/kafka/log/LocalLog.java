@@ -106,12 +106,13 @@ public class LocalLog {
     private final Logger logger;
     private final String logPrefix;
 
-    volatile private File dir;
-    volatile private LogConfig config;
+    private volatile File dir;
+    private volatile LogConfig config;
+    private volatile long recoveryPoint;
+    private volatile LogOffsetMetadata nextOffsetMetadata;
+
     private final LogSegments segments;
-    volatile private long recoveryPoint;
     private final Scheduler scheduler;
-    volatile private LogOffsetMetadata nextOffsetMetadata;
     private final Time time;
     private final TopicPartition topicPartition;
     private final LogDirFailureChannel logDirFailureChannel;
@@ -246,7 +247,7 @@ public class LocalLog {
     }
 
     /**
-     * Rename the directory of the log
+     * Rename the directory of the log to the given name.
      *
      * @param name the new dir name
      * @throws KafkaStorageException if rename fails
@@ -313,7 +314,7 @@ public class LocalLog {
 
     /**
      * Flush local log segments for all offsets up to offset-1.
-     * Does not update the recovery point.
+     * Note: It does not update the recovery point.
      *
      * @param offset The offset to flush up to (non-inclusive)
      */
@@ -325,8 +326,11 @@ public class LocalLog {
                 segment.flush();
             }
             // If there are any new segments, we need to flush the parent directory for crash consistency.
-            if (segmentsToFlush.stream().anyMatch(x -> x.baseOffset() >= currentRecoveryPoint))
+            if (segmentsToFlush.stream().anyMatch(x -> x.baseOffset() >= currentRecoveryPoint)) {
+                // The directory might be renamed concurrently for topic deletion, which may cause NoSuchFileException here.
+                // Since the directory is to be deleted anyways, we just swallow NoSuchFileException and let it go.
                 Utils.flushDir(dir.toPath());
+            }
         }
     }
 
@@ -442,7 +446,9 @@ public class LocalLog {
      * @param asyncDelete      Whether the segment files should be deleted asynchronously
      * @param reason           The reason for the segment deletion
      */
-    void removeAndDeleteSegments(Collection<LogSegment> segmentsToDelete, boolean asyncDelete, SegmentDeletionReason reason) throws IOException {
+    void removeAndDeleteSegments(Collection<LogSegment> segmentsToDelete,
+                                 boolean asyncDelete,
+                                 SegmentDeletionReason reason) throws IOException {
         if (!segmentsToDelete.isEmpty()) {
             // Most callers hold an iterator into the `segments` collection and `removeAndDeleteSegment` mutates it by
             // removing the deleted segment, we should force materialization of the iterator here, so that results of the
@@ -472,7 +478,10 @@ public class LocalLog {
      * @param asyncDelete     Whether the segment files should be deleted asynchronously
      * @param reason          The reason for the segment deletion
      */
-    LogSegment createAndDeleteSegment(long newOffset, LogSegment segmentToDelete, boolean asyncDelete, SegmentDeletionReason reason) throws IOException {
+    LogSegment createAndDeleteSegment(long newOffset,
+                                      LogSegment segmentToDelete,
+                                      boolean asyncDelete,
+                                      SegmentDeletionReason reason) throws IOException {
         if (newOffset == segmentToDelete.baseOffset()) {
             segmentToDelete.changeFileSuffixes("", LogFileUtils.DELETED_FILE_SUFFIX);
         }
@@ -518,7 +527,11 @@ public class LocalLog {
      * @return The fetch data information including fetch starting offset metadata and messages read.
      * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset
      */
-    FetchDataInfo read(long startOffset, int maxLength, boolean minOneMessage, LogOffsetMetadata maxOffsetMetadata, boolean includeAbortedTxns) {
+    FetchDataInfo read(long startOffset,
+                       int maxLength,
+                       boolean minOneMessage,
+                       LogOffsetMetadata maxOffsetMetadata,
+                       boolean includeAbortedTxns) {
         return maybeHandleIOException("Exception while reading for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     logger.trace("Reading maximum {} bytes at offset {} from log with total length {} bytes", maxLength, startOffset, segments.sizeInBytes());
@@ -592,7 +605,10 @@ public class LocalLog {
                 Optional.of(abortedTransactions));
     }
 
-    void collectAbortedTransactions(long startOffset, long upperBoundOffset, LogSegment startingSegment, Consumer<List<AbortedTxn>> accumulator) throws IOException {
+    void collectAbortedTransactions(long startOffset,
+                                    long upperBoundOffset,
+                                    LogSegment startingSegment,
+                                    Consumer<List<AbortedTxn>> accumulator) throws IOException {
         Iterator<LogSegment> higherSegments =
                 segments.higherSegments(startingSegment.baseOffset()).iterator();
         Optional<LogSegment> segmentEntryOpt = Optional.of(startingSegment);
@@ -739,11 +755,10 @@ public class LocalLog {
 
     /**
      * Wraps the value of iterator.next() in an option.
-     * Note: this facility is a part of the Iterator class starting from scala v2.13.
      *
-     * @param iterator
+     * @param iterator given iterator to iterate over
      * @return if a next element exists, None otherwise.
-     * @tparam T the type of object held within the iterator
+     * @param <T> the type of object held within the iterator
      */
     static <T> Optional<T> nextItem(Iterator<T> iterator) {
         return iterator.hasNext() ? Optional.of(iterator.next()) : Optional.empty();
@@ -766,7 +781,7 @@ public class LocalLog {
      */
     static String logDirNameWithSuffixCappedLength(TopicPartition topicPartition, String suffix) {
         String uniqueId = java.util.UUID.randomUUID().toString().replaceAll("-", "");
-        String fullSuffix = "-" + topicPartition.partition() + uniqueId + suffix;
+        String fullSuffix = "-" + topicPartition.partition() + "." + uniqueId + suffix;
         int prefixLength = Math.min(topicPartition.topic().length(), 255 - fullSuffix.length());
         return topicPartition.topic().substring(0, prefixLength) + fullSuffix;
     }
@@ -809,7 +824,9 @@ public class LocalLog {
         if (dir == null) throw new KafkaException("dir should not be null");
 
         Function<File, KafkaException> exceptionFn
-                = file -> new KafkaException("Found directory " + dir.getAbsolutePath() + ", '" + dir.getName() + "' is not in the form of topic-partition or topic-partition.uniqueId-delete (if marked for deletion).\n" + "Kafka's log directories (and children) should only contain Kafka topic data.");
+                = file -> new KafkaException("Found directory " + dir.getAbsolutePath() + ", '" + dir.getName() +
+                "' is not in the form of topic-partition or topic-partition.uniqueId-delete (if marked for deletion).\n"
+                + "Kafka's log directories (and children) should only contain Kafka topic data.");
 
         String dirName = dir.getName();
         if (dirName == null || dirName.isEmpty() || !dirName.contains("-"))
@@ -820,7 +837,7 @@ public class LocalLog {
                 dirName.endsWith(STRAY_DIR_SUFFIX) && !STRAY_DIR_PATTERN.matcher(dirName).matches())
             throw exceptionFn.apply(dir);
 
-        String name = dirName.endsWith(DELETE_DIR_SUFFIX) || dirName.endsWith(FUTURE_DIR_SUFFIX)
+        String name = dirName.endsWith(DELETE_DIR_SUFFIX) || dirName.endsWith(FUTURE_DIR_SUFFIX) || dirName.endsWith(STRAY_DIR_SUFFIX)
                 ? dirName.substring(0, dirName.lastIndexOf('.')) : dirName;
 
         int index = name.lastIndexOf('-');
@@ -900,8 +917,7 @@ public class LocalLog {
         }
 
         Runnable deleteSegments = () -> {
-            //todo-current-pr
-            //logger.info("{} Deleting segment files {}", logPrefix, mkString(segmentsToDelete.iterator(), ", "));
+//            logger.info("Deleting segment files {}", mkString(segmentsToDelete.iterator(), ", "));
             String parentDir = dir.getParent();
             maybeHandleIOException(logDirFailureChannel, parentDir, "Error while deleting segments for " + topicPartition + " in dir " + parentDir,
                     () -> {
@@ -912,8 +928,11 @@ public class LocalLog {
                     });
         };
 
-        if (asyncDelete) scheduler.scheduleOnce("delete-file", deleteSegments, config.fileDeleteDelayMs);
-        else deleteSegments.run();
+        if (asyncDelete) {
+            scheduler.scheduleOnce("delete-file", deleteSegments, config.fileDeleteDelayMs);
+        } else {
+            deleteSegments.run();
+        }
     }
 
     /**
@@ -965,7 +984,7 @@ public class LocalLog {
                                             String logPrefix,
                                             boolean isRecoveredSwapFile) throws IOException {
         List<LogSegment> sortedNewSegments = new ArrayList<>(newSegments);
-        newSegments.sort(Comparator.comparingLong(LogSegment::baseOffset));
+        sortedNewSegments.sort(Comparator.comparingLong(LogSegment::baseOffset));
         // Some old segments may have been removed from index and scheduled for async deletion after the caller reads segments
         // but before this method is executed. We want to filter out those segments to avoid calling deleteSegmentFiles()
         // multiple times for the same segment.
@@ -1004,8 +1023,8 @@ public class LocalLog {
         }
 
         // okay we are safe now, remove the swap suffix
-        for (LogSegment x : sortedNewSegments) {
-            x.changeFileSuffixes(SWAP_FILE_SUFFIX, "");
+        for (LogSegment seg : sortedNewSegments) {
+            seg.changeFileSuffixes(SWAP_FILE_SUFFIX, "");
         }
         Utils.flushDir(dir.toPath());
 
@@ -1043,13 +1062,12 @@ public class LocalLog {
                                                      Scheduler scheduler,
                                                      LogDirFailureChannel logDirFailureChannel,
                                                      String logPrefix) throws IOException {
-//    require(isLogFile(segment.log.file), s"Cannot split file ${segment.log.file.getAbsoluteFile}")
-//    require(segment.hasOverflow, s"Split operation is only permitted for segments with overflow, and the problem path is ${segment.log.file.getAbsoluteFile}")
         //todo-current-pr
-//        logger.info("${logPrefix}Splitting overflowed segment $segment");
+        //require(isLogFile(segment.log.file), s"Cannot split file ${segment.log.file.getAbsoluteFile}")
+        //require(segment.hasOverflow, s"Split operation is only permitted for segments with overflow, and the problem path is ${segment.log.file.getAbsoluteFile}")
+//        logger.info("Splitting overflowed segment {}", segment);
 
         List<LogSegment> newSegments = new ArrayList<>();
-
         try {
             int position = 0;
             FileRecords sourceRecords = segment.log();
@@ -1079,8 +1097,7 @@ public class LocalLog {
                         " before: " + segment.log().sizeInBytes() + " after: " + totalSizeOfNewSegments);
 
             // replace old segment with new ones
-            //todo-current-pr
-//            logger.info("${logPrefix}Replacing overflowed segment $segment with split segments $newSegments");
+//            logger.info("Replacing overflowed segment {} with split segments {}", segment, newSegments);
 
             List<LogSegment> deletedSegments = replaceSegments(existingSegments, newSegments,
                     Collections.singletonList(segment), dir, topicPartition, config, scheduler,
@@ -1104,7 +1121,7 @@ public class LocalLog {
         return joiner.toString();
     }
 
-    public <T> T maybeHandleIOException(String errorMsg,
+    private <T> T maybeHandleIOException(String errorMsg,
                                         StorageAction<T, IOException> func) {
         return maybeHandleIOException(logDirFailureChannel, parentDir, errorMsg, func);
     }
