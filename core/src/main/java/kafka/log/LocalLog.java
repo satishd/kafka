@@ -53,7 +53,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -717,24 +716,18 @@ public class LocalLog {
                 () -> {
                     logger.debug("Truncate and start at offset {}", newOffset);
                     checkIfMemoryMappedBufferClosed();
-                    List<LogSegment> logSegments = new ArrayList<>(segments.values());
+                    List<LogSegment> segmentsToDelete = new ArrayList<>(segments.values());
 
-                    if (!logSegments.isEmpty()) {
-                        // All segments except the last one.
-                        List<LogSegment> segmentsToDelete = new ArrayList<>(logSegments.size() - 1);
-                        for (int i = 0; i < logSegments.size() - 1; i++) {
-                            segmentsToDelete.add(logSegments.get(i));
-                        }
-
-                        removeAndDeleteSegments(segmentsToDelete, true, new LogTruncation(this.logger));
+                    if (!segmentsToDelete.isEmpty()) {
+                        removeAndDeleteSegments(segmentsToDelete.subList(0, segmentsToDelete.size() - 1), true, new LogTruncation(this.logger));
                         // Use createAndDeleteSegment() to create new segment first and then delete the old last segment to prevent missing
                         // active segment during the deletion process
-                        createAndDeleteSegment(newOffset, logSegments.get(logSegments.size() - 1), true, new LogTruncation(this.logger));
+                        createAndDeleteSegment(newOffset, segmentsToDelete.get(segmentsToDelete.size() - 1), true, new LogTruncation(this.logger));
                     }
 
                     updateLogEndOffset(newOffset);
 
-                    return logSegments;
+                    return segmentsToDelete;
                 });
     }
 
@@ -745,8 +738,7 @@ public class LocalLog {
      * @return the list of segments that were scheduled for deletion
      */
     Iterable<LogSegment> truncateTo(long targetOffset) throws IOException {
-        List<LogSegment> deletableSegments =
-                new ArrayList<>(segments.filter(segment -> segment.baseOffset() > targetOffset));
+        Collection<LogSegment> deletableSegments = segments.filter(segment -> segment.baseOffset() > targetOffset);
         removeAndDeleteSegments(deletableSegments, true, new LogTruncation(this.logger));
         segments.activeSegment().truncateTo(targetOffset);
         updateLogEndOffset(targetOffset);
@@ -995,15 +987,15 @@ public class LocalLog {
 
         // need to do this in two phases to be crash safe AND do the delete asynchronously
         // if we crash in the middle of this we complete the swap in loadSegments()
+        List<LogSegment> reversedSegmentsList = new ArrayList<>(sortedNewSegments);
+        Collections.reverse(reversedSegmentsList);
         if (!isRecoveredSwapFile) {
-            ListIterator<LogSegment> sortedSegIter = sortedNewSegments.listIterator();
-            while (sortedSegIter.hasPrevious()) {
-                sortedSegIter.previous().changeFileSuffixes(CLEANED_FILE_SUFFIX, SWAP_FILE_SUFFIX);
+            for (LogSegment logSegment : reversedSegmentsList) {
+                logSegment.changeFileSuffixes(CLEANED_FILE_SUFFIX, SWAP_FILE_SUFFIX);
             }
         }
-        ListIterator<LogSegment> sortedSegIter = sortedNewSegments.listIterator();
-        while (sortedSegIter.hasPrevious()) {
-            existingSegments.add(sortedSegIter.previous());
+        for (LogSegment logSegment : reversedSegmentsList) {
+            existingSegments.add(logSegment);
         }
 
         Set<Long> newSegmentBaseOffsets = sortedNewSegments.stream().map(LogSegment::baseOffset)
@@ -1015,16 +1007,23 @@ public class LocalLog {
             // remove the index entry
             if (seg.baseOffset() != sortedNewSegments.get(0).baseOffset())
                 existingSegments.remove(seg.baseOffset());
-            deleteSegmentFiles(Collections.singletonList(seg), true, dir, topicPartition, config,
-                    scheduler, logDirFailureChannel, logPrefix);
+            deleteSegmentFiles(
+                    Collections.singletonList(seg),
+                    true,
+                    dir,
+                    topicPartition,
+                    config,
+                    scheduler,
+                    logDirFailureChannel,
+                    logPrefix);
             if (!newSegmentBaseOffsets.contains(seg.baseOffset())) {
                 deletedNotReplaced.add(seg);
             }
         }
 
         // okay we are safe now, remove the swap suffix
-        for (LogSegment seg : sortedNewSegments) {
-            seg.changeFileSuffixes(SWAP_FILE_SUFFIX, "");
+        for (LogSegment segment : sortedNewSegments) {
+            segment.changeFileSuffixes(SWAP_FILE_SUFFIX, "");
         }
         Utils.flushDir(dir.toPath());
 
@@ -1063,8 +1062,14 @@ public class LocalLog {
                                                      LogDirFailureChannel logDirFailureChannel,
                                                      String logPrefix) throws IOException {
         //todo-current-pr
-        //require(isLogFile(segment.log.file), s"Cannot split file ${segment.log.file.getAbsoluteFile}")
-        //require(segment.hasOverflow, s"Split operation is only permitted for segments with overflow, and the problem path is ${segment.log.file.getAbsoluteFile}")
+        if (!isLogFile(segment.log().file())) {
+            throw new IllegalArgumentException("Cannot split file " + segment.log().file().getAbsoluteFile());
+        }
+        if (!segment.hasOverflow()) {
+            throw new IllegalArgumentException("Split operation is only permitted for segments with overflow, and the problem path is "
+                    + segment.log().file().getAbsoluteFile());
+        }
+        //todo-current-pr
 //        logger.info("Splitting overflowed segment {}", segment);
 
         List<LogSegment> newSegments = new ArrayList<>();
@@ -1098,11 +1103,11 @@ public class LocalLog {
 
             // replace old segment with new ones
 //            logger.info("Replacing overflowed segment {} with split segments {}", segment, newSegments);
-
-            List<LogSegment> deletedSegments = replaceSegments(existingSegments, newSegments,
+            List<LogSegment> newSegmentsToAdd = Collections.unmodifiableList(newSegments);
+            List<LogSegment> deletedSegments = replaceSegments(existingSegments, newSegmentsToAdd,
                     Collections.singletonList(segment), dir, topicPartition, config, scheduler,
                     logDirFailureChannel, logPrefix, false);
-            return new SplitSegmentResult(deletedSegments, newSegments);
+            return new SplitSegmentResult(deletedSegments, newSegmentsToAdd);
         } catch (Exception ex) {
             for (LogSegment splitSegment : newSegments) {
                 splitSegment.close();

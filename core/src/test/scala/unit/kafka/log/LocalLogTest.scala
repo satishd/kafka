@@ -35,7 +35,7 @@ import java.nio.channels.ClosedChannelException
 import java.nio.charset.StandardCharsets
 import java.util
 import java.util.regex.Pattern
-import java.util.stream.Collectors
+import java.util.stream.{Collectors, StreamSupport}
 import java.util.{Collections, Optional}
 import scala.jdk.CollectionConverters._
 
@@ -126,7 +126,7 @@ class LocalLogTest {
     log.roll(Optional.empty())
     assertEquals(2, log.segments.numberOfSegments)
     assertFalse(logDir.listFiles.isEmpty)
-    val segmentsBeforeDelete = log.segments.values
+    val segmentsBeforeDelete = new util.ArrayList(log.segments.values)
     val deletedSegments = log.deleteAllSegments()
     assertTrue(log.segments.isEmpty)
     assertEquals(segmentsBeforeDelete, deletedSegments)
@@ -433,8 +433,8 @@ class LocalLogTest {
     }
     assertEquals(5, log.segments.numberOfSegments)
     assertNotEquals(10L, log.segments.activeSegment.baseOffset)
-    val expected = log.segments.values
-    val deleted = log.truncateFullyAndStartAt(10L)
+    val expected = new util.ArrayList(log.segments.values)
+    val deleted = StreamSupport.stream(log.truncateFullyAndStartAt(10L).spliterator(), false).collect(Collectors.toList())
     assertEquals(expected, deleted)
     assertEquals(1, log.segments.numberOfSegments)
     assertEquals(10L, log.segments.activeSegment.baseOffset)
@@ -455,9 +455,9 @@ class LocalLogTest {
     assertEquals(5, log.segments.numberOfSegments)
     assertEquals(12L, log.logEndOffset)
 
-    val expected = log.segments.values(9L, log.logEndOffset + 1)
+    val expected = new util.ArrayList(log.segments.values(9L, log.logEndOffset + 1))
     // Truncate to an offset before the base offset of the active segment
-    val deleted = log.truncateTo(7L)
+    val deleted = StreamSupport.stream(log.truncateTo(7L).spliterator(), false).collect(Collectors.toList())
     assertEquals(expected, deleted)
     assertEquals(3, log.segments.numberOfSegments)
     assertEquals(6L, log.segments.activeSegment.baseOffset)
