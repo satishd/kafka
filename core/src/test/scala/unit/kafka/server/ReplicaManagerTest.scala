@@ -6269,7 +6269,7 @@ class ReplicaManagerTest {
       partition.createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
 
       val leaderAndIsr = LeaderAndIsr(0, 1, List(0, 1), LeaderRecoveryState.RECOVERED, LeaderAndIsr.InitialPartitionEpoch)
-      val becomeLeaderRequest = makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), leaderAndIsr)  
+      val becomeLeaderRequest = makeLeaderAndIsrRequest(topicIds(tp0.topic), tp0, Seq(0, 1), leaderAndIsr)
 
       replicaManager.becomeLeaderOrFollower(1, becomeLeaderRequest, (_, _) => ())
       verifyRLMOnLeadershipChange(Collections.singleton(partition), Collections.emptySet())
