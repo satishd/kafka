@@ -54,6 +54,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.atomic.AtomicLong;
@@ -123,7 +124,7 @@ public class LocalLog {
     private volatile String parentDir;
     // The memory mapped buffer for index files of this log will be closed with either delete() or closeHandlers()
     // After memory mapped buffer is closed, no disk IO operation should be performed for this log.
-    volatile boolean isMemoryMappedBufferClosed = false;
+    private volatile boolean isMemoryMappedBufferClosed = false;
 
     /**
      * NOTE: this class is not thread-safe, and it relies on the thread safety provided by the Log class.
@@ -458,7 +459,7 @@ public class LocalLog {
             for (LogSegment segment : toDelete) {
                 segments.remove(segment.baseOffset());
             }
-            deleteSegmentFiles(toDelete, asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logPrefix);
+            deleteSegmentFiles(toDelete, asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logger);
         }
     }
 
@@ -500,7 +501,7 @@ public class LocalLog {
             segments.remove(segmentToDelete.baseOffset());
         }
 
-        deleteSegmentFiles(Collections.singletonList(segmentToDelete), asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logPrefix);
+        deleteSegmentFiles(Collections.singletonList(segmentToDelete), asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logger);
 
         return newSegment;
     }
@@ -630,6 +631,9 @@ public class LocalLog {
         return allAbortedTxns;
     }
 
+    LogSegment roll() {
+        return roll(OptionalLong.empty());
+    }
 
     /**
      * Roll the log over to a new active segment starting with the current logEndOffset.
@@ -638,7 +642,7 @@ public class LocalLog {
      * @param expectedNextOffset The expected next offset after the segment is rolled
      * @return The newly rolled segment
      */
-    LogSegment roll(Optional<Long> expectedNextOffset) {
+    LogSegment roll(OptionalLong expectedNextOffset) {
         return maybeHandleIOException("Error while rolling log segment for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
 
@@ -743,6 +747,11 @@ public class LocalLog {
         segments.activeSegment().truncateTo(targetOffset);
         updateLogEndOffset(targetOffset);
         return deletableSegments;
+    }
+
+    private <T> T maybeHandleIOException(String errorMsg,
+                                         StorageAction<T, IOException> func) {
+        return maybeHandleIOException(logDirFailureChannel, parentDir, errorMsg, func);
     }
 
     /**
@@ -892,7 +901,7 @@ public class LocalLog {
      * @param config               The log configuration settings
      * @param scheduler            The thread pool scheduler used for background actions
      * @param logDirFailureChannel The LogDirFailureChannel to asynchronously handle log dir failure
-     * @param logPrefix            The logging prefix
+     * @param logger               The logger to log messages
      * @throws IOException if the file can't be renamed and still exists
      */
     static void deleteSegmentFiles(Iterable<LogSegment> segmentsToDelete,
@@ -902,14 +911,14 @@ public class LocalLog {
                                    LogConfig config,
                                    Scheduler scheduler,
                                    LogDirFailureChannel logDirFailureChannel,
-                                   String logPrefix) throws IOException {
+                                   Logger logger) throws IOException {
         for (LogSegment segment : segmentsToDelete) {
             if (!segment.hasSuffix(LogFileUtils.DELETED_FILE_SUFFIX))
                 segment.changeFileSuffixes("", LogFileUtils.DELETED_FILE_SUFFIX);
         }
 
         Runnable deleteSegments = () -> {
-//            logger.info("Deleting segment files {}", mkString(segmentsToDelete.iterator(), ", "));
+            logger.info("Deleting segment files {}", mkString(segmentsToDelete.iterator(), ", "));
             String parentDir = dir.getParent();
             maybeHandleIOException(logDirFailureChannel, parentDir, "Error while deleting segments for " + topicPartition + " in dir " + parentDir,
                     () -> {
@@ -962,7 +971,7 @@ public class LocalLog {
      * @param config               The log configuration settings
      * @param scheduler            The thread pool scheduler used for background actions
      * @param logDirFailureChannel The LogDirFailureChannel to asynchronously handle log dir failure
-     * @param logPrefix            The logging prefix
+     * @param logger               The logger to log messages
      * @param isRecoveredSwapFile  true if the new segment was created from a swap file during recovery after a crash
      */
     static List<LogSegment> replaceSegments(LogSegments existingSegments,
@@ -973,7 +982,7 @@ public class LocalLog {
                                             LogConfig config,
                                             Scheduler scheduler,
                                             LogDirFailureChannel logDirFailureChannel,
-                                            String logPrefix,
+                                            Logger logger,
                                             boolean isRecoveredSwapFile) throws IOException {
         List<LogSegment> sortedNewSegments = new ArrayList<>(newSegments);
         sortedNewSegments.sort(Comparator.comparingLong(LogSegment::baseOffset));
@@ -1015,7 +1024,7 @@ public class LocalLog {
                     config,
                     scheduler,
                     logDirFailureChannel,
-                    logPrefix);
+                    logger);
             if (!newSegmentBaseOffsets.contains(seg.baseOffset())) {
                 deletedNotReplaced.add(seg);
             }
@@ -1050,7 +1059,7 @@ public class LocalLog {
      * @param config               The log configuration settings
      * @param scheduler            The thread pool scheduler used for background actions
      * @param logDirFailureChannel The LogDirFailureChannel to asynchronously handle log dir failure
-     * @param logPrefix            The logging prefix
+     * @param logger               The logger to log messages
      * @return List of new segments that replace the input segment
      */
     static SplitSegmentResult splitOverflowedSegment(LogSegment segment,
@@ -1060,8 +1069,7 @@ public class LocalLog {
                                                      LogConfig config,
                                                      Scheduler scheduler,
                                                      LogDirFailureChannel logDirFailureChannel,
-                                                     String logPrefix) throws IOException {
-        //todo-current-pr
+                                                     Logger logger) throws IOException {
         if (!isLogFile(segment.log().file())) {
             throw new IllegalArgumentException("Cannot split file " + segment.log().file().getAbsoluteFile());
         }
@@ -1069,8 +1077,7 @@ public class LocalLog {
             throw new IllegalArgumentException("Split operation is only permitted for segments with overflow, and the problem path is "
                     + segment.log().file().getAbsoluteFile());
         }
-        //todo-current-pr
-//        logger.info("Splitting overflowed segment {}", segment);
+        logger.info("Splitting overflowed segment {}", segment);
 
         List<LogSegment> newSegments = new ArrayList<>();
         try {
@@ -1102,11 +1109,11 @@ public class LocalLog {
                         " before: " + segment.log().sizeInBytes() + " after: " + totalSizeOfNewSegments);
 
             // replace old segment with new ones
-//            logger.info("Replacing overflowed segment {} with split segments {}", segment, newSegments);
+            logger.info("Replacing overflowed segment {} with split segments {}", segment, newSegments);
             List<LogSegment> newSegmentsToAdd = Collections.unmodifiableList(newSegments);
             List<LogSegment> deletedSegments = replaceSegments(existingSegments, newSegmentsToAdd,
                     Collections.singletonList(segment), dir, topicPartition, config, scheduler,
-                    logDirFailureChannel, logPrefix, false);
+                    logDirFailureChannel, logger, false);
             return new SplitSegmentResult(deletedSegments, newSegmentsToAdd);
         } catch (Exception ex) {
             for (LogSegment splitSegment : newSegments) {
@@ -1124,11 +1131,6 @@ public class LocalLog {
             joiner.add(segments.next().toString());
         }
         return joiner.toString();
-    }
-
-    private <T> T maybeHandleIOException(String errorMsg,
-                                        StorageAction<T, IOException> func) {
-        return maybeHandleIOException(logDirFailureChannel, parentDir, errorMsg, func);
     }
 
     /**

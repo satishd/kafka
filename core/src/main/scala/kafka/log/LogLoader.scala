@@ -281,7 +281,7 @@ class LogLoader(
             config,
             scheduler,
             logDirFailureChannel,
-            logIdent)
+            logger.underlying)
           deleteProducerSnapshotsAsync(result.deletedSegments.asScala)
       }
     }
@@ -509,7 +509,7 @@ class LogLoader(
         config,
         scheduler,
         logDirFailureChannel,
-        logIdent)
+        logger.underlying)
       deleteProducerSnapshotsAsync(segmentsToDelete)
     }
   }

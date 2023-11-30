@@ -42,6 +42,7 @@ import org.apache.kafka.server.util.Scheduler
 import org.apache.kafka.storage.internals.checkpoint.{LeaderEpochCheckpointFile, PartitionMetadataFile}
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache
 import org.apache.kafka.storage.internals.log.{AbortedTxn, AppendOrigin, BatchMetadata, CompletedTxn, EpochEntry, FetchDataInfo, FetchIsolation, LastRecord, LeaderHwChange, LogAppendInfo, LogConfig, LogDirFailureChannel, LogFileUtils, LogOffsetMetadata, LogOffsetSnapshot, LogOffsetsListener, LogSegment, LogSegments, LogStartOffsetIncrementReason, LogValidator, ProducerAppendInfo, ProducerStateManager, ProducerStateManagerConfig, RollParams, StorageAction, VerificationGuard}
+import org.slf4j.Logger
 
 import java.io.{File, IOException}
 import java.nio.file.Files
@@ -1651,7 +1652,8 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * @return The newly rolled segment
    */
   def roll(expectedNextOffset: Option[Long] = None): LogSegment = lock synchronized {
-    val newSegment = localLog.roll(expectedNextOffset.map(long2Long)asJava)
+    val newSegment = localLog.roll(expectedNextOffset.fold(OptionalLong.empty())(OptionalLong.of))
+
     // Take a snapshot of the producer state to facilitate recovery. It is useful to have the snapshot
     // offset align with the new segment offset since this ensures we can recover the segment by beginning
     // with the corresponding snapshot file and scanning the segment data. Because the segment base offset
@@ -1853,7 +1855,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     lock synchronized {
       localLog.checkIfMemoryMappedBufferClosed()
       val deletedSegments = UnifiedLog.replaceSegments(localLog.segments, newSegments, oldSegments, dir, topicPartition,
-        config, scheduler, logDirFailureChannel, logIdent)
+        config, scheduler, logDirFailureChannel, logger.underlying)
       deleteProducerSnapshots(deletedSegments, asyncDelete = true)
     }
   }
@@ -1892,7 +1894,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
   }
 
   private[log] def splitOverflowedSegment(segment: LogSegment): List[LogSegment] = lock synchronized {
-    val result = UnifiedLog.splitOverflowedSegment(segment, localLog.segments, dir, topicPartition, config, scheduler, logDirFailureChannel, logIdent)
+    val result = UnifiedLog.splitOverflowedSegment(segment, localLog.segments, dir, topicPartition, config, scheduler, logDirFailureChannel, logger.underlying)
     deleteProducerSnapshots(result.deletedSegments.asScala, asyncDelete = true)
     result.newSegments.asScala.toList
   }
@@ -2097,7 +2099,7 @@ object UnifiedLog extends Logging {
                                    config: LogConfig,
                                    scheduler: Scheduler,
                                    logDirFailureChannel: LogDirFailureChannel,
-                                   logPrefix: String,
+                                   logger: Logger,
                                    isRecoveredSwapFile: Boolean = false): Iterable[LogSegment] = {
     LocalLog.replaceSegments(existingSegments,
       newSegments.asJava,
@@ -2107,7 +2109,7 @@ object UnifiedLog extends Logging {
       config,
       scheduler,
       logDirFailureChannel,
-      logPrefix,
+      logger,
       isRecoveredSwapFile).asScala
   }
 
@@ -2118,8 +2120,8 @@ object UnifiedLog extends Logging {
                                       config: LogConfig,
                                       scheduler: Scheduler,
                                       logDirFailureChannel: LogDirFailureChannel,
-                                      logPrefix: String): Unit = {
-    LocalLog.deleteSegmentFiles(segmentsToDelete.asJava, asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logPrefix)
+                                      logger: Logger): Unit = {
+    LocalLog.deleteSegmentFiles(segmentsToDelete.asJava, asyncDelete, dir, topicPartition, config, scheduler, logDirFailureChannel, logger)
   }
 
   /**
@@ -2226,8 +2228,8 @@ object UnifiedLog extends Logging {
                                           config: LogConfig,
                                           scheduler: Scheduler,
                                           logDirFailureChannel: LogDirFailureChannel,
-                                          logPrefix: String): SplitSegmentResult = {
-    LocalLog.splitOverflowedSegment(segment, existingSegments, dir, topicPartition, config, scheduler, logDirFailureChannel, logPrefix)
+                                          logger: Logger): SplitSegmentResult = {
+    LocalLog.splitOverflowedSegment(segment, existingSegments, dir, topicPartition, config, scheduler, logDirFailureChannel, logger)
   }
 
   private[log] def deleteProducerSnapshots(segments: Iterable[LogSegment],
