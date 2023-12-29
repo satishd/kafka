@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package kafka.log;
+package org.apache.kafka.storage.internals.log;
 
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicPartition;
@@ -30,17 +30,6 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.util.Scheduler;
-import org.apache.kafka.storage.internals.log.AbortedTxn;
-import org.apache.kafka.storage.internals.log.FetchDataInfo;
-import org.apache.kafka.storage.internals.log.LogConfig;
-import org.apache.kafka.storage.internals.log.LogDirFailureChannel;
-import org.apache.kafka.storage.internals.log.LogFileUtils;
-import org.apache.kafka.storage.internals.log.LogOffsetMetadata;
-import org.apache.kafka.storage.internals.log.LogSegment;
-import org.apache.kafka.storage.internals.log.LogSegments;
-import org.apache.kafka.storage.internals.log.OffsetPosition;
-import org.apache.kafka.storage.internals.log.StorageAction;
-import org.apache.kafka.storage.internals.log.TxnIndexSearchResult;
 import org.slf4j.Logger;
 
 import java.io.File;
@@ -74,34 +63,34 @@ public class LocalLog {
     /**
      * a file that is scheduled to be deleted
      */
-    static final String DELETED_FILE_SUFFIX = LogFileUtils.DELETED_FILE_SUFFIX;
+    public static final String DELETED_FILE_SUFFIX = LogFileUtils.DELETED_FILE_SUFFIX;
 
     /**
      * A temporary file that is being used for log cleaning
      */
-    static final String CLEANED_FILE_SUFFIX = ".cleaned";
+    public static final String CLEANED_FILE_SUFFIX = ".cleaned";
 
     /**
      * A temporary file used when swapping files into the log
      */
-    static final String SWAP_FILE_SUFFIX = ".swap";
+    public static final String SWAP_FILE_SUFFIX = ".swap";
 
     /**
      * a directory that is scheduled to be deleted
      */
-    static final String DELETE_DIR_SUFFIX = "-delete";
+    public static final String DELETE_DIR_SUFFIX = "-delete";
 
     /**
      * a directory that is used for future partition
      */
-    static final String FUTURE_DIR_SUFFIX = "-future";
-    static final String STRAY_DIR_SUFFIX = "-stray";
+    public static final String FUTURE_DIR_SUFFIX = "-future";
+    public static final String STRAY_DIR_SUFFIX = "-stray";
 
-    static final Pattern DELETE_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + DELETE_DIR_SUFFIX);
-    static final Pattern FUTURE_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + FUTURE_DIR_SUFFIX);
-    static final Pattern STRAY_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + STRAY_DIR_SUFFIX);
+    public static final Pattern DELETE_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + DELETE_DIR_SUFFIX);
+    public static final Pattern FUTURE_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + FUTURE_DIR_SUFFIX);
+    public static final Pattern STRAY_DIR_PATTERN = Pattern.compile("^(\\S+)-(\\S+)\\.(\\S+)" + STRAY_DIR_SUFFIX);
 
-    static final long UNKNOWN_OFFSET = -1L;
+    public static final long UNKNOWN_OFFSET = -1L;
 
     private final Logger logger;
 
@@ -163,7 +152,7 @@ public class LocalLog {
         logger = new LogContext(logPrefix).logger(LocalLog.class);
     }
 
-    Logger logger() {
+    public Logger logger() {
         return logger;
     }
 
@@ -195,7 +184,7 @@ public class LocalLog {
         return isMemoryMappedBufferClosed;
     }
 
-    long recoveryPoint() {
+    public long recoveryPoint() {
         return recoveryPoint;
     }
 
@@ -206,41 +195,41 @@ public class LocalLog {
     /**
      * The time this log is last known to have been fully flushed to disk
      */
-    long lastFlushTime() {
+    public long lastFlushTime() {
         return lastFlushedTime.get();
     }
 
     /**
      * The offset metadata of the next message that will be appended to the log
      */
-    LogOffsetMetadata logEndOffsetMetadata() {
+    public LogOffsetMetadata logEndOffsetMetadata() {
         return nextOffsetMetadata;
     }
 
     /**
      * The offset of the next message that will be appended to the log
      */
-    long logEndOffset() {
+    public long logEndOffset() {
         return nextOffsetMetadata.messageOffset;
     }
 
-    File dir() {
+    public File dir() {
         return dir;
     }
 
-    String name() {
+    public String name() {
         return dir.getName();
     }
 
-    String parentDir() {
+    public String parentDir() {
         return parentDir;
     }
 
-    File parentDirFile() {
+    public File parentDirFile() {
         return new File(parentDir);
     }
 
-    boolean isFuture() {
+    public boolean isFuture() {
         return dir.getName().endsWith(LocalLog.FUTURE_DIR_SUFFIX);
     }
 
@@ -250,7 +239,7 @@ public class LocalLog {
      * @param name the new dir name
      * @throws KafkaStorageException if rename fails
      */
-    boolean renameDir(String name) {
+    public boolean renameDir(String name) {
         return maybeHandleIOException("Error while renaming dir for " + topicPartition + " in log dir " + dir.getParent(),
                 () -> {
                     File renamedDir = new File(dir.getParent(), name);
@@ -271,7 +260,7 @@ public class LocalLog {
      *
      * @param newConfig the new configuration to be updated to
      */
-    void updateConfig(LogConfig newConfig) {
+    public void updateConfig(LogConfig newConfig) {
         LogConfig oldConfig = config;
         config = newConfig;
         RecordVersion oldRecordVersion = oldConfig.recordVersion();
@@ -280,12 +269,12 @@ public class LocalLog {
             logger.warn("Record format version has been downgraded from {} to {}.", oldRecordVersion, newRecordVersion);
     }
 
-    void checkIfMemoryMappedBufferClosed() {
+    public void checkIfMemoryMappedBufferClosed() {
         if (isMemoryMappedBufferClosed)
             throw new KafkaStorageException("The memory mapped buffer for log of " + topicPartition + " is already closed");
     }
 
-    void updateRecoveryPoint(long newRecoveryPoint) {
+    public void updateRecoveryPoint(long newRecoveryPoint) {
         recoveryPoint = newRecoveryPoint;
     }
 
@@ -295,7 +284,7 @@ public class LocalLog {
      *
      * @param offset the offset to be updated
      */
-    void markFlushed(long offset) {
+    public void markFlushed(long offset) {
         checkIfMemoryMappedBufferClosed();
         if (offset > recoveryPoint) {
             updateRecoveryPoint(offset);
@@ -306,7 +295,7 @@ public class LocalLog {
     /**
      * The number of messages appended to the log since the last flush
      */
-    long unflushedMessages() {
+    public long unflushedMessages() {
         return logEndOffset() - recoveryPoint;
     }
 
@@ -316,7 +305,7 @@ public class LocalLog {
      *
      * @param offset The offset to flush up to (non-inclusive)
      */
-    void flush(long offset) throws IOException {
+    public void flush(long offset) throws IOException {
         long currentRecoveryPoint = recoveryPoint;
         if (currentRecoveryPoint <= offset) {
             Collection<LogSegment> segmentsToFlush = segments.values(currentRecoveryPoint, offset);
@@ -337,7 +326,7 @@ public class LocalLog {
      *
      * @param endOffset the new end offset of the log
      */
-    void updateLogEndOffset(long endOffset) {
+    public void updateLogEndOffset(long endOffset) {
         nextOffsetMetadata = new LogOffsetMetadata(endOffset, segments.activeSegment().baseOffset(), segments.activeSegment().size());
         if (recoveryPoint > endOffset) {
             updateRecoveryPoint(endOffset);
@@ -348,7 +337,7 @@ public class LocalLog {
      * Close file handlers used by log but don't write to disk.
      * This is called if the log directory is offline.
      */
-    void closeHandlers() {
+    public void closeHandlers() {
         segments.closeHandlers();
         isMemoryMappedBufferClosed = true;
     }
@@ -356,7 +345,7 @@ public class LocalLog {
     /**
      * Closes the segments of the log.
      */
-    void close() {
+    public void close() {
         maybeHandleIOException("Error while renaming dir for " + topicPartition + " in dir " + dir.getParent(),
                 (StorageAction<Void, IOException>) () -> {
                     checkIfMemoryMappedBufferClosed();
@@ -368,7 +357,7 @@ public class LocalLog {
     /**
      * Completely delete this log directory with no delay.
      */
-    void deleteEmptyDir() {
+    public void deleteEmptyDir() {
         maybeHandleIOException("Error while deleting dir for " + topicPartition + " in dir " + dir.getParent(),
                 (StorageAction<Void, IOException>) () -> {
                     if (segments.nonEmpty()) {
@@ -387,7 +376,7 @@ public class LocalLog {
      *
      * @return the deleted segments
      */
-    Iterable<LogSegment> deleteAllSegments() {
+    public Iterable<LogSegment> deleteAllSegments() {
         return maybeHandleIOException("Error while deleting all segments for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     Collection<LogSegment> allSegments = segments.values();
@@ -406,7 +395,7 @@ public class LocalLog {
      *                  (if there is one). It returns true iff the segment is deletable.
      * @return the segments ready to be deleted
      */
-    Collection<LogSegment> deletableSegments(BiFunction<LogSegment, Optional<LogSegment>, Boolean> predicate) {
+    public Collection<LogSegment> deletableSegments(BiFunction<LogSegment, Optional<LogSegment>, Boolean> predicate) {
         if (segments.isEmpty()) {
             return Collections.emptyList();
         } else {
@@ -444,7 +433,7 @@ public class LocalLog {
      * @param asyncDelete      Whether the segment files should be deleted asynchronously
      * @param reason           The reason for the segment deletion
      */
-    void removeAndDeleteSegments(Collection<LogSegment> segmentsToDelete,
+    public void removeAndDeleteSegments(Collection<LogSegment> segmentsToDelete,
                                  boolean asyncDelete,
                                  SegmentDeletionReason reason) throws IOException {
         if (!segmentsToDelete.isEmpty()) {
@@ -476,10 +465,10 @@ public class LocalLog {
      * @param asyncDelete     Whether the segment files should be deleted asynchronously
      * @param reason          The reason for the segment deletion
      */
-    LogSegment createAndDeleteSegment(long newOffset,
-                                      LogSegment segmentToDelete,
-                                      boolean asyncDelete,
-                                      SegmentDeletionReason reason) throws IOException {
+    public LogSegment createAndDeleteSegment(long newOffset,
+                                             LogSegment segmentToDelete,
+                                             boolean asyncDelete,
+                                             SegmentDeletionReason reason) throws IOException {
         if (newOffset == segmentToDelete.baseOffset()) {
             segmentToDelete.changeFileSuffixes("", LogFileUtils.DELETED_FILE_SUFFIX);
         }
@@ -508,7 +497,7 @@ public class LocalLog {
      * Given a message offset, find its corresponding offset metadata in the log.
      * If the message offset is out of range, throw an OffsetOutOfRangeException
      */
-    LogOffsetMetadata convertToOffsetMetadataOrThrow(long offset) {
+    public LogOffsetMetadata convertToOffsetMetadataOrThrow(long offset) {
         FetchDataInfo fetchDataInfo = read(offset, 1, false, nextOffsetMetadata, false);
         return fetchDataInfo.fetchOffsetMetadata;
     }
@@ -525,7 +514,7 @@ public class LocalLog {
      * @return The fetch data information including fetch starting offset metadata and messages read.
      * @throws OffsetOutOfRangeException If startOffset is beyond the log end offset
      */
-    FetchDataInfo read(long startOffset,
+    public FetchDataInfo read(long startOffset,
                        int maxLength,
                        boolean minOneMessage,
                        LogOffsetMetadata maxOffsetMetadata,
@@ -577,7 +566,7 @@ public class LocalLog {
                 });
     }
 
-    void append(long lastOffset, long largestTimestamp, long shallowOffsetOfMaxTimestamp, MemoryRecords records) throws IOException {
+    public void append(long lastOffset, long largestTimestamp, long shallowOffsetOfMaxTimestamp, MemoryRecords records) throws IOException {
         segments.activeSegment().append(lastOffset, largestTimestamp, shallowOffsetOfMaxTimestamp, records);
         updateLogEndOffset(lastOffset + 1);
     }
@@ -619,7 +608,7 @@ public class LocalLog {
         }
     }
 
-    List<AbortedTxn> collectAbortedTransactions(long logStartOffset, long baseOffset, long upperBoundOffset) throws IOException {
+    public List<AbortedTxn> collectAbortedTransactions(long logStartOffset, long baseOffset, long upperBoundOffset) throws IOException {
         Optional<LogSegment> segmentEntry = segments.floorSegment(baseOffset);
         List<AbortedTxn> allAbortedTxns = new ArrayList<>();
 
@@ -629,7 +618,7 @@ public class LocalLog {
         return allAbortedTxns;
     }
 
-    LogSegment roll() {
+    public LogSegment roll() {
         return roll(OptionalLong.empty());
     }
 
@@ -640,7 +629,7 @@ public class LocalLog {
      * @param expectedNextOffset The expected next offset after the segment is rolled
      * @return The newly rolled segment
      */
-    LogSegment roll(OptionalLong expectedNextOffset) {
+    public LogSegment roll(OptionalLong expectedNextOffset) {
         return maybeHandleIOException("Error while rolling log segment for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
 
@@ -713,7 +702,7 @@ public class LocalLog {
      * @param newOffset The new offset to start the log with
      * @return the list of segments that were scheduled for deletion
      */
-    Iterable<LogSegment> truncateFullyAndStartAt(long newOffset) {
+    public Iterable<LogSegment> truncateFullyAndStartAt(long newOffset) {
         return maybeHandleIOException("Error while truncating the entire log for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     logger.debug("Truncate and start at offset {}", newOffset);
@@ -739,7 +728,7 @@ public class LocalLog {
      * @param targetOffset The offset to truncate to, an upper bound on all offsets in the log after truncation is complete.
      * @return the list of segments that were scheduled for deletion
      */
-    Iterable<LogSegment> truncateTo(long targetOffset) throws IOException {
+    public Iterable<LogSegment> truncateTo(long targetOffset) throws IOException {
         Collection<LogSegment> deletableSegments = segments.filter(segment -> segment.baseOffset() > targetOffset);
         removeAndDeleteSegments(deletableSegments, true, new LogTruncation(this.logger));
         segments.activeSegment().truncateTo(targetOffset);
@@ -759,7 +748,7 @@ public class LocalLog {
      * @return if a next element exists, None otherwise.
      * @param <T> the type of object held within the iterator
      */
-    static <T> Optional<T> nextItem(Iterator<T> iterator) {
+    public static <T> Optional<T> nextItem(Iterator<T> iterator) {
         return iterator.hasNext() ? Optional.of(iterator.next()) : Optional.empty();
     }
 
@@ -769,7 +758,7 @@ public class LocalLog {
      * If the topic name is too long, it will be truncated to prevent the total name
      * from exceeding 255 characters.
      */
-    static String logDeleteDirName(TopicPartition topicPartition) {
+    public static String logDeleteDirName(TopicPartition topicPartition) {
         return logDirNameWithSuffixCappedLength(topicPartition, DELETE_DIR_SUFFIX);
     }
 
@@ -791,7 +780,7 @@ public class LocalLog {
      * If the topic name is too long, it will be truncated to prevent the total name
      * from exceeding 255 characters.
      */
-    static String logStrayDirName(TopicPartition topicPartition) {
+    public static String logStrayDirName(TopicPartition topicPartition) {
         return logDirNameWithSuffixCappedLength(topicPartition, STRAY_DIR_SUFFIX);
     }
 
@@ -799,7 +788,7 @@ public class LocalLog {
      * Return a future directory name for the given topic partition. The name will be in the following
      * format: topic-partition.uniqueId-future where topic, partition and uniqueId are variables.
      */
-    static String logFutureDirName(TopicPartition topicPartition) {
+    public static String logFutureDirName(TopicPartition topicPartition) {
         return logDirNameWithSuffix(topicPartition, FUTURE_DIR_SUFFIX);
     }
 
@@ -812,14 +801,14 @@ public class LocalLog {
      * Return a directory name for the given topic partition. The name will be in the following
      * format: topic-partition where topic, partition are variables.
      */
-    static String logDirName(TopicPartition topicPartition) {
+    public static String logDirName(TopicPartition topicPartition) {
         return topicPartition.topic() + "-" + topicPartition.partition();
     }
 
     /**
      * Parse the topic and partition out of the directory name of a log
      */
-    static TopicPartition parseTopicPartitionName(File dir) {
+    public static TopicPartition parseTopicPartitionName(File dir) {
         if (dir == null) throw new KafkaException("dir should not be null");
 
         Function<File, KafkaException> exceptionFn
@@ -853,14 +842,14 @@ public class LocalLog {
         }
     }
 
-    static boolean isIndexFile(File file) {
+    public static boolean isIndexFile(File file) {
         String fileName = file.getName();
         return fileName.endsWith(LogFileUtils.INDEX_FILE_SUFFIX)
                 || fileName.endsWith(LogFileUtils.TIME_INDEX_FILE_SUFFIX)
                 || fileName.endsWith(LogFileUtils.TXN_INDEX_FILE_SUFFIX);
     }
 
-    static boolean isLogFile(File file) {
+    public static boolean isLogFile(File file) {
         return file.getPath().endsWith(LogFileUtils.LOG_FILE_SUFFIX);
     }
 
@@ -871,7 +860,7 @@ public class LocalLog {
         return new FetchDataInfo(fetchOffsetMetadata, MemoryRecords.EMPTY, false, abortedTransactions);
     }
 
-    static LogSegment createNewCleanedSegment(File dir, LogConfig logConfig, long baseOffset) throws IOException {
+    public static LogSegment createNewCleanedSegment(File dir, LogConfig logConfig, long baseOffset) throws IOException {
         LogSegment.deleteIfExists(dir, baseOffset, CLEANED_FILE_SUFFIX);
         return LogSegment.open(dir,
                 baseOffset,
@@ -902,7 +891,7 @@ public class LocalLog {
      * @param logger               The logger to log messages
      * @throws IOException if the file can't be renamed and still exists
      */
-    static void deleteSegmentFiles(Iterable<LogSegment> segmentsToDelete,
+    public static void deleteSegmentFiles(Iterable<LogSegment> segmentsToDelete,
                                    boolean asyncDelete,
                                    File dir,
                                    TopicPartition topicPartition,
@@ -972,7 +961,7 @@ public class LocalLog {
      * @param logger               The logger to log messages
      * @param isRecoveredSwapFile  true if the new segment was created from a swap file during recovery after a crash
      */
-    static List<LogSegment> replaceSegments(LogSegments existingSegments,
+    public static List<LogSegment> replaceSegments(LogSegments existingSegments,
                                             List<LogSegment> newSegments,
                                             List<LogSegment> oldSegments,
                                             File dir,
@@ -1060,7 +1049,7 @@ public class LocalLog {
      * @param logger               The logger to log messages
      * @return List of new segments that replace the input segment
      */
-    static SplitSegmentResult splitOverflowedSegment(LogSegment segment,
+    public static SplitSegmentResult splitOverflowedSegment(LogSegment segment,
                                                      LogSegments existingSegments,
                                                      File dir,
                                                      TopicPartition topicPartition,

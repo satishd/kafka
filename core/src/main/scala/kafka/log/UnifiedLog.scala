@@ -19,7 +19,7 @@ package kafka.log
 
 import com.yammer.metrics.core.MetricName
 import kafka.common.{OffsetsOutOfOrderException, UnexpectedAppendOffsetException}
-import kafka.log.LocalLog.nextItem
+import org.apache.kafka.storage.internals.log.LocalLog.nextItem
 import kafka.log.remote.RemoteLogManager
 import kafka.server.{BrokerTopicMetrics, BrokerTopicStats, RequestLocal}
 import kafka.utils._
@@ -41,7 +41,7 @@ import org.apache.kafka.server.record.BrokerCompressionType
 import org.apache.kafka.server.util.Scheduler
 import org.apache.kafka.storage.internals.checkpoint.{LeaderEpochCheckpointFile, PartitionMetadataFile}
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache
-import org.apache.kafka.storage.internals.log.{AbortedTxn, AppendOrigin, BatchMetadata, CompletedTxn, EpochEntry, FetchDataInfo, FetchIsolation, LastRecord, LeaderHwChange, LogAppendInfo, LogConfig, LogDirFailureChannel, LogFileUtils, LogOffsetMetadata, LogOffsetSnapshot, LogOffsetsListener, LogSegment, LogSegments, LogStartOffsetIncrementReason, LogValidator, ProducerAppendInfo, ProducerStateManager, ProducerStateManagerConfig, RollParams, StorageAction, VerificationGuard}
+import org.apache.kafka.storage.internals.log.{AbortedTxn, AppendOrigin, BatchMetadata, CompletedTxn, EpochEntry, FetchDataInfo, FetchIsolation, LastRecord, LeaderHwChange, LocalLog, LogAppendInfo, LogConfig, LogDirFailureChannel, LogFileUtils, LogOffsetMetadata, LogOffsetSnapshot, LogOffsetsListener, LogSegment, LogSegments, LogStartOffsetIncrementReason, LogValidator, ProducerAppendInfo, ProducerStateManager, ProducerStateManagerConfig, RollParams, SegmentDeletionReason, SplitSegmentResult, StorageAction, VerificationGuard}
 import org.slf4j.Logger
 
 import java.io.{File, IOException}
