@@ -1444,7 +1444,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    */
   private[log] def deletableSegments(predicate: (LogSegment, Optional[LogSegment]) => Boolean): Iterable[LogSegment] = {
     def isSegmentEligibleForDeletion(nextSegmentOpt: Optional[LogSegment], upperBoundOffset: Long): Boolean = {
-      val allowDeletionDueToLogStartOffsetIncremented = !nextSegmentOpt.isEmpty && logStartOffset >= nextSegmentOpt.get.baseOffset
+      val allowDeletionDueToLogStartOffsetIncremented = nextSegmentOpt.isPresent && logStartOffset >= nextSegmentOpt.get.baseOffset
       // Segments are eligible for deletion when:
       //    1. they are uploaded to the remote storage
       //    2. log-start-offset was incremented higher than the largest offset in the candidate segment

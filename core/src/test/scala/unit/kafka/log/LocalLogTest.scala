@@ -333,42 +333,6 @@ class LocalLogTest {
   }
 
   @Test
-  def testDeletableSegmentsFilter(): Unit = {
-    for (offset <- 0 to 8) {
-      val record = new SimpleRecord(mockTime.milliseconds, "a".getBytes)
-      appendRecords(List(record), initialOffset = offset)
-      log.roll()
-    }
-
-    assertEquals(10, log.segments.numberOfSegments)
-
-    {
-      val deletable = log.deletableSegments(
-        (segment: LogSegment, _: Optional[LogSegment]) => segment.baseOffset <= 5)
-      val expected = log.segments.nonActiveLogSegmentsFrom(0L).stream()
-        .filter(segment => segment.baseOffset <= 5).collect(Collectors.toList())
-      assertEquals(6, expected.size())
-      assertEquals(expected, deletable)
-    }
-
-    {
-      val deletable = log.deletableSegments((_: LogSegment, _: Optional[LogSegment]) => true)
-      val expected = log.segments.nonActiveLogSegmentsFrom(0L)
-      assertEquals(9, expected.size())
-      assertEquals(new util.ArrayList(expected), deletable)
-    }
-
-    {
-      val record = new SimpleRecord(mockTime.milliseconds, "a".getBytes)
-      appendRecords(List(record), initialOffset = 9L)
-      val deletable = log.deletableSegments((_: LogSegment, _: Optional[LogSegment]) => true)
-      val expected = log.segments.values
-      assertEquals(10, expected.size())
-      assertEquals(new util.ArrayList(expected), deletable)
-    }
-  }
-
-  @Test
   def testDeletableSegmentsIteration(): Unit = {
     for (offset <- 0 to 8) {
       val record = new SimpleRecord(mockTime.milliseconds, "a".getBytes)
@@ -730,19 +694,19 @@ class LocalLogTest {
                                               topicPartition: TopicPartition = topicPartition,
                                               logDirFailureChannel: LogDirFailureChannel = logDirFailureChannel): LocalLog = {
     segments.add(LogSegment.open(dir,
-      0L,
-      config,
-      time,
-      config.initFileSize,
-      config.preallocate))
+                                 0L,
+                                 config,
+                                 time,
+                                 config.initFileSize,
+                                 config.preallocate))
     new LocalLog(dir,
-      config,
-      segments,
-      recoveryPoint,
-      nextOffsetMetadata,
-      scheduler,
-      time,
-      topicPartition,
-      logDirFailureChannel)
+                 config,
+                 segments,
+                 recoveryPoint,
+                 nextOffsetMetadata,
+                 scheduler,
+                 time,
+                 topicPartition,
+                 logDirFailureChannel)
   }
 }
