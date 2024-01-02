@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -238,7 +239,8 @@ public class LocalLog {
      * @throws KafkaStorageException if rename fails
      */
     public boolean renameDir(String name) {
-        return maybeHandleIOException("Error while renaming dir for " + topicPartition + " in log dir " + dir.getParent(),
+        return maybeHandleIOException(
+                () -> "Error while renaming dir for " + topicPartition + " in log dir " + dir.getParent(),
                 () -> {
                     File renamedDir = new File(dir.getParent(), name);
                     Utils.atomicMoveWithFallback(dir.toPath(), renamedDir.toPath());
@@ -344,7 +346,8 @@ public class LocalLog {
      * Closes the segments of the log.
      */
     public void close() {
-        maybeHandleIOException("Error while renaming dir for " + topicPartition + " in dir " + dir.getParent(),
+        maybeHandleIOException(
+                () -> "Error while renaming dir for " + topicPartition + " in dir " + dir.getParent(),
                 (StorageAction<Void, IOException>) () -> {
                     checkIfMemoryMappedBufferClosed();
                     segments.close();
@@ -356,7 +359,8 @@ public class LocalLog {
      * Completely delete this log directory with no delay.
      */
     public void deleteEmptyDir() {
-        maybeHandleIOException("Error while deleting dir for " + topicPartition + " in dir " + dir.getParent(),
+        maybeHandleIOException(
+                () -> "Error while deleting dir for " + topicPartition + " in dir " + dir.getParent(),
                 (StorageAction<Void, IOException>) () -> {
                     if (segments.nonEmpty()) {
                         throw new IllegalStateException("Can not delete directory when " + segments.numberOfSegments() + " segments are still present");
@@ -375,7 +379,8 @@ public class LocalLog {
      * @return the deleted segments
      */
     public Iterable<LogSegment> deleteAllSegments() {
-        return maybeHandleIOException("Error while deleting all segments for " + topicPartition + " in dir " + dir.getParent(),
+        return maybeHandleIOException(
+                () -> "Error while deleting all segments for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     Collection<LogSegment> allSegments = segments.values();
                     List<LogSegment> deletableSegments = new ArrayList<>(allSegments);
@@ -517,7 +522,8 @@ public class LocalLog {
                               boolean minOneMessage,
                               LogOffsetMetadata maxOffsetMetadata,
                               boolean includeAbortedTxns) {
-        return maybeHandleIOException("Exception while reading for " + topicPartition + " in dir " + dir.getParent(),
+        return maybeHandleIOException(
+                () -> "Exception while reading for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     logger.trace("Reading maximum {} bytes at offset {} from log with total length {} bytes", maxLength, startOffset, segments.sizeInBytes());
 
@@ -629,7 +635,8 @@ public class LocalLog {
      * @return The newly rolled segment
      */
     public LogSegment roll(OptionalLong expectedNextOffset) {
-        return maybeHandleIOException("Error while rolling log segment for " + topicPartition + " in dir " + dir.getParent(),
+        return maybeHandleIOException(
+                () -> "Error while rolling log segment for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     long start = time.hiResClockMs();
                     checkIfMemoryMappedBufferClosed();
@@ -701,7 +708,8 @@ public class LocalLog {
      * @return the list of segments that were scheduled for deletion
      */
     public Iterable<LogSegment> truncateFullyAndStartAt(long newOffset) {
-        return maybeHandleIOException("Error while truncating the entire log for " + topicPartition + " in dir " + dir.getParent(),
+        return maybeHandleIOException(
+                () -> "Error while truncating the entire log for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
                     logger.debug("Truncate and start at offset {}", newOffset);
                     checkIfMemoryMappedBufferClosed();
@@ -734,9 +742,9 @@ public class LocalLog {
         return deletableSegments;
     }
 
-    private <T> T maybeHandleIOException(String errorMsg,
+    private <T> T maybeHandleIOException(Supplier<String> errorMsgSupplier,
                                          StorageAction<T, IOException> func) {
-        return maybeHandleIOException(logDirFailureChannel, parentDir, errorMsg, func);
+        return maybeHandleIOException(logDirFailureChannel, parentDir, errorMsgSupplier, func);
     }
 
     /**
@@ -905,7 +913,8 @@ public class LocalLog {
         Runnable deleteSegments = () -> {
             logger.info("Deleting segment files {}", mkString(segmentsToDelete.iterator(), ", "));
             String parentDir = dir.getParent();
-            maybeHandleIOException(logDirFailureChannel, parentDir, "Error while deleting segments for " + topicPartition + " in dir " + parentDir,
+            maybeHandleIOException(logDirFailureChannel, parentDir,
+                    () -> "Error while deleting segments for " + topicPartition + " in dir " + parentDir,
                     () -> {
                         for (LogSegment segment : segmentsToDelete) {
                             segment.deleteIfExists();
@@ -1124,13 +1133,13 @@ public class LocalLog {
      *
      * @param logDirFailureChannel Used to asynchronously handle log directory failure.
      * @param logDir               The log directory to be marked offline during an IOException.
-     * @param errorMsg             The error message to be used when marking the log directory offline.
+     * @param errorMsgSupplier     Supplier to build the error message to be used when marking the log directory offline.
      * @param func                 The function to be executed.
      * @return The value returned by the function after a successful invocation
      */
     public static <T> T maybeHandleIOException(LogDirFailureChannel logDirFailureChannel,
                                                String logDir,
-                                               String errorMsg,
+                                               Supplier<String> errorMsgSupplier,
                                                StorageAction<T, IOException> func) {
         if (logDirFailureChannel.hasOfflineLogDir(logDir)) {
             throw new KafkaStorageException("The log dir " + logDir + " is already offline due to a previous IO exception.");
@@ -1138,6 +1147,7 @@ public class LocalLog {
         try {
             return func.execute();
         } catch (IOException ioe) {
+            String errorMsg = errorMsgSupplier.get();
             logDirFailureChannel.maybeAddOfflineLogDir(logDir, errorMsg, ioe);
             throw new KafkaStorageException(errorMsg, ioe);
         }
