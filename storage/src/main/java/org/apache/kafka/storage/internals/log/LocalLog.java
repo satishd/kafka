@@ -314,7 +314,7 @@ public class LocalLog {
             if (segmentsToFlush.stream().anyMatch(x -> x.baseOffset() >= currentRecoveryPoint)) {
                 // The directory might be renamed concurrently for topic deletion, which may cause NoSuchFileException here.
                 // Since the directory is to be deleted anyways, we just swallow NoSuchFileException and let it go.
-                Utils.flushDir(dir.toPath());
+                Utils.flushDirIfExists(dir.toPath());
             }
         }
     }
@@ -1100,7 +1100,7 @@ public class LocalLog {
                     Collections.singletonList(segment), dir, topicPartition, config, scheduler,
                     logDirFailureChannel, logger, false);
             return new SplitSegmentResult(deletedSegments, newSegmentsToAdd);
-        } catch (Exception ex) {
+        } catch (IOException | RuntimeException ex) {
             for (LogSegment splitSegment : newSegments) {
                 splitSegment.close();
                 splitSegment.deleteIfExists();
