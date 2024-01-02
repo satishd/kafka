@@ -1567,9 +1567,8 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
   private def deleteLogStartOffsetBreachedSegments(): Int = {
     def shouldDelete(segment: LogSegment, nextSegmentOpt: Optional[LogSegment]): Boolean = {
-      if (nextSegmentOpt.isPresent)
+      nextSegmentOpt.isPresent &&
         nextSegmentOpt.get().baseOffset <= (if (remoteLogEnabled()) localLogStartOffset() else logStartOffset)
-      else false
     }
 
     deleteOldSegments(shouldDelete, StartOffsetBreach(this, remoteLogEnabled()))
@@ -2273,7 +2272,7 @@ object UnifiedLog extends Logging {
         snapshotsToDelete.foreach { snapshot =>
           snapshot.deleteIfExists()
         }
-        return;
+        null
       })
     }
 

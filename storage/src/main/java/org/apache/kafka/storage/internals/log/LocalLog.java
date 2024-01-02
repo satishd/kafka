@@ -124,8 +124,8 @@ public class LocalLog {
      * @param config               The log configuration settings
      * @param segments             The non-empty log segments recovered from disk
      * @param recoveryPoint        The offset at which to begin the next recovery i.e. the first offset which has not been flushed to disk
-     * @param scheduler            The thread pool scheduler used for background actions
      * @param nextOffsetMetadata   The offset where the next message could be appended
+     * @param scheduler            The thread pool scheduler used for background actions
      * @param time                 The time instance used for checking the clock
      * @param topicPartition       The topic partition associated with this log
      * @param logDirFailureChannel The LogDirFailureChannel instance to asynchronously handle Log dir failure
@@ -700,14 +700,13 @@ public class LocalLog {
                 });
     }
 
-
     /**
      * Delete all data in the local log and start at the new offset.
      *
      * @param newOffset The new offset to start the log with
      * @return the list of segments that were scheduled for deletion
      */
-    public Iterable<LogSegment> truncateFullyAndStartAt(long newOffset) {
+    public Collection<LogSegment> truncateFullyAndStartAt(long newOffset) {
         return maybeHandleIOException(
                 () -> "Error while truncating the entire log for " + topicPartition + " in dir " + dir.getParent(),
                 () -> {
@@ -734,7 +733,7 @@ public class LocalLog {
      * @param targetOffset The offset to truncate to, an upper bound on all offsets in the log after truncation is complete.
      * @return the list of segments that were scheduled for deletion
      */
-    public Iterable<LogSegment> truncateTo(long targetOffset) throws IOException {
+    public Collection<LogSegment> truncateTo(long targetOffset) throws IOException {
         Collection<LogSegment> deletableSegments = segments.filter(segment -> segment.baseOffset() > targetOffset);
         removeAndDeleteSegments(deletableSegments, true, new LogTruncation(this.logger));
         segments.activeSegment().truncateTo(targetOffset);
