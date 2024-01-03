@@ -833,9 +833,10 @@ class LogCleanerTest extends Logging {
     def assertAbortedTransactionIndexed(): Unit = {
       val abortedTxns = log.collectAbortedTransactions(0L, 100L)
       assertEquals(1, abortedTxns.size)
-      assertEquals(producerId, abortedTxns.head.producerId)
-      assertEquals(0, abortedTxns.head.firstOffset)
-      assertEquals(2, abortedTxns.head.lastOffset)
+      val abortedTxn = abortedTxns.get(0)
+      assertEquals(producerId, abortedTxn.producerId)
+      assertEquals(0, abortedTxn.firstOffset)
+      assertEquals(2, abortedTxn.lastOffset)
     }
 
     assertAbortedTransactionIndexed()
