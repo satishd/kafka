@@ -1,0 +1,74 @@
+# Copyright (c) 2019 Uber Technologies, Inc.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+schema_version: 2.0.0
+service_name: odin-kafka
+service_type: java_standard
+distribution: buster
+
+java_standard:
+  build_cmds:
+  - 'RUN mkdir -p /etc/kafka /usr/share/kafka/lib /var/kafka-spool /usr/lib/kafka/intel_zlib /var/log/kafka /usr/local/bin /usr/share/man/man1'
+  - 'RUN chmod 777 /etc/kafka'
+  - 'RUN apt-get update'
+  - 'RUN apt-get install openjdk-11-jre-headless=11.0.23+9-1~deb10u1 -y'
+  - 'RUN ln -s /usr/lib/jvm/java-11-openjdk-amd64 /usr/lib/jvm/java-8-openjdk-amd64'
+  - 'RUN apt-get install fabric -y'
+  - 'RUN apt-get install gettext -y'
+  - 'RUN apt-get install muttley-config -y'
+  - 'RUN apt-get install python-dateutil -y'
+  - 'RUN apt-get install python-kazoo -y'
+  - 'RUN apt-get install python-kafka-rest-py -y'
+  - 'RUN apt-get install python-m3 -y'
+  - 'RUN apt-get install python-numpy -y'
+  - 'RUN apt-get install python-tz -y'
+  - 'RUN apt-get install python-yaml -y'
+  - 'RUN apt-get install kafka-tools-odin=1.4.2~5720.gbp1b686d -y'
+  - 'RUN apt-get install uber-kafka -y'
+  # Kerberos client libs are required to connect to
+  #   1. secured HDFS cluster when remote storage option is enabled
+  #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
+  - 'RUN DEBIAN_FRONTEND=noninteractive apt-get install krb5-user uber-data-krb5-conf -y'
+  - 'RUN apt-get install netcat -y'
+  - 'RUN apt-get install rsync -y'
+  - 'RUN apt-get install jmx-exporter -y'
+  - 'RUN apt-get install ngrep -y'
+  - 'RUN apt-get install sudo -y'
+  - 'RUN apt-get install telnet -y'
+  - 'RUN apt-get install vim -y'
+  - 'RUN udeploy/build.sh'
+
+applications:
+  - app_type: command_line
+    command_line:
+       run_cmd: "udeploy/start.sh"
+    udeploy_app_id: odin-kafka
+    health_check: "udeploy/health_check.sh"
+  - app_type: command_line
+    command_line:
+       run_cmd: "udeploy/start_rsync.sh"
+    udeploy_app_id: rsync
+  - app_type: command_line
+    command_line:
+       run_cmd: "udeploy/start_jmx_exporter.sh"
+    udeploy_app_id: jmx-exporter
+  - app_type: command_line
+    command_line:
+       run_cmd: "udeploy/sidecar.sh"
+    udeploy_app_id: kafka-side-car

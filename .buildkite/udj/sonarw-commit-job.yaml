@@ -1,0 +1,15 @@
+# example of a simple udj config
+# This file should be created in directory [.buildkite/udj] at repository level.
+version: 1.0
+
+uown: 1361e5a9-d1bd-4cc7-bcd8-9d752972033d
+
+command: sonarqube/run.sh
+
+vault_secrets:
+  - path: /buildkite/sonarqube/SONARQUBE_PRODUCTION_AUTOMATION_TOKEN
+  - path: /buildkite/sonarqube/SONARQUBE_STAGING_AUTOMATION_TOKEN
+  - path: /buildkite/migrated-from-jenkins/artifactory-credentials-ARTIFACTORY_AUTH
+    alias: ARTIFACTORY_AUTH
+
+timeout_in_minutes: 90

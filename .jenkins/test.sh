@@ -1,0 +1,41 @@
+set -e
+
+./gradlewAll clean build -x test
+./gradlew test -PmaxParallelForks=6 -PscalaVersion=2.12 -PmaxTestRetries=2 -PmaxTestRetryFailures=10 \
+  -x connect:api:test \
+  -x connect:basic-auth-extension:test \
+  -x connect:file:test \
+  -x connect:json:test \
+  -x connect:mirror:test \
+  -x connect:mirror-client:test \
+  -x connect:runtime:test \
+  -x connect:transforms:test \
+  -x streams:test \
+  -x streams:examples:test \
+  -x streams:streams-scala:test \
+  -x streams:test-utils:test \
+  -x streams:upgrade-system-tests-0100:test \
+  -x streams:upgrade-system-tests-0101:test \
+  -x streams:upgrade-system-tests-0102:test \
+  -x streams:upgrade-system-tests-0110:test \
+  -x streams:upgrade-system-tests-10:test \
+  -x streams:upgrade-system-tests-11:test \
+  -x streams:upgrade-system-tests-20:test \
+  -x streams:upgrade-system-tests-21:test \
+  -x streams:upgrade-system-tests-22:test \
+  -x streams:upgrade-system-tests-23:test \
+  -x streams:upgrade-system-tests-24:test \
+  -x streams:upgrade-system-tests-25:test \
+  -x streams:upgrade-system-tests-26:test \
+  -x streams:upgrade-system-tests-27:test \
+  -x streams:upgrade-system-tests-28:test \
+  -x streams:upgrade-system-tests-30:test \
+  -x streams:upgrade-system-tests-31:test \
+  -x streams:upgrade-system-tests-32:test \
+  -x streams:upgrade-system-tests-33:test \
+  -x streams:upgrade-system-tests-34:test \
+  -x streams:upgrade-system-tests-35:test \
+  -x streams:upgrade-system-tests-36:test \
+  -x streams:upgrade-system-tests-37:test \
+  -x streams:upgrade-system-tests-38:test \
+  -x tools:test

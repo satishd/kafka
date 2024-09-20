@@ -130,6 +130,14 @@ allprojects {
 
   repositories {
     mavenCentral()
+    maven {
+      url 'http://artifactory.uber.internal:4587/artifactory/libs-release-local/'
+      allowInsecureProtocol = true
+      metadataSources {
+        mavenPom()
+        artifact()
+      }
+    }
   }
 
   dependencyUpdates {
@@ -242,7 +250,11 @@ if (repo != null) {
         'clients/src/test/resources/serializedData/*',
         'docker/test/fixtures/secrets/*',
         'docker/examples/fixtures/secrets/*',
-        'docker/docker_official_images/.gitkeep'
+        'docker/docker_official_images/.gitkeep',
+        '.arcconfig',
+        'udeploy/**',
+        '.buildkite/udj/sonarw-commit-job.yaml',
+        '.jenkins/**',
     ])
   }
 } else {
