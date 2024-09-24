@@ -1186,6 +1186,8 @@ project(':core') {
     from(project(':streams:examples').configurations.runtimeClasspath) { into("libs/") }
     from(project(':tools:tools-api').jar) { into("libs/") }
     from(project(':tools:tools-api').configurations.runtimeClasspath) { into("libs/") }
+    from(project(':graphite').jar) { into("libs/") }
+    from(project(':graphite').configurations.runtimeClasspath) { into("libs/") }
     duplicatesStrategy 'exclude'
   }
 
@@ -1529,6 +1531,48 @@ project(':generator') {
 
   javadoc {
     enabled = false
+  }
+}
+
+project(':graphite') {
+  println "Building project 'graphite' with Scala version $scalaVersion"
+
+  apply plugin: 'scala'
+  base {
+    archivesName = "kafka-graphite_${versions.baseScala}"
+
+  }
+  def (major, minor, trivial) = scalaVersion.tokenize('.')
+
+  dependencies {
+    implementation project(':core')
+    implementation project(':server-common')
+    compileOnly libs.reload4j
+    testRuntimeOnly libs.slf4jReload4j
+    implementation "com.yammer.metrics:metrics-graphite:2.2.0"
+    implementation "org.scala-lang:scala-library:${scalaVersion}"
+    zinc 'com.typesafe.zinc:zinc:0.3.1'
+  }
+
+  tasks.create(name: "copyDependantLibs", type: Copy) {
+    from (configurations.runtimeClasspath) {
+      include('metrics-graphite*')
+    }
+    into "$buildDir/dependant-libs-${scalaVersion}"
+  }
+
+  jar {
+    dependsOn 'copyDependantLibs'
+  }
+
+  jar.manifest {
+    attributes(
+            'Version': "${version}"
+    )
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("import-control-graphite.xml")
   }
 }
 

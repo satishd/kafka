@@ -20,7 +20,6 @@
 # THE SOFTWARE.
 
 export APP_HOME=${APP_HOME:-/home/udocker/odin-kafka/}
-export LD_PRELOAD=${LD_PRELOAD:-${APP_HOME}intel_zlib/libz.so.1.2.8}
 export LOG_HOME=${LOG_HOME:-/var/log/kafka}
 export JMX_EXPORTER_VERSION=${JMX_EXPORTER_VERSION:-0.11.0}
 export JMX_PORT=${JMX_PORT:-29010}
