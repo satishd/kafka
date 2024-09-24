@@ -979,7 +979,10 @@ project(':core') {
     // ZooKeeperMain depends on commons-cli but declares the dependency as `provided`
     implementation libs.commonsCli
 
-    compileOnly libs.reload4j
+    implementation libs.reload4j
+    // TODO: Revert adding caffeine library after we create a new shaded jar. (JIRA: DKAFC-5307)
+    implementation libs.caffeine
+    implementation libs.kafkasecurity
 
     testImplementation project(':clients').sourceSets.test.output
     testImplementation project(':group-coordinator').sourceSets.test.output
