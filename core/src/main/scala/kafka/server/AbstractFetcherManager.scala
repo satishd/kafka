@@ -50,6 +50,11 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
     }
   }, tags)
 
+  metricsGroup.newGauge("TotalLag", () => {
+    // current sum lag across all replica fetchers/topics/partitions
+    fetcherThreadMap.map(_._2.fetcherLagStats.stats.map(_._2.lag).sum).sum
+  }, tags)
+
   metricsGroup.newGauge("MinFetchRate", () => {
     // current min fetch rate across all fetchers/topics/partitions
     val headRate = fetcherThreadMap.values.headOption.map(_.fetcherStats.requestRate.oneMinuteRate).getOrElse(0.0)

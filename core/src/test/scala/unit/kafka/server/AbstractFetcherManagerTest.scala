@@ -18,6 +18,7 @@ package kafka.server
 
 import com.yammer.metrics.core.Gauge
 import kafka.cluster.BrokerEndPoint
+import kafka.common.ClientIdAndBroker
 import kafka.server.AbstractFetcherThread.{ReplicaFetch, ResultWithPartitions}
 import kafka.utils.Implicits.MapExtensionMethods
 import kafka.utils.TestUtils
@@ -108,6 +109,41 @@ class AbstractFetcherManagerTest {
     // count for failed partitions
     fetcherManager.removeFetcherForPartitions(Set(tp))
     assertEquals(0, getMetricValue(metricName))
+  }
+
+  @Test
+  def testMetricTotalLag(): Unit = {
+    val fetcher1: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
+    val fetcher2: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
+    val clientId = "fetcher-manager"
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", clientId, 2) {
+      override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
+        fetcher1
+      }
+    }
+
+    when(fetcher1.fetcherLagStats).thenReturn(mock(classOf[FetcherLagStats]))
+    val metricName = "TotalLag"
+    assertEquals(0L, getMetricValue(metricName))
+
+    val topicPartition = new TopicPartition("topic", 0)
+    val metricId = ClientIdAndBroker(clientId, "brokerid", 0)
+    val clientIdTp = ClientIdTopicPartition(metricId.clientId, topicPartition)
+    val fetcherLagStats = new FetcherLagStats(metricId)
+    val fetcherLagMetrics = new FetcherLagMetrics(clientIdTp)
+    fetcherLagStats.stats.put(topicPartition, fetcherLagMetrics)
+    fetcherLagStats.stats.getAndMaybePut(topicPartition).lag = 10
+
+    fetcherManager.fetcherThreadMap.put(BrokerIdAndFetcherId(0, 0), fetcher1)
+    fetcherManager.fetcherThreadMap.put(BrokerIdAndFetcherId(0, 1), fetcher2)
+
+    fetcherManager.fetcherThreadMap.put(BrokerIdAndFetcherId(1, 0), fetcher1)
+    fetcherManager.fetcherThreadMap.put(BrokerIdAndFetcherId(1, 1), fetcher2)
+
+    when(fetcher1.fetcherLagStats).thenReturn(fetcherLagStats)
+    when(fetcher2.fetcherLagStats).thenReturn(fetcherLagStats)
+
+    assertEquals(40L, getMetricValue(metricName))
   }
 
   @Test
