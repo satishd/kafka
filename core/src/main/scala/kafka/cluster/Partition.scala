@@ -158,6 +158,7 @@ object Partition {
     metricsGroup.removeMetric("ReplicasCount", tags)
     metricsGroup.removeMetric("LastStableOffsetLag", tags)
     metricsGroup.removeMetric("AtMinIsr", tags)
+    metricsGroup.removeMetric("Highwatermark", tags)
   }
 }
 
@@ -361,6 +362,7 @@ class Partition(val topicPartition: TopicPartition,
   metricsGroup.newGauge("AtMinIsr", () => if (isAtMinIsr) 1 else 0, tags)
   metricsGroup.newGauge("ReplicasCount", () => if (isLeader) assignmentState.replicationFactor else 0, tags)
   metricsGroup.newGauge("LastStableOffsetLag", () => log.map(_.lastStableOffsetLag).getOrElse(0), tags)
+  metricsGroup.newGauge("Highwatermark", () => log.map(_.highWatermark).getOrElse(0), tags)
 
   def hasLateTransaction(currentTimeMs: Long): Boolean = leaderLogIfLocal.exists(_.hasLateTransaction(currentTimeMs))
 

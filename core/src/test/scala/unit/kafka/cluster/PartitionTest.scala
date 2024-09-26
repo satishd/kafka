@@ -2872,7 +2872,8 @@ class PartitionTest extends AbstractPartitionTest {
       "InSyncReplicasCount",
       "ReplicasCount",
       "LastStableOffsetLag",
-      "AtMinIsr")
+      "AtMinIsr",
+      "Highwatermark")
 
     def getMetric(metric: String): Option[Metric] = {
       KafkaYammerMetrics.defaultRegistry().allMetrics().asScala.find { case (metricName, _) =>
