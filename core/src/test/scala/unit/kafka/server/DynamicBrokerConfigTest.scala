@@ -38,7 +38,7 @@ import org.apache.kafka.raft.QuorumConfig
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoderConfigs
 import org.apache.kafka.server.authorizer._
-import org.apache.kafka.server.config.{KRaftConfigs, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
+import org.apache.kafka.server.config.{KRaftConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.util.KafkaScheduler
@@ -963,6 +963,50 @@ class DynamicBrokerConfigTest {
     verify(remoteLogManager).updateFetchQuota(400)
 
     verifyNoMoreInteractions(remoteLogManager)
+  }
+
+  @Test
+  def testDynamicReplicaStartOffsetStrategyConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val oldConfig = KafkaConfig.fromProps(props)
+    val serverMock: KafkaServer = mock(classOf[kafka.server.KafkaServer])
+    Mockito.when(serverMock.config).thenReturn(oldConfig)
+
+    // Default is Earliest
+    assertEquals(ReplicaStartOffsetStrategy.EARLIEST.toString, oldConfig.replicaStartOffsetStrategy)
+
+    props.put(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG, ReplicaStartOffsetStrategy.LATEST.toString)
+    val newConfig = KafkaConfig(props)
+    // call validateReconfiguration() to validate
+    val dynamicReplicaStartOffsetStrategyConfig = new DynamicReplicaStartOffsetStrategyConfig(serverMock)
+    dynamicReplicaStartOffsetStrategyConfig.validateReconfiguration(newConfig)
+
+    val changedConfig = KafkaConfig(props)
+    assertEquals(ReplicaStartOffsetStrategy.LATEST.toString, changedConfig.values.get(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG))
+
+    oldConfig.dynamicConfig.initialize(None, None)
+    oldConfig.dynamicConfig.addBrokerReconfigurable(new DynamicReplicaStartOffsetStrategyConfig(serverMock))
+    assertEquals(ReplicaStartOffsetStrategy.EARLIEST.toString, oldConfig.replicaStartOffsetStrategy)
+
+    // Restore it back to Earliest
+    props.put(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG, ReplicaStartOffsetStrategy.EARLIEST.toString)
+    val restoreConfig = KafkaConfig(props)
+    restoreConfig.dynamicConfig.updateBrokerConfig(0, props)
+    assertEquals(ReplicaStartOffsetStrategy.EARLIEST.toString, restoreConfig.values.get(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG))
+
+    // Set it to Latest
+    props.put(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG, ReplicaStartOffsetStrategy.LATEST.toString)
+    val config = KafkaConfig(props)
+    config.dynamicConfig.updateBrokerConfig(0, props)
+    assertEquals(ReplicaStartOffsetStrategy.LATEST.toString, config.values.get(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG))
+
+    // Test with Invalid Value
+    try {
+      props.put(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG, "Invalid_Value")
+      config.dynamicConfig.updateBrokerConfig(0, props)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
   }
 
   def verifyIncorrectLogLocalRetentionProps(logLocalRetentionMs: Long,

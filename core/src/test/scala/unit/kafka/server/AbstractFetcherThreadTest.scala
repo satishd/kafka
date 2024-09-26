@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.{BeforeEach, Test}
 import kafka.server.FetcherThreadTestUtils.{initialFetchState, mkBatch}
+import org.apache.kafka.server.config.ReplicaStartOffsetStrategy
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable.ArrayBuffer
@@ -705,6 +706,82 @@ class AbstractFetcherThreadTest {
     }, "Failed to reconcile leader and follower logs")
 
     assertEquals(leaderState.logStartOffset, replicaState.logStartOffset)
+    assertEquals(leaderState.logEndOffset, replicaState.logEndOffset)
+    assertEquals(leaderState.highWatermark, replicaState.highWatermark)
+  }
+
+  /**
+   * Test case to verify the behavior when an empty follower fetches starts fetching from the leader, and the
+   * leader's log start offset is non-zero. This test ensures that the follower correctly handles the out-of-range
+   * scenario and starts replicating from leader's log end offset onwards
+   */
+  @Test
+  def testFollowerFetchOutOfRangeLowNonZeroLeaderStartOffsetWithLatestOffsetStrategy(): Unit = {
+    val partition = new TopicPartition("topic", 0)
+    val mockLeaderEndPoint = new MockLeaderEndPoint(truncateOnFetch = truncateOnFetch, version = version)
+    val mockTierStateMachine = new MockTierStateMachine(mockLeaderEndPoint)
+    val fetcher = new MockFetcherThread(mockLeaderEndPoint, mockTierStateMachine, replicaStartOffsetStrategy = ReplicaStartOffsetStrategy.LATEST)
+
+    // The follower begins with an empty log
+    val replicaLog = Seq()
+
+    val replicaState = PartitionState(replicaLog, leaderEpoch = 0, highWatermark = 0L)
+    fetcher.setReplicaState(partition, replicaState)
+    fetcher.addPartitions(Map(partition -> initialFetchState(topicIds.get(partition.topic), fetchOffset = 0, leaderEpoch = 0)))
+
+    val leaderLog = Seq(
+      mkBatch(baseOffset = 2, leaderEpoch = 0, new SimpleRecord("c".getBytes)),  // set to non-zero to test the LogStartOffset out of range
+      mkBatch(baseOffset = 99, leaderEpoch = 0, new SimpleRecord("d".getBytes))) // set to 99, so LogEndOffset is 100
+
+    val leaderState = PartitionState(leaderLog, leaderEpoch = 0, highWatermark = 100L)
+    fetcher.mockLeader.setLeaderState(partition, leaderState)
+    fetcher.mockLeader.setReplicaPartitionStateCallback(fetcher.replicaPartitionState)
+
+    // The replica should end up with LogStartOffset/LogEndOffset == Leader's LogEndOffset
+    fetcher.doWork()
+    assertEquals(Option(Fetching), fetcher.fetchState(partition).map(_.state))
+    assertEquals(100, replicaState.logStartOffset)
+    assertEquals(List(), replicaState.log.toList)
+
+    assertEquals(leaderState.logEndOffset, replicaState.logStartOffset)
+    assertEquals(leaderState.logEndOffset, replicaState.logEndOffset)
+    assertEquals(leaderState.highWatermark, replicaState.highWatermark)
+  }
+
+  /**
+   * Test case to verify the behavior when an empty follower fetches starts fetching from the leader, and the
+   * leader's log start offset is zero. This test ensures that the follower correctly handles the scenario where the
+   * initial fetch offset is a valid offset. The follower should still start fetching from the leader's log end offset.
+   */
+  @Test
+  def testFollowerFetchOutOfRangeLowZeroLeaderStartOffsetWithLatestOffsetStrategy(): Unit = {
+    val partition = new TopicPartition("topic", 0)
+    val mockLeaderEndPoint = new MockLeaderEndPoint(truncateOnFetch = truncateOnFetch, version = version)
+    val mockTierStateMachine = new MockTierStateMachine(mockLeaderEndPoint)
+    val fetcher = new MockFetcherThread(mockLeaderEndPoint, mockTierStateMachine, replicaStartOffsetStrategy = ReplicaStartOffsetStrategy.LATEST)
+
+    // The follower begins with an empty log
+    val replicaLog = Seq()
+
+    val replicaState = PartitionState(replicaLog, leaderEpoch = 0, highWatermark = 0L)
+    fetcher.setReplicaState(partition, replicaState)
+    fetcher.addPartitions(Map(partition -> initialFetchState(topicIds.get(partition.topic), fetchOffset = 0, leaderEpoch = 0)))
+
+    val leaderLog = Seq(
+      mkBatch(baseOffset = 0, leaderEpoch = 0, new SimpleRecord("c".getBytes)),  // set to 0 to test the LogStartOffset 0 not out of range
+      mkBatch(baseOffset = 99, leaderEpoch = 0, new SimpleRecord("d".getBytes))) // set to 99, so LogEndOffset is 100
+
+    val leaderState = PartitionState(leaderLog, leaderEpoch = 0, highWatermark = 100L)
+    fetcher.mockLeader.setLeaderState(partition, leaderState)
+    fetcher.mockLeader.setReplicaPartitionStateCallback(fetcher.replicaPartitionState)
+
+    // The replica should end up with LogStartOffset/LogEndOffset == Leader's LogEndOffset
+    fetcher.doWork()
+    assertEquals(Option(Fetching), fetcher.fetchState(partition).map(_.state))
+    assertEquals(100, replicaState.logStartOffset)
+    assertEquals(List(), replicaState.log.toList)
+
+    assertEquals(leaderState.logEndOffset, replicaState.logStartOffset)
     assertEquals(leaderState.logEndOffset, replicaState.logEndOffset)
     assertEquals(leaderState.highWatermark, replicaState.highWatermark)
   }

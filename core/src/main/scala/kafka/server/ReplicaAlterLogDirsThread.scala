@@ -22,13 +22,15 @@ import kafka.server.ReplicaAlterLogDirsThread.{PromotionState, ReassignmentState
 import org.apache.kafka.common.{TopicPartition, Uuid}
 import org.apache.kafka.common.requests.FetchResponse
 import org.apache.kafka.server.common.{DirectoryEventHandler, OffsetAndEpoch, TopicIdPartition}
-import org.apache.kafka.storage.internals.log.{LogAppendInfo, LogStartOffsetIncrementReason}
+import org.apache.kafka.server.config.{ReplicaStartOffsetStrategy, ReplicationConfigs}
+import org.apache.kafka.storage.internals.log.{LogAppendInfo, LogConfig, LogStartOffsetIncrementReason}
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.{Map, Set}
 
 class ReplicaAlterLogDirsThread(name: String,
                                 leader: LeaderEndPoint,
+                                brokerConfig: KafkaConfig,
                                 failedPartitions: FailedPartitions,
                                 replicaMgr: ReplicaManager,
                                 quota: ReplicationQuotaManager,
@@ -192,6 +194,31 @@ class ReplicaAlterLogDirsThread(name: String,
   override protected def truncateFullyAndStartAt(topicPartition: TopicPartition, offset: Long): Unit = {
     val partition = replicaMgr.getPartitionOrException(topicPartition)
     partition.truncateFullyAndStartAt(offset, isFuture = true)
+  }
+
+  /**
+   * Handle a partition whose offset starts with 0 and decides whether to use the latest offset (LogEndOffset) of the leader
+   * to fetch from. The criteria is:
+   * 1. The config/dynamic config of replica.start.offset.strategy = latest (default is earliest)
+   * 2. The topic is not Compact (cleanup.policy has compact in it).
+   *
+   * Use the same logic as ReplicaFetcherThread for now. For local LogDir, copying the log segments could be fast and less impact
+   * and this can just always return 0 to use earliest offset.
+   */
+  override protected def handleReplicaStartOffsetStrategy(topicPartition: TopicPartition, leaderEndOffset: Long): Long = {
+    debug(s"ReplicaStartOffsetStrategy: ${brokerConfig.replicaStartOffsetStrategy}")
+    val topicConfig = replicaMgr.logManager.configRepository.topicConfig(topicPartition.topic)
+    val isCompactTopic = LogConfig.fromProps(brokerConfig.originals, topicConfig).compact
+    debug(s"topic: ${topicPartition.topic}, isCompactTopic: " + isCompactTopic)
+    if (brokerConfig.replicaStartOffsetStrategy == ReplicaStartOffsetStrategy.LATEST.toString && !isCompactTopic) {
+      // If the empty broker start offset strategy is set to Latest, use the leaderEndOffset as the start offset for the empty replica
+      warn(s"${ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG}: ${brokerConfig.replicaStartOffsetStrategy}. Reset fetch offset for partition $topicPartition from 0 to current " +
+        s"leader's latest offset $leaderEndOffset")
+      leaderEndOffset
+    } else {
+      // return 0 means earliest offset from leader should be used.
+      0
+    }
   }
 }
 object ReplicaAlterLogDirsThread {

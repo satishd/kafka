@@ -1949,3 +1949,152 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
     def java_class_name(self):
         return "kafka.Kafka"
+
+
+    def set_broker_dynamic_config(self, dynamic_config_name, dynamic_config_value, node):
+        """Run the kafka-configs.sh command.
+        The node is the broker that the dynamic config will be applied on.
+
+        """
+        if node is None:
+            raise ValueError("set_broker_dynamic_config(): node can not be empty")
+        broker_id = self.idx(node)
+        self.logger.info("Setting dynamic_config %s with settings %s for broker_id: %s",
+                         dynamic_config_name, dynamic_config_value, broker_id)
+        kafka_config_script = self.path.script("kafka-configs.sh", node)
+
+        cmd = kafka_config_script + " "
+        cmd += "--bootstrap-server localhost:9092 --alter --entity-type brokers --add-config %(dynamic_config_name)s=%(dynamic_config_value)s --entity-name %(broker_id)s" % {
+            'dynamic_config_name': dynamic_config_name,
+            'dynamic_config_value': dynamic_config_value,
+            'broker_id': broker_id
+        }
+
+        self.logger.info("Running broker dynamic config command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+        time.sleep(1)
+        self.logger.info("Checking to see if the dynamic config has been properly set...\n%s" % cmd)
+        broker_dynamic_config_info=self.zk.query("/config/brokers/%s" % broker_id, chroot=self.zk_chroot)
+        self.logger.debug("Broker info: %s", broker_dynamic_config_info)
+        new_dynamic_config= '"' + dynamic_config_name + '":"' + dynamic_config_value + '"'
+        assert new_dynamic_config in broker_dynamic_config_info
+
+    def delete_broker_dynamic_config(self, dynamic_config_name, node):
+        """Run the kafka-configs.sh command.
+        Specifying node is not optional, it's the broker that the dynamic config will be removed from.
+
+        """
+        if node is None:
+            raise ValueError("delete_broker_dynamic_config(): node can not be empty")
+        broker_id = self.idx(node)
+        self.logger.info("Deleting dynamic_config %s for broker_id: %s",
+                         dynamic_config_name, broker_id)
+        # First check the dynamic_config_name should be in ZK
+        self.logger.info("Checking to see if dynamic config name %s was already there...\n".format(dynamic_config_name))
+        broker_dynamic_config_info=self.zk.query("/config/brokers/%s" % broker_id, chroot=self.zk_chroot)
+        self.logger.debug("Broker info: %s", broker_dynamic_config_info)
+        assert dynamic_config_name in broker_dynamic_config_info
+
+        kafka_config_script = self.path.script("kafka-configs.sh", node)
+
+        cmd = kafka_config_script + " "
+        cmd += "--bootstrap-server localhost:9092 --alter --entity-type brokers --delete-config %(dynamic_config_name)s --entity-name %(broker_id)s" % {
+            'dynamic_config_name': dynamic_config_name,
+            'broker_id': broker_id
+        }
+
+        self.logger.info("Running broker dynamic config command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+        time.sleep(1)
+        self.logger.info("Checking to see if the dynamic config has been properly deleted...\n")
+        broker_dynamic_config_info=self.zk.query("/config/brokers/%s" % broker_id, chroot=self.zk_chroot)
+        self.logger.debug("Broker info: %s", broker_dynamic_config_info)
+        assert dynamic_config_name not in broker_dynamic_config_info
+
+    def get_starting_offset(self, node, topic, partition):
+        """
+        Given the node, try to find the first offset of a topic/partiton
+        """
+        # Grab the first .log files in directories prefixed with this topic
+        first_log_segment_file = next(node.account.ssh_capture("find %s* -regex  '.*/%s-%s/[^/]*.log' |head -1" % (KafkaService.DATA_LOG_DIR_PREFIX, topic, partition)))
+        print("first_log_segment_file: {0}".format(first_log_segment_file))
+        # Check each data file to see if it contains the messages we want
+        cmd = "%s kafka.tools.DumpLogSegments --print-data-log --files %s | grep -E \"^Log starting offset: \"" % \
+              (self.path.script("kafka-run-class.sh", node), first_log_segment_file)
+
+        for line in node.account.ssh_capture(cmd, allow_fail=True):
+            if "Log starting offset: " in line:
+                starting_offset = int(line.split("Log starting offset: ")[1])
+                break
+        self.logger.debug("topic: %s, partition: %d, Starting offset : %d",
+                          topic, partition, starting_offset)
+        return starting_offset
+
+    def set_topic_config(self, topic_name, topic_config_name, topic_config_value, node):
+        """Run the kafka-configs.sh command to
+           set the topic config with the value.
+
+           Since 2.x,  the topic config supports RPC calls instead of ZK.  ZK is still backward compatible. See below
+           Adopting the RPC call for the 2.7.x branch.  zk verification will be ported to the RPC call in the future.
+
+[root@/home/udocker/odin-kafka/bin #]./kafka-configs.sh  --bootstrap-server schemadock-staging97-dca8:9092 --alter --add-config cleanup.policy=compact --entity-type topics --entity-name georgeli_test1
+Completed updating config for topic georgeli_test1.
+
+[root@/home/udocker/odin-kafka/bin #]./kafka-configs.sh  --bootstrap-server schemadock-staging97-dca8:9092 --describe --entity-type topics --entity-name georgeli_test1
+Dynamic configs for topic georgeli_test1 are:
+  cleanup.policy=compact sensitive=false synonyms={DYNAMIC_TOPIC_CONFIG:cleanup.policy=compact, STATIC_BROKER_CONFIG:log.cleanup.policy=delete, DEFAULT_CONFIG:log.cleanup.policy=delete}
+
+[root@/home/udocker/odin-kafka/bin #]./kafka-configs.sh  --zookeeper kafkazk-chronos.dca.uber.internal:2181/kafka-georgeli-dca --describe --entity-type topics --entity-name georgeli_test1
+Warning: --zookeeper is deprecated and will be removed in a future version of Kafka.
+Use --bootstrap-server instead to specify a broker to connect to.
+Configs for topic 'georgeli_test1' are cleanup.policy=compact
+        """
+        if node is None:
+            raise ValueError("set_topic_config(): node can not be empty")
+
+        self.logger.info("Setting topic_config %s for topic %s with value: %s",
+                         topic_config_name, topic_name, topic_config_value)
+        kafka_config_script = self.path.script("kafka-configs.sh", node)
+        cmd = kafka_config_script + " "
+        cmd += "--bootstrap-server localhost:9092 --alter --entity-type topics --add-config %(topic_config_name)s=%(topic_config_value)s --entity-name %(topic_name)s" % {
+            'topic_config_name': topic_config_name,
+            'topic_config_value': topic_config_value,
+            'topic_name': topic_name
+        }
+
+        self.logger.info("Running topic config command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+        time.sleep(1)
+        self.logger.info("Checking to see if the topic config has been properly created...\n%s" % cmd)
+        topic_config_info=self.zk.query("/config/topics/%s" % topic_name, chroot=self.zk_chroot)
+        self.logger.debug("Topic Config info: %s", topic_config_info)
+        new_topic_config= '"' + topic_config_name + '":"' + topic_config_value + '"'
+        assert new_topic_config in topic_config_info
+
+    def delete_topic_config(self, topic_name, topic_config_name, topic_config_value, node):
+        """Run the kafka-configs.sh command to
+           delete the topic config.
+        """
+        if node is None:
+            raise ValueError("delete_topic_config(): node can not be empty")
+
+        self.logger.info("Deleting topic_config %s for topic: %s", topic_config_name, topic_name)
+        kafka_config_script = self.path.script("kafka-configs.sh", node)
+        cmd = kafka_config_script + " "
+        cmd += "--bootstrap-server localhost:9092 --alter --entity-type topics --delete-config %(topic_config_name)s --entity-name %(topic_name)s" % {
+            'topic_config_name': topic_config_name,
+            'topic_name': topic_name
+        }
+
+        self.logger.info("Running topic config command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+        time.sleep(1)
+        self.logger.info("Checking to see if the topic config has been properly deleted...\n%s" % cmd)
+        topic_config_info=self.zk.query("/config/topics/%s" % topic_name, chroot=self.zk_chroot)
+        self.logger.debug("Topic Config info: %s", topic_config_info)
+        new_topic_config= '"' + topic_config_name + '":"' + topic_config_value + '"'
+        assert not new_topic_config in topic_config_info

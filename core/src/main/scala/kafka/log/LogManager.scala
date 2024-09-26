@@ -64,7 +64,7 @@ import scala.annotation.nowarn
 @threadsafe
 class LogManager(logDirs: Seq[File],
                  initialOfflineDirs: Seq[File],
-                 configRepository: ConfigRepository,
+                 val configRepository: ConfigRepository,
                  val initialDefaultConfig: LogConfig,
                  val cleanerConfig: CleanerConfig,
                  recoveryThreadsPerDataDir: Int,

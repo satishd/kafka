@@ -96,6 +96,9 @@ abstract class AbstractFetcherThread(name: String,
 
   protected val isOffsetForLeaderEpochSupported: Boolean
 
+  // handle the dynamic config replica.start.offset.strategy = (earliest/latest)
+  protected def handleReplicaStartOffsetStrategy(topicPartition: TopicPartition, leaderEndOffset: Long): Long
+
   override def shutdown(): Unit = {
     initiateShutdown()
     inLock(partitionMapLock) {
@@ -350,28 +353,50 @@ abstract class AbstractFetcherThread(name: String,
                         .setLeaderEpoch(partitionData.divergingEpoch.epoch)
                         .setEndOffset(partitionData.divergingEpoch.endOffset)
                     } else {
-                      // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
-                      val logAppendInfoOpt = processPartitionData(
-                        topicPartition,
-                        currentFetchState.fetchOffset,
-                        partitionData
-                      )
+                      // It's possible the current leader still starts with offset 0, but log end offset is non-zero,
+                      // It falls under the case of Errors.NONE instead of Errors.OFFSET_OUT_OF_RANGE.
+                      // In this case, it should call fetchOffsetAndTruncate() to determine whether it should use latest offset.
+                      val newOffset = FetchResponse.recordsOrFail(partitionData).batches.asScala.lastOption.map(_.nextOffset).getOrElse(currentFetchState.fetchOffset)
+                      val shouldUseLatestOffset = (currentFetchState.fetchOffset == 0 && newOffset > 0) match {
+                        case true =>
+                          val latestOffsetPartitionState = fetchOffsetAndTruncate(topicPartition, currentFetchState.topicId, currentFetchState.currentLeaderEpoch)
+                          val x = latestOffsetPartitionState.fetchOffset match {
+                            case 0 => false
+                            case _ =>
+                              partitionStates.updateAndMoveToEnd(topicPartition, latestOffsetPartitionState)
+                              info(s"Current offset ${currentFetchState.fetchOffset} for partition ${topicPartition} " +
+                                s"should be reset to ${latestOffsetPartitionState.fetchOffset} because of replica.start.offset.strategy setting.")
+                              true
+                          }
+                          x.asInstanceOf[Boolean]
+                        case false => false
+                      }
+                      debug(s"shouldUseLatestOffset: ${shouldUseLatestOffset}")
 
-                      logAppendInfoOpt.foreach { logAppendInfo =>
-                        val validBytes = logAppendInfo.validBytes
-                        val nextOffset = if (validBytes > 0) logAppendInfo.lastOffset + 1 else currentFetchState.fetchOffset
-                        val lag = Math.max(0L, partitionData.highWatermark - nextOffset)
-                        fetcherLagStats.getAndMaybePut(topicPartition).lag = lag
+                      if (!shouldUseLatestOffset) {
+                        // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
+                        val logAppendInfoOpt = processPartitionData(
+                          topicPartition,
+                          currentFetchState.fetchOffset,
+                          partitionData
+                        )
 
-                        // ReplicaDirAlterThread may have removed topicPartition from the partitionStates after processing the partition data
-                        if ((validBytes > 0 || currentFetchState.lag.isEmpty) && partitionStates.contains(topicPartition)) {
-                          val lastFetchedEpoch =
-                            if (logAppendInfo.lastLeaderEpoch.isPresent) logAppendInfo.lastLeaderEpoch.asScala else currentFetchState.lastFetchedEpoch
-                          // Update partitionStates only if there is no exception during processPartitionData
-                          val newFetchState = PartitionFetchState(currentFetchState.topicId, nextOffset, Some(lag),
-                            currentFetchState.currentLeaderEpoch, state = Fetching, lastFetchedEpoch)
-                          partitionStates.updateAndMoveToEnd(topicPartition, newFetchState)
-                          if (validBytes > 0) fetcherStats.byteRate.mark(validBytes)
+                        logAppendInfoOpt.foreach { logAppendInfo =>
+                          val validBytes = logAppendInfo.validBytes
+                          val nextOffset = if (validBytes > 0) logAppendInfo.lastOffset + 1 else currentFetchState.fetchOffset
+                          val lag = Math.max(0L, partitionData.highWatermark - nextOffset)
+                          fetcherLagStats.getAndMaybePut(topicPartition).lag = lag
+
+                          // ReplicaDirAlterThread may have removed topicPartition from the partitionStates after processing the partition data
+                          if ((validBytes > 0 || currentFetchState.lag.isEmpty) && partitionStates.contains(topicPartition)) {
+                            val lastFetchedEpoch =
+                              if (logAppendInfo.lastLeaderEpoch.isPresent) logAppendInfo.lastLeaderEpoch.asScala else currentFetchState.lastFetchedEpoch
+                            // Update partitionStates only if there is no exception during processPartitionData
+                            val newFetchState = PartitionFetchState(currentFetchState.topicId, nextOffset, Some(lag),
+                              currentFetchState.currentLeaderEpoch, state = Fetching, lastFetchedEpoch)
+                            partitionStates.updateAndMoveToEnd(topicPartition, newFetchState)
+                            if (validBytes > 0) fetcherStats.byteRate.mark(validBytes)
+                          }
                         }
                       }
                     }
@@ -650,7 +675,17 @@ abstract class AbstractFetcherThread(name: String,
      */
     val offsetAndEpoch = leader.fetchLatestOffset(topicPartition, currentLeaderEpoch)
     val leaderEndOffset = offsetAndEpoch.offset
-    if (leaderEndOffset < replicaEndOffset) {
+    val replicaStartOffset = logStartOffset(topicPartition)
+    info(s"Inside fetchOffsetAndTruncate,  replicaStartOffset: ${replicaStartOffset}, replicaEndOffset: ${replicaEndOffset}, leaderEndOffset: ${leaderEndOffset}")
+    // If the replica is empty, and handleReplicaStartOffsetStrategy(topicPartition) returns LeaderEndOffset, which means the Latest offset is used
+    if (replicaEndOffset == 0  && leaderEndOffset != 0 && leaderEndOffset == handleReplicaStartOffsetStrategy(topicPartition, leaderEndOffset)) {
+      if (leaderEndOffset > replicaEndOffset)
+        truncateFullyAndStartAt(topicPartition, leaderEndOffset)
+
+      fetcherLagStats.getAndMaybePut(topicPartition).lag = 0
+      PartitionFetchState(topicId, leaderEndOffset, Some(0), currentLeaderEpoch, state = Fetching,
+        lastFetchedEpoch = latestEpoch(topicPartition))
+    } else if (leaderEndOffset < replicaEndOffset) {
       warn(s"Reset fetch offset for partition $topicPartition from $replicaEndOffset to current " +
         s"leader's latest offset $leaderEndOffset")
       truncate(topicPartition, OffsetTruncationState(leaderEndOffset, truncationCompleted = true))

@@ -149,6 +149,11 @@ public class ReplicationConfigs {
     public static final boolean AUTO_LEADER_REBALANCE_ENABLE_DEFAULT = true;
     public static final String AUTO_LEADER_REBALANCE_ENABLE_DOC = String.format("Enables auto leader balancing. A background thread checks the distribution of partition leaders at regular intervals, configurable by %s. If the leader imbalance exceeds %s, leader rebalance to the preferred leader for partitions is triggered.",
            LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS_CONFIG, LEADER_IMBALANCE_PER_BROKER_PERCENTAGE_CONFIG);
+
+    public static final String REPLICA_START_OFFSET_STRATEGY_CONFIG = "replica.start.offset.strategy";
+    public static final String REPLICA_START_OFFSET_STRATEGY_DEFAULT = ReplicaStartOffsetStrategy.EARLIEST.toString();
+    public static final String REPLICA_START_OFFSET_STRATEGY_DOC = String.format("The strategy for getting initial topic partition offset from leader when an empty broker or new replica is started. This is a dynamic config. Default is: %s, and can be overwritten as %s, which will make the replica use latest offset to catch up in ISR fast.", ReplicaStartOffsetStrategy.EARLIEST, ReplicaStartOffsetStrategy.LATEST);
+
     public static final ConfigDef CONFIG_DEF =  new ConfigDef()
             .define(CONTROLLER_SOCKET_TIMEOUT_MS_CONFIG, INT, CONTROLLER_SOCKET_TIMEOUT_MS_DEFAULT, MEDIUM, CONTROLLER_SOCKET_TIMEOUT_MS_DOC)
             .define(DEFAULT_REPLICATION_FACTOR_CONFIG, INT, REPLICATION_FACTOR_DEFAULT, MEDIUM, DEFAULT_REPLICATION_FACTOR_DOC)
@@ -173,6 +178,7 @@ public class ReplicationConfigs {
             .define(INTER_BROKER_SECURITY_PROTOCOL_CONFIG, STRING, INTER_BROKER_SECURITY_PROTOCOL_DEFAULT, ConfigDef.ValidString.in(Utils.enumOptions(SecurityProtocol.class)), MEDIUM, INTER_BROKER_SECURITY_PROTOCOL_DOC)
             .define(INTER_BROKER_PROTOCOL_VERSION_CONFIG, STRING, INTER_BROKER_PROTOCOL_VERSION_DEFAULT, new MetadataVersionValidator(), MEDIUM, INTER_BROKER_PROTOCOL_VERSION_DOC)
             .define(INTER_BROKER_LISTENER_NAME_CONFIG, STRING, null, MEDIUM, INTER_BROKER_LISTENER_NAME_DOC)
-            .define(REPLICA_SELECTOR_CLASS_CONFIG, STRING, null, MEDIUM, REPLICA_SELECTOR_CLASS_DOC);
+            .define(REPLICA_SELECTOR_CLASS_CONFIG, STRING, null, MEDIUM, REPLICA_SELECTOR_CLASS_DOC)
+            .define(REPLICA_START_OFFSET_STRATEGY_CONFIG, STRING, REPLICA_START_OFFSET_STRATEGY_DEFAULT, ConfigDef.ValidString.in(Utils.enumOptions(ReplicaStartOffsetStrategy.class)), MEDIUM, REPLICA_START_OFFSET_STRATEGY_DOC);
 
 }

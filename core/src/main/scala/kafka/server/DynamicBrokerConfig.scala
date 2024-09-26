@@ -40,7 +40,7 @@ import org.apache.kafka.coordinator.transaction.TransactionLogConfigs
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoder
 import org.apache.kafka.server.ProcessRole
-import org.apache.kafka.server.config.{ConfigType, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZooKeeperInternals}
+import org.apache.kafka.server.config.{ConfigType, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZooKeeperInternals}
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{ClientMetricsReceiverPlugin, MetricConfigs}
 import org.apache.kafka.server.telemetry.ClientTelemetry
@@ -98,7 +98,8 @@ object DynamicBrokerConfig {
     SocketServer.ReconfigurableConfigs ++
     DynamicProducerStateManagerConfig ++
     DynamicRemoteLogConfig.ReconfigurableConfigs ++
-    DynamicKafkaSuperUsersConfig.ReconfigurableConfigs
+    DynamicKafkaSuperUsersConfig.ReconfigurableConfigs ++
+    DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -274,6 +275,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicProducerStateManagerConfig(kafkaServer.logManager.producerStateManagerConfig))
     addBrokerReconfigurable(new DynamicRemoteLogConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicKafkaSuperUsersConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicReplicaStartOffsetStrategyConfig(kafkaServer))
   }
 
   /**
@@ -1257,6 +1259,43 @@ class DynamicKafkaSuperUsersConfig(server: KafkaBroker) extends BrokerReconfigur
     if (!newSuperUsers.equals(oldSuperUsers)) {
       info(s"Reconfiguring for super users, updated configs: $newSuperUsers, old configs: $oldSuperUsers")
       server.authorizer.foreach(_.configure(newConfig.originals))
+    }
+  }
+}
+
+object DynamicReplicaStartOffsetStrategyConfig {
+  val ReconfigurableConfigs = Set(
+    ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
+}
+
+class DynamicReplicaStartOffsetStrategyConfig (server: KafkaBroker) extends BrokerReconfigurable {
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        val oldValue = currentValue(k)
+        if (newValue != oldValue) {
+          val errorMsg = s"Dynamic Empty Broker Start Offset Strategy failed for $k=$v"
+          if ((newValue != ReplicaStartOffsetStrategy.LATEST.toString) && (newValue != ReplicaStartOffsetStrategy.EARLIEST.toString))
+            throw new ConfigException(s"$errorMsg, value should be either " + ReplicaStartOffsetStrategy.LATEST.toString + " or " + ReplicaStartOffsetStrategy.EARLIEST.toString)
+        }
+      }
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config replica.start.offset.strategy.
+  }
+
+  private def currentValue(name: String): String = {
+    name match {
+      case ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG => server.config.replicaStartOffsetStrategy
+      case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }
 }

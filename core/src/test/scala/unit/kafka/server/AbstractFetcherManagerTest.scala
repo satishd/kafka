@@ -384,6 +384,8 @@ class AbstractFetcherManagerTest {
     override protected def endOffsetForEpoch(topicPartition: TopicPartition, epoch: Int): Option[OffsetAndEpoch] = Some(new OffsetAndEpoch(1, 0))
 
     override protected val isOffsetForLeaderEpochSupported: Boolean = false
+
+    override protected def handleReplicaStartOffsetStrategy(topicPartition: TopicPartition, leaderEndOffset: Long): Long = 0
   }
 
 }

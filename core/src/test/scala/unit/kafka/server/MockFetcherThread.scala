@@ -23,6 +23,7 @@ import org.apache.kafka.common.requests.FetchResponse
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.common.OffsetAndEpoch
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.server.config.ReplicaStartOffsetStrategy
 import org.apache.kafka.storage.internals.log.LogAppendInfo
 import org.junit.jupiter.api.Assertions._
 
@@ -34,6 +35,7 @@ class MockFetcherThread(val mockLeader: MockLeaderEndPoint,
                         val mockTierStateMachine: MockTierStateMachine,
                         val replicaId: Int = 0,
                         val leaderId: Int = 1,
+                        val replicaStartOffsetStrategy: ReplicaStartOffsetStrategy = ReplicaStartOffsetStrategy.EARLIEST,
                         fetchBackOffMs: Int = 0,
                         failedPartitions: FailedPartitions = new FailedPartitions)
   extends AbstractFetcherThread("mock-fetcher",
@@ -164,4 +166,11 @@ class MockFetcherThread(val mockLeader: MockLeaderEndPoint,
   }
 
   override protected val isOffsetForLeaderEpochSupported: Boolean = true
+
+  override protected def handleReplicaStartOffsetStrategy(topicPartition: TopicPartition, leaderEndOffset: Long): Long = {
+    replicaStartOffsetStrategy match {
+      case ReplicaStartOffsetStrategy.LATEST => leaderEndOffset
+      case _ => 0
+    }
+  }
 }

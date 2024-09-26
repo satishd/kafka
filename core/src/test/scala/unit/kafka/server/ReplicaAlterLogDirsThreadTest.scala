@@ -87,6 +87,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -156,6 +157,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-log-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -256,6 +258,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -342,6 +345,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -437,6 +441,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -482,6 +487,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -580,6 +586,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       null,
@@ -642,6 +649,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       null,
@@ -746,6 +754,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -831,6 +840,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -888,6 +898,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -972,6 +983,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -1042,6 +1054,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -1086,6 +1099,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
@@ -1140,6 +1154,7 @@ class ReplicaAlterLogDirsThreadTest {
     val thread = new ReplicaAlterLogDirsThread(
       "alter-logs-dirs-thread-test1",
       leader,
+      config,
       failedPartitions,
       replicaManager,
       quotaManager,
