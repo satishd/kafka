@@ -33,6 +33,7 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
                             brokerEpochSupplier: () => Long)
       extends AbstractFetcherManager[ReplicaFetcherThread](
         name = "ReplicaFetcherManager on broker " + brokerConfig.brokerId,
+        brokerId = brokerConfig.brokerId,
         clientId = "Replica",
         numFetchers = brokerConfig.numReplicaFetchers) {
 

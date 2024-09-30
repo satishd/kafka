@@ -29,6 +29,7 @@ class ReplicaAlterLogDirsManager(brokerConfig: KafkaConfig,
                                 )
   extends AbstractFetcherManager[ReplicaAlterLogDirsThread](
     name = s"ReplicaAlterLogDirsManager on broker ${brokerConfig.brokerId}",
+    brokerId = brokerConfig.brokerId,
     clientId = "ReplicaAlterLogDirs",
     numFetchers = brokerConfig.getNumReplicaAlterLogDirsThreads) {
 

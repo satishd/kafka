@@ -32,6 +32,8 @@ import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.kafka.storage.internals.log.LogAppendInfo
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test}
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito.{mock, verify, when}
 
 import scala.collection.{Map, Set, mutable}
@@ -52,7 +54,7 @@ class AbstractFetcherManagerTest {
   @Test
   def testAddAndRemovePartition(): Unit = {
     val fetcher: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", "fetcher-manager", 2) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, "fetcher-manager", 2) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         fetcher
       }
@@ -89,7 +91,7 @@ class AbstractFetcherManagerTest {
   @Test
   def testMetricFailedPartitionCount(): Unit = {
     val fetcher: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", "fetcher-manager", 2) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, "fetcher-manager", 2) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         fetcher
       }
@@ -111,12 +113,13 @@ class AbstractFetcherManagerTest {
     assertEquals(0, getMetricValue(metricName))
   }
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(strings = Array("TotalLag", "TotalLagByBroker"))
   def testMetricTotalLag(): Unit = {
     val fetcher1: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
     val fetcher2: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
     val clientId = "fetcher-manager"
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", clientId, 2) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, clientId, 2) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         fetcher1
       }
@@ -149,7 +152,7 @@ class AbstractFetcherManagerTest {
   @Test
   def testDeadThreadCountMetric(): Unit = {
     val fetcher: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", "fetcher-manager", 2) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, "fetcher-manager", 2) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         fetcher
       }
@@ -183,7 +186,7 @@ class AbstractFetcherManagerTest {
   @Test
   def testMaybeUpdateTopicIds(): Unit = {
     val fetcher: AbstractFetcherThread = mock(classOf[AbstractFetcherThread])
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", "fetcher-manager", 2) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, "fetcher-manager", 2) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         fetcher
       }
@@ -270,7 +273,7 @@ class AbstractFetcherManagerTest {
   private def testResizeThreadPool(currentFetcherSize: Int, newFetcherSize: Int, brokerNum: Int = 6): Unit = {
     val fetchingTopicPartitions = makeTopicPartition(10, 100)
     val failedTopicPartitions = makeTopicPartition(2, 5, "topic_failed")
-    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", "fetcher-manager", currentFetcherSize) {
+    val fetcherManager = new AbstractFetcherManager[AbstractFetcherThread]("fetcher-manager", 0, "fetcher-manager", currentFetcherSize) {
       override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): AbstractFetcherThread = {
         new TestResizeFetcherThread(sourceBroker, failedPartitions, new MockResizeFetcherTierStateMachine)
       }

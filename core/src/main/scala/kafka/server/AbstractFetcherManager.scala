@@ -27,7 +27,7 @@ import org.apache.kafka.server.metrics.KafkaMetricsGroup
 import scala.collection.{Map, Set, mutable}
 import scala.jdk.CollectionConverters._
 
-abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: String, clientId: String, numFetchers: Int)
+abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: String, val brokerId: Int, clientId: String, numFetchers: Int)
   extends Logging {
   private val metricsGroup = new KafkaMetricsGroup(this.getClass)
 
@@ -40,6 +40,7 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
   this.logIdent = "[" + name + "] "
 
   private val tags = Map("clientId" -> clientId).asJava
+  private val tagsWithBrokerId = Map("clientId" -> clientId, "brokerId" -> brokerId.toString).asJava
 
   metricsGroup.newGauge("MaxLag", () => {
     // current max lag across all fetchers/topics/partitions
@@ -54,6 +55,11 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
     // current sum lag across all replica fetchers/topics/partitions
     fetcherThreadMap.map(_._2.fetcherLagStats.stats.map(_._2.lag).sum).sum
   }, tags)
+
+  metricsGroup.newGauge("TotalLagByBroker", () => {
+    // current sum lag across all replica fetchers/topics/partitions
+    fetcherThreadMap.map(_._2.fetcherLagStats.stats.map(_._2.lag).sum).sum
+  }, tagsWithBrokerId)
 
   metricsGroup.newGauge("MinFetchRate", () => {
     // current min fetch rate across all fetchers/topics/partitions
