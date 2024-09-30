@@ -1056,6 +1056,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
     private RequestFuture<Void> doCommitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
+        coordinatorMetrics.commitOffsetAsyncRequestsSensor.record();
         RequestFuture<Void> future = sendOffsetCommitRequest(offsets);
         inFlightAsyncCommits.incrementAndGet();
         final OffsetCommitCallback cb = callback == null ? defaultOffsetCommitCallback : callback;
@@ -1298,6 +1299,8 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
         log.trace("Sending OffsetCommit request with {} to coordinator {}", offsets, coordinator);
 
+        // Record the send offset commit request.
+        coordinatorMetrics.commitOffsetRequestsSensor.record();
         return client.send(coordinator, builder)
                 .compose(new OffsetCommitResponseHandler(offsets, generation));
     }
@@ -1311,8 +1314,15 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         }
 
         @Override
+        public void handleError(Exception ex) {
+            // Record send offset commit error.
+            coordinatorMetrics.commitOffsetErrorsSensor.record();
+        }
+
+        @Override
         public void handle(OffsetCommitResponse commitResponse, RequestFuture<Void> future) {
-            coordinatorMetrics.commitSensor.record(response.requestLatencyMs());
+            coordinatorMetrics.commitLatencySensor.record(response.requestLatencyMs());
+            coordinatorMetrics.commitOffsetSuccessSensor.record();
             Set<String> unauthorizedTopics = new HashSet<>();
 
             for (OffsetCommitResponseData.OffsetCommitResponseTopic topic : commitResponse.data().topics()) {
@@ -1556,23 +1566,39 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
     private class ConsumerCoordinatorMetrics {
-        private final Sensor commitSensor;
+        private final Sensor commitLatencySensor;
+        private final Sensor commitOffsetAsyncRequestsSensor;
+        private final Sensor commitOffsetRequestsSensor;
+        private final Sensor commitOffsetErrorsSensor;
+        private final Sensor commitOffsetSuccessSensor;
 
         private ConsumerCoordinatorMetrics(Metrics metrics, String metricGrpPrefix) {
-            String metricGrpName = metricGrpPrefix + COORDINATOR_METRICS_SUFFIX;
+            String metricGroupName = metricGrpPrefix + COORDINATOR_METRICS_SUFFIX;
 
-            this.commitSensor = metrics.sensor("commit-latency");
-            this.commitSensor.add(metrics.metricName("commit-latency-avg",
-                metricGrpName,
-                "The average time taken for a commit request"), new Avg());
-            this.commitSensor.add(metrics.metricName("commit-latency-max",
-                metricGrpName,
-                "The max time taken for a commit request"), new Max());
-            this.commitSensor.add(createMeter(metrics, metricGrpName, "commit", "commit calls"));
+            commitLatencySensor = metrics.sensor("commit-latency");
+            commitLatencySensor.add(metrics.metricName("commit-latency-avg",
+                    metricGroupName,
+                    "The average time taken for a commit request"), new Avg());
+            commitLatencySensor.add(metrics.metricName("commit-latency-max",
+                    metricGroupName,
+                    "The max time taken for a commit request"), new Max());
+            commitLatencySensor.add(createMeter(metrics, metricGroupName, "commit", "commit calls"));
+
+            commitOffsetAsyncRequestsSensor = metrics.sensor("commit-offset-async-requests");
+            commitOffsetAsyncRequestsSensor.add(createMeter(metrics, metricGroupName, "commit-offset-async-requests", "commit offset async request calls"));
+
+            commitOffsetRequestsSensor = metrics.sensor("commit-offset-requests");
+            commitOffsetRequestsSensor.add(createMeter(metrics, metricGroupName, "commit-offset-requests", "commit offset request calls"));
+
+            commitOffsetSuccessSensor = metrics.sensor("commit-offset-success");
+            commitOffsetSuccessSensor.add(createMeter(metrics, metricGroupName, "commit-offset-success", "commit offset success calls"));
+
+            commitOffsetErrorsSensor = metrics.sensor("commit-offset-errors");
+            commitOffsetErrorsSensor.add(createMeter(metrics, metricGroupName, "commit-offset-errors", "commit offset error calls"));
 
             Measurable numParts = (config, now) -> subscriptions.numAssignedPartitions();
             metrics.addMetric(metrics.metricName("assigned-partitions",
-                metricGrpName,
+                    metricGroupName,
                 "The number of partitions currently assigned to this consumer"), numParts);
         }
     }

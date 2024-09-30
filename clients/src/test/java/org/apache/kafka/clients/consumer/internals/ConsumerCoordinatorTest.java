@@ -55,6 +55,7 @@ import org.apache.kafka.common.message.OffsetCommitResponseData;
 import org.apache.kafka.common.message.SyncGroupResponseData;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.types.Field;
@@ -248,6 +249,14 @@ public abstract class ConsumerCoordinatorTest {
         assertNotNull(getMetric("partition-lost-latency-avg"));
         assertNotNull(getMetric("partition-lost-latency-max"));
         assertNotNull(getMetric("assigned-partitions"));
+        assertNotNull(getMetric("commit-offset-async-requests-rate"));
+        assertNotNull(getMetric("commit-offset-async-requests-total"));
+        assertNotNull(getMetric("commit-offset-requests-rate"));
+        assertNotNull(getMetric("commit-offset-requests-total"));
+        assertNotNull(getMetric("commit-offset-success-rate"));
+        assertNotNull(getMetric("commit-offset-success-total"));
+        assertNotNull(getMetric("commit-offset-errors-rate"));
+        assertNotNull(getMetric("commit-offset-errors-total"));
 
         metrics.sensor("commit-latency").record(1.0d);
         metrics.sensor("commit-latency").record(6.0d);
@@ -258,12 +267,22 @@ public abstract class ConsumerCoordinatorTest {
         assertEquals(0.1d, getMetric("commit-rate").metricValue());
         assertEquals(3.0d, getMetric("commit-total").metricValue());
 
-        metrics.sensor("partition-revoked-latency").record(1.0d);
-        metrics.sensor("partition-revoked-latency").record(2.0d);
-        metrics.sensor("partition-assigned-latency").record(1.0d);
-        metrics.sensor("partition-assigned-latency").record(2.0d);
-        metrics.sensor("partition-lost-latency").record(1.0d);
-        metrics.sensor("partition-lost-latency").record(2.0d);
+        String[] commitMetricNames = {"commit-offset-async-requests", "commit-offset-requests", "commit-offset-success", "commit-offset-errors"};
+        for (String metricName : commitMetricNames) {
+            Sensor commitOffsetAsyncRequestsSensor = this.metrics.sensor(metricName);
+            commitOffsetAsyncRequestsSensor.record(1.0d);
+            commitOffsetAsyncRequestsSensor.record(2.0d);
+            commitOffsetAsyncRequestsSensor.record(3.0d);
+            assertEquals(3.0d, getMetric(metricName + "-total").metricValue());
+            assertEquals(0.1d, getMetric(metricName + "-rate").metricValue());
+        }
+
+        this.metrics.sensor("partition-revoked-latency").record(1.0d);
+        this.metrics.sensor("partition-revoked-latency").record(2.0d);
+        this.metrics.sensor("partition-assigned-latency").record(1.0d);
+        this.metrics.sensor("partition-assigned-latency").record(2.0d);
+        this.metrics.sensor("partition-lost-latency").record(1.0d);
+        this.metrics.sensor("partition-lost-latency").record(2.0d);
 
         assertEquals(1.5d, getMetric("partition-revoked-latency-avg").metricValue());
         assertEquals(2.0d, getMetric("partition-revoked-latency-max").metricValue());

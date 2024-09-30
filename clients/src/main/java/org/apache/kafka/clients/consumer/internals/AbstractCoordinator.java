@@ -1293,8 +1293,12 @@ public abstract class AbstractCoordinator implements Closeable {
 
         public abstract void handle(R response, RequestFuture<T> future);
 
+        public void handleError(Exception ex){
+        }
+
         @Override
         public void onFailure(RuntimeException e, RequestFuture<T> future) {
+            handleError(e);
             // mark the coordinator as dead
             if (e instanceof DisconnectException) {
                 markCoordinatorUnknown(true, e.getMessage());
