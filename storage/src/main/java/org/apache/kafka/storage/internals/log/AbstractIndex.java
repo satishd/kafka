@@ -560,4 +560,20 @@ public abstract class AbstractIndex implements Closeable {
             return OptionalInt.of((int) relativeOffset);
     }
 
+    public void warmupPageCache() {
+        lock.lock();
+        try {
+            ByteBuffer idx = mmap.duplicate();
+            // Touch first page
+            parseEntry(idx, 0);
+            // Touch last page
+            parseEntry(idx, Math.max(0, entries - 1));
+            // Touch the 2nd last page
+            parseEntry(idx, Math.max(0, entries - 1 - warmEntries()));
+            // Touch the inode of the index file
+            file.lastModified();
+        } finally {
+            lock.unlock();
+        }
+    }
 }

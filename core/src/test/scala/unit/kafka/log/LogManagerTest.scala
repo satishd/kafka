@@ -35,6 +35,7 @@ import org.apache.kafka.image.{TopicImage, TopicsImage}
 import org.apache.kafka.metadata.{LeaderRecoveryState, PartitionRegistration}
 import org.apache.kafka.metadata.properties.{MetaProperties, MetaPropertiesEnsemble, MetaPropertiesVersion, PropertiesUtils}
 import org.apache.kafka.server.common.MetadataVersion
+import org.apache.kafka.server.config.ServerLogConfigs
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.mockito.ArgumentMatchers.any
@@ -1383,7 +1384,9 @@ class LogManagerTest {
       keepPartitionMetadataFile = true,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
       remoteStorageSystemEnable = false,
-      initialTaskDelayMs = 0)
+      initialTaskDelayMs = 0,
+      pageCacheWarmupIntervalMs = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DEFAULT,
+      pageCacheWarmupBatch = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT)
 
     scheduler.startup()
     tmpLogManager.startup(Set.empty)

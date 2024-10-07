@@ -1200,7 +1200,9 @@ object TestUtils extends Logging {
                    keepPartitionMetadataFile = true,
                    interBrokerProtocolVersion = interBrokerProtocolVersion,
                    remoteStorageSystemEnable = remoteStorageSystemEnable,
-                   initialTaskDelayMs = initialTaskDelayMs)
+                   initialTaskDelayMs = initialTaskDelayMs,
+                   pageCacheWarmupIntervalMs = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DEFAULT,
+                   pageCacheWarmupBatch = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT)
 
     if (log.isDefined) {
       val spyLogManager = Mockito.spy(logManager)

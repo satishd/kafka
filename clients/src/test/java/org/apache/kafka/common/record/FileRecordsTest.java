@@ -554,6 +554,22 @@ public class FileRecordsTest {
         verify(channel).transferFrom(any(), anyLong(), eq((long) size - firstWritten));
     }
 
+    @Test
+    public void testWarmupPageCache() throws IOException {
+        File file = mock(File.class);
+        FileChannel fileChannel = mock(FileChannel.class);
+        FileRecords fileRecords = new FileRecords(file, fileChannel, 0, Integer.MAX_VALUE, false);
+
+        when(fileChannel.size()).thenReturn(1024L);
+        when(file.getAbsolutePath()).thenReturn("/path/to/file");
+
+        fileRecords.warmupPageCache(512);
+
+        verify(fileChannel).read(any(ByteBuffer.class), eq(512L));
+        verify(file).getAbsolutePath();
+        verify(file).lastModified();
+    }
+
     private void doTestConversion(Compression compression, byte toMagic) throws IOException {
         List<Long> offsets = asList(0L, 2L, 3L, 9L, 11L, 15L, 16L, 17L, 22L, 24L);
 

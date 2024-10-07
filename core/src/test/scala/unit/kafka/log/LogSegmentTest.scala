@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{CsvSource, ValueSource}
+import org.mockito.ArgumentMatchers.anyInt
+import org.mockito.Mockito.{mock, verify, when}
 
 import java.io.{File, RandomAccessFile}
 import java.util.{Optional, OptionalLong}
@@ -633,6 +635,24 @@ class LogSegmentTest {
     assertEquals(1000L, segment.getFirstBatchTimestamp)
 
     segment.close()
+  }
+
+  @Test
+  def testWarmupPageCache(): Unit = {
+    val log = mock(classOf[FileRecords])
+    val offsetLazyIndex = mock(classOf[LazyIndex[OffsetIndex]])
+    val timeLazyIndex = mock(classOf[LazyIndex[TimeIndex]])
+    val offsetIndex = mock(classOf[OffsetIndex])
+    val timeIndex = mock(classOf[TimeIndex])
+    when(offsetLazyIndex.get()).thenReturn(offsetIndex)
+    when(timeLazyIndex.get()).thenReturn(timeIndex)
+
+    val logSegment = new LogSegment(log, offsetLazyIndex, timeLazyIndex, null, 0, 0, 0, Time.SYSTEM)
+    logSegment.warmupPageCache()
+
+    verify(log).warmupPageCache(anyInt())
+    verify(offsetLazyIndex.get()).warmupPageCache()
+    verify(timeLazyIndex.get()).warmupPageCache()
   }
 
   private def newProducerStateManager(): ProducerStateManager = {

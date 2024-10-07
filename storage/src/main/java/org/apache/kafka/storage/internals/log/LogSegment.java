@@ -904,4 +904,11 @@ public class LogSegment implements Closeable {
         return Files.deleteIfExists(file.toPath());
     }
 
+    /* not thread safe */
+    public void warmupPageCache() throws IOException {
+        log.warmupPageCache(indexIntervalBytes);
+        offsetIndex().warmupPageCache();
+        timeIndex().warmupPageCache();
+    }
+
 }

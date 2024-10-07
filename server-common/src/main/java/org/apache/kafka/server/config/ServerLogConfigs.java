@@ -106,6 +106,14 @@ public class ServerLogConfigs {
     public static final String LOG_PRE_ALLOCATE_CONFIG = ServerTopicConfigSynonyms.serverSynonym(TopicConfig.PREALLOCATE_CONFIG);
     public static final String LOG_PRE_ALLOCATE_ENABLE_DOC = "Should pre allocate file when create new segment? If you are using Kafka on Windows, you probably need to set it to true.";
 
+    public static final String LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_CONFIG = LOG_PREFIX + "pagecache.warmup.interval.ms";
+    public static final long LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DEFAULT = 5000;
+    public static final String LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DOC = "The frequency in ms that the page cache warm up thread check and warm up logs";
+
+    public static final String LOG_PAGE_CACHE_WARMUP_BATCH_CONFIG = LOG_PREFIX + "pagecache.warmup.batch";
+    public static final int LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT = 150;
+    public static final String LOG_PAGE_CACHE_WARMUP_BATCH_DOC = "The number of logs warmed up each time.";
+
     /* See `TopicConfig.MESSAGE_FORMAT_VERSION_CONFIG` for details */
     /**
      * @deprecated since "3.0"

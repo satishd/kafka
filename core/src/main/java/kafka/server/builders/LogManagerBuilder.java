@@ -59,6 +59,8 @@ public class LogManagerBuilder {
     private boolean keepPartitionMetadataFile = true;
     private boolean remoteStorageSystemEnable = false;
     private long initialTaskDelayMs = ServerLogConfigs.LOG_INITIAL_TASK_DELAY_MS_DEFAULT;
+    private long pageCacheWarmupIntervalMs = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DEFAULT;
+    private int pageCacheWarmupBatch = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT;
 
     public LogManagerBuilder setLogDirs(List<File> logDirs) {
         this.logDirs = logDirs;
@@ -160,6 +162,16 @@ public class LogManagerBuilder {
         return this;
     }
 
+    public LogManagerBuilder setPageCacheWarmupIntervalMs(long pageCacheWarmupIntervalMs) {
+        this.pageCacheWarmupIntervalMs = pageCacheWarmupIntervalMs;
+        return this;
+    }
+
+    public LogManagerBuilder setPageCacheWarmupBatch(int pageCacheWarmupBatch) {
+        this.pageCacheWarmupBatch = pageCacheWarmupBatch;
+        return this;
+    }
+
     public LogManager build() {
         if (logDirs == null) throw new RuntimeException("you must set logDirs");
         if (configRepository == null) throw new RuntimeException("you must set configRepository");
@@ -189,6 +201,8 @@ public class LogManagerBuilder {
                               time,
                               keepPartitionMetadataFile,
                               remoteStorageSystemEnable,
-                              initialTaskDelayMs);
+                              initialTaskDelayMs,
+                              pageCacheWarmupIntervalMs,
+                              pageCacheWarmupBatch);
     }
 }

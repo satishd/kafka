@@ -129,7 +129,9 @@ class LogLoaderTest {
         time = time,
         keepPartitionMetadataFile = config.usesTopicId,
         remoteStorageSystemEnable = config.remoteLogManagerConfig.isRemoteStorageSystemEnabled(),
-        initialTaskDelayMs = config.logInitialTaskDelayMs) {
+        initialTaskDelayMs = config.logInitialTaskDelayMs,
+        pageCacheWarmupIntervalMs = config.logPageCacheWarmupIntervalMs,
+        pageCacheWarmupBatch = config.logPageCacheWarmupBatch) {
 
         override def loadLog(logDir: File, hadCleanShutdown: Boolean, recoveryPoints: Map[TopicPartition, Long],
                              logStartOffsets: Map[TopicPartition, Long], defaultConfig: LogConfig,

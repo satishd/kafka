@@ -47,6 +47,7 @@ import org.apache.kafka.storage.log.metrics.BrokerTopicMetrics
 import java.io.{File, IOException}
 import java.nio.file.{Files, Path}
 import java.util
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap, ScheduledFuture}
 import java.util.stream.Collectors
 import java.util.{Collections, Optional, OptionalInt, OptionalLong}
@@ -123,6 +124,8 @@ class UnifiedLog(@volatile var logStartOffset: Long,
   /* A lock that guards all modifications to the log */
   private val lock = new Object
   private val validatorMetricsRecorder = newValidatorMetricsRecorder(brokerTopicStats.allTopicsStats)
+
+  private val lastWarmedTime = new AtomicLong(time.milliseconds)
 
   /* The earliest offset which is part of an incomplete transaction. This is used to compute the
    * last stable offset (LSO) in ReplicaManager. Note that it is possible that the "true" first unstable offset
@@ -1872,6 +1875,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * The time this log is last known to have been fully flushed to disk
    */
   def lastFlushTime: Long = localLog.lastFlushTime
+  def lastWarmupTime(): Long = lastWarmedTime.get
 
   /**
    * The active segment that is currently taking appends
@@ -1960,6 +1964,13 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
   private[log] def deleteProducerSnapshots(segments: Iterable[LogSegment], asyncDelete: Boolean): Unit = {
     UnifiedLog.deleteProducerSnapshots(segments, producerStateManager, asyncDelete, scheduler, config, logDirFailureChannel, parentDir, topicPartition)
+  }
+
+  def warmupPageCache() : Unit = {
+    lock synchronized {
+      localLog.segments.activeSegment.warmupPageCache()
+    }
+    lastWarmedTime.set(time.milliseconds)
   }
 }
 

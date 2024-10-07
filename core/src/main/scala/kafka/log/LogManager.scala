@@ -82,7 +82,9 @@ class LogManager(logDirs: Seq[File],
                  time: Time,
                  val keepPartitionMetadataFile: Boolean,
                  remoteStorageSystemEnable: Boolean,
-                 val initialTaskDelayMs: Long) extends Logging {
+                 val initialTaskDelayMs: Long,
+                 val pageCacheWarmupIntervalMs: Long,
+                 val pageCacheWarmupBatch: Int) extends Logging {
 
   import LogManager._
 
@@ -645,6 +647,10 @@ class LogManager(logDirs: Seq[File],
       scheduler.scheduleOnce("kafka-delete-logs", // will be rescheduled after each delete logs with a dynamic period
                          () => deleteLogs(),
                          initialTaskDelayMs)
+      scheduler.schedule("kafka-fs-cache-warmer",
+                         () => warmupPageCache(),
+                         initialTaskDelayMs,
+                         pageCacheWarmupIntervalMs)
     }
     if (cleanerConfig.enableCleaner) {
       _cleaner = new LogCleaner(cleanerConfig, liveLogDirs, currentLogs, logDirFailureChannel, time = time)
@@ -1538,6 +1544,29 @@ class LogManager(logDirs: Seq[File],
     }
     OptionalLong.of(brokerEpoch)
   }
+
+  private def warmupPageCache() : Unit = {
+    val start = time.milliseconds
+    var logLastWarmupTime = new ArrayBuffer[(UnifiedLog, Long)](currentLogs.size)
+    for (log <- currentLogs.values) {
+      if (!log.config.compact)
+        logLastWarmupTime += ((log, log.lastWarmupTime))
+    }
+    if (logLastWarmupTime.size == 0)
+      return
+
+    logLastWarmupTime = logLastWarmupTime.sortBy(_._2).take(pageCacheWarmupBatch)
+    for ((log, _) <- logLastWarmupTime) {
+      try {
+        log.warmupPageCache()
+      } catch {
+        case e: Throwable =>
+          error ("Error warming file system cache of topic partition " + log.topicPartition, e)
+      }
+    }
+    info ("Warmed " + logLastWarmupTime.size + " topic partitions in " + (time.milliseconds - start) +
+      "ms. The least-recently-used topic partition was warmed " + (start - logLastWarmupTime(0)._2) + " ms ago.")
+  }
 }
 
 object LogManager {
@@ -1596,7 +1625,9 @@ object LogManager {
       keepPartitionMetadataFile = keepPartitionMetadataFile,
       interBrokerProtocolVersion = config.interBrokerProtocolVersion,
       remoteStorageSystemEnable = config.remoteLogManagerConfig.isRemoteStorageSystemEnabled(),
-      initialTaskDelayMs = config.logInitialTaskDelayMs)
+      initialTaskDelayMs = config.logInitialTaskDelayMs,
+      pageCacheWarmupIntervalMs = config.logPageCacheWarmupIntervalMs,
+      pageCacheWarmupBatch = config.logPageCacheWarmupBatch)
   }
 
   /**

@@ -197,6 +197,17 @@ public class FileRecords extends AbstractRecords implements Closeable {
         channel.force(true);
     }
 
+    public void warmupPageCache(int bytes) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(bytes);
+        // Read the last a few bytes of the file
+        channel.read(buf, Math.max(0, channel.size() - bytes));
+        // Warm up dentry cache
+        File doesNotExist = new File(file.getAbsolutePath() + "-doesNotExist");
+        doesNotExist.exists();
+        // Warm up inode
+        file.lastModified();
+    }
+
     /**
      * Close this record set
      */
