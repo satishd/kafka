@@ -97,7 +97,8 @@ object DynamicBrokerConfig {
     DynamicListenerConfig.ReconfigurableConfigs ++
     SocketServer.ReconfigurableConfigs ++
     DynamicProducerStateManagerConfig ++
-    DynamicRemoteLogConfig.ReconfigurableConfigs
+    DynamicRemoteLogConfig.ReconfigurableConfigs ++
+    DynamicKafkaSuperUsersConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -272,6 +273,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(kafkaServer.socketServer)
     addBrokerReconfigurable(new DynamicProducerStateManagerConfig(kafkaServer.logManager.producerStateManagerConfig))
     addBrokerReconfigurable(new DynamicRemoteLogConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicKafkaSuperUsersConfig(kafkaServer))
   }
 
   /**
@@ -1226,4 +1228,35 @@ object DynamicRemoteLogConfig {
     RemoteLogManagerConfig.REMOTE_LOG_MANAGER_COPY_MAX_BYTES_PER_SECOND_PROP,
     RemoteLogManagerConfig.REMOTE_LOG_MANAGER_FETCH_MAX_BYTES_PER_SECOND_PROP
   )
+}
+
+object DynamicKafkaSuperUsersConfig {
+  val ReconfigurableConfigs = Set(
+    BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG
+  )
+}
+class DynamicKafkaSuperUsersConfig(server: KafkaBroker) extends BrokerReconfigurable with Logging {
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicKafkaSuperUsersConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    val staticSuperUsers = server.config.dynamicConfig.staticBrokerConfigs
+      .getOrElse(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, BrokerSecurityConfigs.DEFAULT_KAFKA_SUPER_USERS_VALUE)
+      .split(",")
+      .toSet
+    val newSuperUsers = newConfig.kafkaSuperUsers.split(",").toSet
+    debug(s"Validating for super users, new set: $newSuperUsers, static set: $staticSuperUsers")
+    if (!staticSuperUsers.subsetOf(newSuperUsers))
+      throw new ConfigException(s"Super users set using static config cannot be removed using dynamic config. Static super users: $staticSuperUsers")
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    val newSuperUsers = newConfig.kafkaSuperUsers.split(",").toSet
+    val oldSuperUsers = oldConfig.kafkaSuperUsers.split(",").toSet
+    if (!newSuperUsers.equals(oldSuperUsers)) {
+      info(s"Reconfiguring for super users, updated configs: $newSuperUsers, old configs: $oldSuperUsers")
+      server.authorizer.foreach(_.configure(newConfig.originals))
+    }
+  }
 }

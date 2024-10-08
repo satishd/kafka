@@ -1063,6 +1063,7 @@ class KafkaConfigTest {
 
         // Security config
         case SecurityConfig.SECURITY_PROVIDERS_CONFIG =>
+        case BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG => // ignore string
 
         // Password encoder configs
         case PasswordEncoderConfigs.PASSWORD_ENCODER_SECRET_CONFIG =>

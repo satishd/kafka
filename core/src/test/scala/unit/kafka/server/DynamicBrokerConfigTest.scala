@@ -29,6 +29,7 @@ import kafka.utils.TestUtils
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.{Endpoint, Reconfigurable}
 import org.apache.kafka.common.acl.{AclBinding, AclBindingFilter}
+import org.apache.kafka.common.config.internals.BrokerSecurityConfigs
 import org.apache.kafka.common.config.types.Password
 import org.apache.kafka.common.config.{ConfigException, SaslConfigs, SslConfigs}
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics}
@@ -1028,6 +1029,77 @@ class DynamicBrokerConfigTest {
     ctx.config.dynamicConfig.updateDefaultConfig(props)
     assertEquals(TimeUnit.HOURS.toMillis(1), ctx.config.logRetentionTimeMillis)
     assertFalse(ctx.currentDefaultLogConfig.get().originals().containsKey(ServerLogConfigs.LOG_RETENTION_TIME_MINUTES_CONFIG))
+  }
+
+  @Test
+  def testKafkaSuperUsers(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, null, port = 8181)
+    val defaultConfig = KafkaConfig.fromProps(props)
+
+    // Default value is empty string
+    assertEquals(BrokerSecurityConfigs.DEFAULT_KAFKA_SUPER_USERS_VALUE, defaultConfig.kafkaSuperUsers)
+
+    // Mimic static value of "test1,test2"
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2")
+    var staticConfig = KafkaConfig.fromProps(props)
+    val serverMock: KafkaBroker = Mockito.mock(classOf[kafka.server.KafkaBroker])
+    Mockito.when(serverMock.config).thenReturn(staticConfig)
+
+    // If dynamic config removes static value then exception is thrown
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test3")
+    val dynamicKafkaSuperUsers = new DynamicKafkaSuperUsersConfig(serverMock)
+    var throwable = assertThrows(classOf[ConfigException],
+      () => dynamicKafkaSuperUsers.validateReconfiguration(KafkaConfig(props)))
+    assertTrue(throwable.getMessage.contains("Super users set using static config cannot be removed using dynamic config."))
+
+    // If dynamic config adds values to static config then it is allowed
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test3")
+    dynamicKafkaSuperUsers.validateReconfiguration(KafkaConfig(props))
+
+    // We can remove super users set using dynamic configs
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test3")
+    staticConfig.updateCurrentConfig(KafkaConfig.fromProps(props)) // Mimic that config was updated dynamically to "test1,test2,test3"
+    assertEquals(props.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG), staticConfig.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG))
+    assertEquals("test1,test2", staticConfig.dynamicConfig.staticBrokerConfigs(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG)) // Verify that static config provided were "test1,test2"
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test4")
+    dynamicKafkaSuperUsers.validateReconfiguration(KafkaConfig(props)) // No error when removing test3 and adding test4
+
+    // Update the dynamic config to "test1,test2,test3"
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test3")
+    staticConfig.updateCurrentConfig(KafkaConfig.fromProps(props)) // Mimic that config was updated dynamically to "test1,test2,test3"
+    assertEquals(props.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG), staticConfig.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG))
+    assertEquals("test1,test2", staticConfig.dynamicConfig.staticBrokerConfigs(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG)) // Verify that static config provided were "test1,test2"
+
+    // Existing static config -> test1,test2, Existing dynamic config -> test1,test2,test3.
+    // In this case updating dynamic config to test1,test3,test4 will fail because test2 was configured using static configs
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test3,test4")
+    throwable = assertThrows(classOf[ConfigException],
+      () => dynamicKafkaSuperUsers.validateReconfiguration(KafkaConfig(props))) // Error when removing test2 since it was a static config
+    assertTrue(throwable.getMessage.contains("Super users set using static config cannot be removed using dynamic config."))
+
+    dynamicKafkaSuperUsers.reconfigure(KafkaConfig.fromProps(props), KafkaConfig.fromProps(props))
+
+    props.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2")
+    staticConfig = KafkaConfig.fromProps(props)
+    Mockito.when(serverMock.config).thenReturn(staticConfig)
+    Mockito.when(serverMock.authorizer).thenReturn(None)
+    val zkClient: KafkaZkClient = Mockito.mock(classOf[KafkaZkClient])
+    Mockito.when(zkClient.getEntityConfigs(anyString(), anyString())).thenReturn(new java.util.Properties())
+
+    val dynamicBrokerConfig = new DynamicBrokerConfig(staticConfig)
+    dynamicBrokerConfig.initialize(Some(zkClient), Some(null));
+    dynamicBrokerConfig.addBrokerReconfigurable(dynamicKafkaSuperUsers)
+
+    // Change the cluster-wide value to "test1,test2,test3" using DynamicBrokerConfig and it should successfully update the configs
+    val restoreProps = new Properties()
+    restoreProps.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test3")
+    dynamicBrokerConfig.updateDefaultConfig(restoreProps)
+    assertEquals("test1,test2,test3", staticConfig.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG))
+
+    // Override the cluster-wide setting with per-broker setting and it should successfully update the configs
+    restoreProps.put(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG, "test1,test2,test3,test4")
+    dynamicBrokerConfig.updateBrokerConfig(0, restoreProps)
+    assertEquals("test1,test2,test3,test4", staticConfig.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG))
   }
 }
 
