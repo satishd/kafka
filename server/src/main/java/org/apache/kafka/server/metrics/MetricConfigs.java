@@ -70,6 +70,10 @@ public class MetricConfigs {
     public static final String CLIENT_TELEMETRY_MAX_BYTES_DOC = "The maximum size (after compression if compression is used) of" +
             " telemetry metrics pushed from a client to the broker. The default value is 1048576 (1 MB).";
 
+    public static final String ENABLE_CLIENT_IO_TRACER_CONFIG = "enable.client.io.tracer";
+    public static final boolean ENABLE_CLIENT_IO_TRACER_DEFAULT = true;
+    public static final String ENABLE_CLIENT_IO_TRACER_DOC = "ClientIoTracer records bytes rate of Fetch/Produce requests of each (clientId, topicPartition)";
+
     public static final ConfigDef CONFIG_DEF =  new ConfigDef()
             // Kafka Metrics Configuration
             .define(METRIC_NUM_SAMPLES_CONFIG, INT, METRIC_NUM_SAMPLES_DEFAULT, atLeast(1), LOW, METRIC_NUM_SAMPLES_DOC)
@@ -83,5 +87,6 @@ public class MetricConfigs {
             .define(KAFKA_METRICS_POLLING_INTERVAL_SECONDS_CONFIG, INT, KAFKA_METRICS_POLLING_INTERVAL_SECONDS_DEFAULT, atLeast(1), LOW, KAFKA_METRICS_POLLING_INTERVAL_SECONDS_DOC)
 
             // Kafka Client Telemetry Metrics Configuration
-            .define(CLIENT_TELEMETRY_MAX_BYTES_CONFIG, INT, CLIENT_TELEMETRY_MAX_BYTES_DEFAULT, atLeast(1), LOW, CLIENT_TELEMETRY_MAX_BYTES_DOC);
+            .define(CLIENT_TELEMETRY_MAX_BYTES_CONFIG, INT, CLIENT_TELEMETRY_MAX_BYTES_DEFAULT, atLeast(1), LOW, CLIENT_TELEMETRY_MAX_BYTES_DOC)
+            .define(ENABLE_CLIENT_IO_TRACER_CONFIG, BOOLEAN, ENABLE_CLIENT_IO_TRACER_DEFAULT, LOW, ENABLE_CLIENT_IO_TRACER_DOC);
 }

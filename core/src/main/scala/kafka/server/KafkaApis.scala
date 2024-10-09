@@ -126,6 +126,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     case _ => None
   }
 
+  val clientIoTracer: ClientIoTracer = if (config.enableClientIoTracer)
+    new ClientIoTracer(metrics)
+  else
+    null
+
   def close(): Unit = {
     aclApis.close()
     info("Shutdown complete.")
@@ -629,6 +634,15 @@ class KafkaApis(val requestChannel: RequestChannel,
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
+      if (clientIoTracer != null) {
+        clientIoTracer.recordByteRate(
+          ClientIoType.Produce,
+          request.session.sanitizedUser,
+          request.header.clientId,
+          request.header.apiVersion,
+          topicPartition.topic,
+          memoryRecords.sizeInBytes)
+      }
       if (!authorizedTopics.contains(topicPartition.topic))
         unauthorizedTopicResponses += topicPartition -> new PartitionResponse(Errors.TOPIC_AUTHORIZATION_FAILED)
       else if (!metadataCache.contains(topicPartition))
@@ -757,6 +771,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleFetchRequest(request: RequestChannel.Request): Unit = {
     val versionId = request.header.apiVersion
     val clientId = request.header.clientId
+    val sanitizedUser = request.session.sanitizedUser
     val fetchRequest = request.body[FetchRequest]
     val topicNames =
       if (fetchRequest.version() >= 13)
@@ -804,6 +819,9 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
       val authorizedTopics = authHelper.filterByAuthorized(request.context, READ, TOPIC, partitionDatas)(_._1.topicPartition.topic)
       partitionDatas.foreach { case (topicIdPartition, data) =>
+        if (clientIoTracer != null) {
+          this.clientIoTracer.recordRequestRate(ClientIoType.Fetch, sanitizedUser, clientId, versionId, topicIdPartition.topic())
+        }
         if (!authorizedTopics.contains(topicIdPartition.topic))
           erroneous += topicIdPartition -> FetchResponse.partitionResponse(topicIdPartition, Errors.TOPIC_AUTHORIZATION_FAILED)
         else if (!metadataCache.contains(topicIdPartition.topicPartition))
@@ -961,7 +979,17 @@ class KafkaApis(val requestChannel: RequestChannel,
             // If the topic name was not known, we will have no bytes out.
             if (topicResponse.topic != null) {
               val tp = new TopicIdPartition(topicResponse.topicId, new TopicPartition(topicResponse.topic, data.partitionIndex))
-              brokerTopicStats.updateBytesOut(tp.topic, fetchRequest.isFromFollower, reassigningPartitions.contains(tp), FetchResponse.recordsSize(data))
+              val recordsSize = FetchResponse.recordsSize(data)
+              brokerTopicStats.updateBytesOut(tp.topic, fetchRequest.isFromFollower, reassigningPartitions.contains(tp), recordsSize)
+              if (clientIoTracer != null) {
+                clientIoTracer.recordByteRate(
+                  ClientIoType.Fetch,
+                  sanitizedUser,
+                  clientId,
+                  versionId,
+                  tp.topic,
+                  recordsSize)
+              }
             }
           }
         }
