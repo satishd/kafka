@@ -25,6 +25,7 @@ import java.util.{Base64, Properties, UUID}
 import com.typesafe.scalalogging.Logger
 
 import javax.management._
+import java.net.InetAddress
 import scala.collection._
 import scala.collection.Seq
 import kafka.cluster.EndPoint
@@ -217,6 +218,14 @@ object CoreUtils {
     }
     validate(endPoints)
     endPoints
+  }
+
+  /**
+    * Returns the hostname of the first endpoint, or the canonical hostname if it is empty, or the list is empty.
+    */
+  def getFirstAdvertisedOrCanonicalHostName(endpoints: Seq[EndPoint]): String = {
+    val host = endpoints.headOption.map(_.host).orNull
+    if (host == null || host.trim.isEmpty) InetAddress.getLocalHost.getCanonicalHostName else host
   }
 
   def generateUuidAsBase64(): String = {

@@ -22,7 +22,7 @@ import kafka.api.LeaderAndIsr
 import kafka.cluster.Broker
 import kafka.controller.{KafkaController, LeaderIsrAndControllerEpoch, ReplicaAssignment}
 import kafka.security.authorizer.AclAuthorizer.{NoAcls, VersionedAcls}
-import kafka.server.KafkaConfig
+import kafka.server.{HostConfig, KafkaConfig}
 import kafka.utils.Logging
 import kafka.zk.TopicZNode.TopicIdReplicaAssignment
 import kafka.zookeeper._
@@ -1795,6 +1795,30 @@ class KafkaZkClient private[zk] (
     } catch {
       case _: NodeExistsException => getClusterId.getOrElse(
         throw new KafkaException("Failed to get cluster id from Zookeeper. This can happen if /cluster/id is deleted from Zookeeper."))
+    }
+  }
+
+  /**
+    * Return persistent per-host configuration from ZK.
+    */
+  def getHostConfig(hostname: String): Option[HostConfig] = {
+    val getDataRequest = GetDataRequest(HostZNode.path(hostname))
+    val getDataResponse = retryRequestUntilConnected(getDataRequest)
+    getDataResponse.resultCode match {
+      case Code.OK => HostZNode.decode(getDataResponse.data)
+      case Code.NONODE => None
+      case _ => throw getDataResponse.resultException.get
+    }
+  }
+
+  def updateHostConfig(hostname: String, hostConfig: HostConfig): Unit = {
+    val path = HostZNode.path(hostname)
+    val setDataRequest = SetDataRequest(path, HostZNode.encode(hostConfig), ZkVersion.MatchAnyVersion)
+    makeSurePersistentPathExists(path)
+    val setDataResponse = retryRequestUntilConnected(setDataRequest)
+    setDataResponse.resultCode match {
+      case Code.OK =>
+      case _ => throw setDataResponse.resultException.get
     }
   }
 

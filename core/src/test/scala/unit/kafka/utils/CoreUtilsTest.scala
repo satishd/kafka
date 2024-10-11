@@ -17,6 +17,8 @@
 
 package kafka.utils
 
+import kafka.cluster.EndPoint
+
 import java.util
 import java.util.{Base64, UUID}
 import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
@@ -28,9 +30,12 @@ import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 import kafka.utils.CoreUtils.inLock
 import org.apache.kafka.common.KafkaException
+import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Utils
 import org.slf4j.event.Level
 
+import java.net.InetAddress
 import scala.jdk.CollectionConverters._
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutorService, Future}
@@ -147,5 +152,29 @@ class CoreUtilsTest extends Logging {
     } finally {
       executionContext.shutdownNow()
     }
+  }
+
+  @Test
+  def testGetFirstAdvertisedOrCanonicalHostName(): Unit = {
+    assertEquals(
+      InetAddress.getLocalHost.getCanonicalHostName,
+      CoreUtils.getFirstAdvertisedOrCanonicalHostName(Seq.empty))
+    assertEquals(
+      InetAddress.getLocalHost.getCanonicalHostName,
+      CoreUtils.getFirstAdvertisedOrCanonicalHostName(Seq(createEndPoint(null))))
+    assertEquals(
+      InetAddress.getLocalHost.getCanonicalHostName,
+      CoreUtils.getFirstAdvertisedOrCanonicalHostName(Seq(createEndPoint(""))))
+    assertEquals(
+      "mock_host",
+      CoreUtils.getFirstAdvertisedOrCanonicalHostName(Seq(createEndPoint("mock_host"))))
+    assertEquals(
+      "mock_host1",
+      CoreUtils.getFirstAdvertisedOrCanonicalHostName(
+        Seq(createEndPoint("mock_host1"), createEndPoint("mock_host2"))))
+  }
+
+  private def createEndPoint(host: String): EndPoint = {
+    EndPoint(host=host, port=12345, listenerName=new ListenerName("EXTERNAL"), SecurityProtocol.PLAINTEXT)
   }
 }

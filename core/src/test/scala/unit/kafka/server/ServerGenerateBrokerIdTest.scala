@@ -19,12 +19,14 @@ package kafka.server
 import kafka.utils.TestUtils
 import org.apache.kafka.common.utils.{Time, Utils}
 import org.apache.kafka.metadata.properties.{MetaProperties, MetaPropertiesEnsemble, PropertiesUtils}
+import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.server.config.ServerConfigs
 import org.apache.zookeeper.KeeperException.NodeExistsException
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test, TestInfo}
 
 import java.io.File
+import java.nio.file.Files
 import java.util.{OptionalInt, Properties}
 import scala.collection.Seq
 
@@ -70,6 +72,7 @@ class ServerGenerateBrokerIdTest extends QuorumTestHarness {
     val server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName))
     val server2 = new KafkaServer(config2, threadNamePrefix = Option(this.getClass.getName))
     val props3 = TestUtils.createBrokerConfig(-1, zkConnect)
+    props3.put(SocketServerConfigs.ADVERTISED_LISTENERS_CONFIG, s"PLAINTEXT://localhost1:${TestUtils.RandomPort}")
     val server3 = new KafkaServer(KafkaConfig.fromProps(props3), threadNamePrefix = Option(this.getClass.getName))
     server1.startup()
     assertEquals(server1.config.brokerId, 1001)
@@ -174,6 +177,77 @@ class ServerGenerateBrokerIdTest extends QuorumTestHarness {
     TestUtils.assertNoNonDaemonThreads(this.getClass.getName)
   }
 
+  @Test
+  def testBrokerIdRecoveredFromZkWhenMetadataMissing(): Unit = {
+    var server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+    deleteLogDirs(config1.logDirs)
+
+    config1 = KafkaConfig.fromProps(props1)
+    server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+
+    TestUtils.assertNoNonDaemonThreads(this.getClass.getName)
+  }
+
+  @Test
+  def testBrokerIdNotRecoveredFromZkHostnameMismatch(): Unit = {
+    var server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+    deleteLogDirs(config1.logDirs)
+
+    props1.put(SocketServerConfigs.ADVERTISED_LISTENERS_CONFIG, s"PLAINTEXT://localhost1:${TestUtils.RandomPort}")
+    config1 = KafkaConfig.fromProps(props1)
+    server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1002))
+
+    TestUtils.assertNoNonDaemonThreads(this.getClass.getName)
+  }
+
+  @Test
+  def testBrokerIdNotRecoveredFromZkIfMetadataExists(): Unit = {
+    var server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+    updateBrokerMetadata(config1.logDirs, 1001, 1002)
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1002))
+
+    config1 = KafkaConfig.fromProps(props1)
+    server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1002))
+
+    TestUtils.assertNoNonDaemonThreads(this.getClass.getName)
+  }
+
+  @Test
+  def testBrokerIdNotRecoveredFromZkIfIdManuallyConfigured(): Unit = {
+    var server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1001))
+    deleteLogDirs(config1.logDirs)
+
+    props1.put(ServerConfigs.BROKER_ID_CONFIG, "1")
+    config1 = KafkaConfig.fromProps(props1)
+    server1 = new KafkaServer(config1, threadNamePrefix = Option(this.getClass.getName)) //auto generate broker Id
+    server1.startup()
+    server1.shutdown()
+    assertTrue(verifyBrokerMetadata(config1.logDirs, 1))
+
+    TestUtils.assertNoNonDaemonThreads(this.getClass.getName)
+  }
+
   def verifyBrokerMetadata(logDirs: Seq[String], brokerId: Int): Boolean = {
     for (logDir <- logDirs) {
       val properties = PropertiesUtils.readPropertiesFile(
@@ -188,5 +262,30 @@ class ServerGenerateBrokerIdTest extends QuorumTestHarness {
 
   private def createServer(config: KafkaConfig, threadNamePrefix: Option[String]): KafkaServer = {
     TestUtils.createServer(config, Time.SYSTEM, threadNamePrefix)
+  }
+
+  private def updateBrokerMetadata(logDirs: Seq[String], expectedBrokerId: Int, brokerId: Int): Unit = {
+    for (logDir <- logDirs) {
+      val metaPropertiesFile: File = new File(logDir + File.separator + MetaPropertiesEnsemble.META_PROPERTIES_NAME)
+      // read the file contents line by line
+      val lines = Utils.readFileAsString(metaPropertiesFile.getAbsolutePath).split("\n")
+      // update the broker.id
+      val updatedLines = lines.map { line =>
+        if (line.startsWith(ServerConfigs.BROKER_ID_CONFIG)) {
+          assertEquals(s"${ServerConfigs.BROKER_ID_CONFIG}=$expectedBrokerId", line)
+          s"${ServerConfigs.BROKER_ID_CONFIG}=$brokerId"
+        } else {
+          line
+        }
+      }
+      // write the updated contents back to the file
+      Files.write(metaPropertiesFile.toPath, updatedLines.mkString("\n").getBytes)
+    }
+  }
+
+  private def deleteLogDirs(logDirs: Seq[String]): Unit = {
+    for (logDir <- logDirs) {
+      Utils.delete(new File(logDir))
+    }
   }
 }

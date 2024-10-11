@@ -24,9 +24,10 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import kafka.api.LeaderAndIsr
 import kafka.cluster.{Broker, EndPoint}
 import kafka.common.{NotificationHandler, ZkNodeChangeNotificationListener}
-import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch, ReplicaAssignment}
 import kafka.security.authorizer.AclAuthorizer.VersionedAcls
-import kafka.server.DelegationTokenManagerZk
+import kafka.controller.{IsrChangeNotificationHandler, LeaderIsrAndControllerEpoch, ReplicaAssignment}
+import kafka.server.{DelegationTokenManagerZk, HostConfig}
+import org.apache.kafka.server.config.ConfigType
 import kafka.utils.Json
 import kafka.utils.json.JsonObject
 import org.apache.kafka.common.errors.UnsupportedVersionException
@@ -44,10 +45,8 @@ import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.authorizer.AclEntry
 import org.apache.kafka.server.common.{MetadataVersion, ProducerIdsBlock}
 import org.apache.kafka.server.common.MetadataVersion.{IBP_0_10_0_IV1, IBP_2_7_IV0}
-import org.apache.kafka.server.config.ConfigType
 import org.apache.zookeeper.ZooDefs
 import org.apache.zookeeper.data.{ACL, Stat}
-
 import scala.beans.BeanProperty
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, immutable, mutable}
@@ -411,6 +410,23 @@ object TopicPartitionStateZNode {
 
       val zkPathVersion = stat.getVersion
       LeaderIsrAndControllerEpoch(LeaderAndIsr(leader, epoch, isr, recovery, zkPathVersion), controllerEpoch)
+    }
+  }
+}
+
+object HostsZNode {
+  def path = s"${BrokersZNode.path}/hosts"
+}
+
+object HostZNode {
+  def path(host: String) = s"${HostsZNode.path}/$host"
+  def encode(hostConfig: HostConfig): Array[Byte] = {
+    Json.encodeAsBytes(Map("version" -> 1, "broker.id" -> hostConfig.brokerId).asJava)
+  }
+  def decode(bytes: Array[Byte]): Option[HostConfig] = {
+    Json.parseBytes(bytes).flatMap { js =>
+      val hostConfig = js.asJsonObject
+      hostConfig.get("broker.id").map(id => HostConfig(id.to[Int]))
     }
   }
 }
