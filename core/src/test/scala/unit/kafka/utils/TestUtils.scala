@@ -214,13 +214,14 @@ object TestUtils extends Logging {
     numPartitions: Int = 1,
     defaultReplicationFactor: Short = 1,
     startingIdNumber: Int = 0,
-    enableFetchFromFollower: Boolean = false): Seq[Properties] = {
+    enableFetchFromFollower: Boolean = false,
+    recreateRecentlyDeletedTopicsEnable: Boolean = false): Seq[Properties] = {
     val endingIdNumber = startingIdNumber + numConfigs - 1
     (startingIdNumber to endingIdNumber).map { node =>
       createBrokerConfig(node, zkConnect, enableControlledShutdown, enableDeleteTopic, RandomPort,
         interBrokerSecurityProtocol, trustStoreFile, saslProperties, enablePlaintext = enablePlaintext, enableSsl = enableSsl,
         enableSaslPlaintext = enableSaslPlaintext, enableSaslSsl = enableSaslSsl, rack = rackInfo.get(node), logDirCount = logDirCount, enableToken = enableToken,
-        numPartitions = numPartitions, defaultReplicationFactor = defaultReplicationFactor, enableFetchFromFollower = enableFetchFromFollower)
+        numPartitions = numPartitions, defaultReplicationFactor = defaultReplicationFactor, enableFetchFromFollower = enableFetchFromFollower, recreateRecentlyDeletedTopicsEnable = recreateRecentlyDeletedTopicsEnable)
     }
   }
 
@@ -284,7 +285,8 @@ object TestUtils extends Logging {
                          enableToken: Boolean = false,
                          numPartitions: Int = 1,
                          defaultReplicationFactor: Short = 1,
-                         enableFetchFromFollower: Boolean = false): Properties = {
+                         enableFetchFromFollower: Boolean = false,
+                         recreateRecentlyDeletedTopicsEnable: Boolean = false): Properties = {
     def shouldEnable(protocol: SecurityProtocol) = interBrokerSecurityProtocol.fold(false)(_ == protocol)
 
     val protocolAndPorts = ArrayBuffer[(SecurityProtocol, Int)]()
@@ -342,6 +344,7 @@ object TestUtils extends Logging {
     props.put(ReplicationConfigs.CONTROLLER_SOCKET_TIMEOUT_MS_CONFIG, "1500")
     props.put(ServerConfigs.CONTROLLED_SHUTDOWN_ENABLE_CONFIG, enableControlledShutdown.toString)
     props.put(ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG, enableDeleteTopic.toString)
+    props.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG, recreateRecentlyDeletedTopicsEnable.toString)
     props.put(ServerLogConfigs.LOG_DELETE_DELAY_MS_CONFIG, "1000")
     props.put(ServerConfigs.CONTROLLED_SHUTDOWN_RETRY_BACKOFF_MS_CONFIG, "100")
     props.put(CleanerConfig.LOG_CLEANER_DEDUPE_BUFFER_SIZE_PROP, "2097152")

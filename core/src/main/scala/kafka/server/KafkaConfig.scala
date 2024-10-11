@@ -466,7 +466,9 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   def logInitialTaskDelayMs: java.lang.Long = Option(getLong(ServerLogConfigs.LOG_INITIAL_TASK_DELAY_MS_CONFIG)).getOrElse(ServerLogConfigs.LOG_INITIAL_TASK_DELAY_MS_DEFAULT)
   def logPageCacheWarmupIntervalMs: java.lang.Long = Option(getLong(ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_CONFIG)).getOrElse(ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_INTERVAL_MS_DEFAULT)
   def logPageCacheWarmupBatch: java.lang.Integer = Option(getInt(ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_CONFIG)).getOrElse(ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT)
-
+  def recreateRecentlyDeletedTopicsEnable: java.lang.Boolean = getBoolean(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG)
+  def recentlyDeletedTopicsRetentionMs: java.lang.Long = getLong(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG)
+  def recreateRecentlyDeletedTopicsDelayMs: java.lang.Long = getLong(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_CONFIG)
   // We keep the user-provided String as `MetadataVersion.fromVersionString` can choose a slightly different version (eg if `0.10.0`
   // is passed, `0.10.0-IV0` may be picked)
   @nowarn("cat=deprecation")

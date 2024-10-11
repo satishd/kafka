@@ -106,7 +106,7 @@ public class ToolsTestUtils {
                 scala.Option.empty(),
                 true, false, RANDOM_PORT, false, RANDOM_PORT, false, RANDOM_PORT,
                 scala.Option.apply(rackInfo.get(node)),
-                logDirCount, enableToken, numPartitions, defaultReplicationFactor, false));
+                logDirCount, enableToken, numPartitions, defaultReplicationFactor, false, false));
         }
         return result;
     }

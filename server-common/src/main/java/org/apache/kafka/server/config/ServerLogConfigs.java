@@ -203,4 +203,18 @@ public class ServerLogConfigs {
     public static final Long LOG_DIR_FAILURE_TIMEOUT_MS_DEFAULT = 30000L;
     public static final String LOG_DIR_FAILURE_TIMEOUT_MS_DOC = "If the broker is unable to successfully communicate to the controller that some log " +
         "directory has failed for longer than this time, the broker will fail and shut down.";
+
+    public static final String RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG = "recreate.recently.deleted.topics.enable";
+    public static final boolean RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_DEFAULT = false;
+    public static final String RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_DOC = "Enable auto recreation of recently deleted topics when a new Metadata Request occurs";
+
+    public static final String RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG = "recently.deleted.topics.retention.ms";
+    public static final long RECENTLY_DELETED_TOPICS_RETENTION_MS_DEFAULT = 60 * 24 * 60 * 60 * 1000L;
+    public static final String RECENTLY_DELETED_TOPICS_RETENTION_MS_DOC = "How long in milliseconds the recently deleted topic should bevalid to recreate it. " +
+            "The recently deleted topic entries get invalid but still remain present in ZK.";
+
+    public static final String RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_CONFIG = "recreate.recently.deleted.topics.delay.ms";
+    public static final long RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_DEFAULT = 0L;
+    public static final String RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_DOC = "The delay in milliseconds to wait before recreating a recently deleted topic. " +
+            "This delay is to ensure that the topic is not recreated immediately after deletion.";
 }

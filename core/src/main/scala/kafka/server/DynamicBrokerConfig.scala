@@ -101,7 +101,8 @@ object DynamicBrokerConfig {
     DynamicKafkaSuperUsersConfig.ReconfigurableConfigs ++
     DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs ++
     DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs ++
-    DynamicDeleteTopicEnableConfig.ReconfigurableConfigs
+    DynamicDeleteTopicEnableConfig.ReconfigurableConfigs ++
+    DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -280,6 +281,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicReplicaStartOffsetStrategyConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicDeleteTopicEnableConfig)
+    addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
   }
 
   /**
@@ -1359,5 +1361,27 @@ class DynamicDeleteTopicEnableConfig extends BrokerReconfigurable {
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     // Currently, there is noop to reconfigure for this dynamic config delete.topic.enable
+  }
+}
+
+object DynamicRecreateRecentlyDeletedTopicsEnableConfig {
+  val ReconfigurableConfigs = Set(
+    ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG,
+    ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG,
+    ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_CONFIG
+  )
+}
+
+class DynamicRecreateRecentlyDeletedTopicsEnableConfig() extends BrokerReconfigurable {
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    // RecreateRecentlyDeletedTopicsEnable is a boolean field, and the Config type has already been validated by now.
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config recreate.recently.deleted.topics.enable
   }
 }

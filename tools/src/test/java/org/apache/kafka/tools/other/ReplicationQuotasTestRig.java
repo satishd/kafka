@@ -418,6 +418,7 @@ public class ReplicationQuotasTestRig {
                 false,
                 1,
                 (short) 1,
+                false,
                 false);
         }
     }

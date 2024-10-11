@@ -1257,6 +1257,83 @@ class DynamicBrokerConfigTest {
     // Invalid dynamic configs should get removed from the dynamicDefaultConfigs list
     assertEquals("ABSENT", oldConfig.dynamicConfig.currentDynamicDefaultConfigs.getOrElse(ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG, "ABSENT"))
   }
+
+  @Test
+  def testDynamicRecreateRecentlyDeletedTopicsEnable(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
+    val config = KafkaConfig.fromProps(props)
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+
+    Mockito.when(serverMock.config).thenReturn(config)
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
+
+    // Default is set to false
+    assertEquals(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_DEFAULT, config.recreateRecentlyDeletedTopicsEnable)
+
+    // Change to true
+    var overrideProp = new Properties()
+    overrideProp.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG, "true")
+    config.dynamicConfig.updateDefaultConfig(overrideProp)
+    assertEquals(true, config.recreateRecentlyDeletedTopicsEnable)
+
+    // Change to invalid should skip the wrong value, and retain the old one
+    overrideProp = new Properties()
+    overrideProp.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG, "invalid_boolean")
+    config.dynamicConfig.updateDefaultConfig(overrideProp)
+    // For incorrect value passed, the reconfigured should be back to the default value: False.
+    assertEquals(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_DEFAULT, config.recreateRecentlyDeletedTopicsEnable)
+    // Invalid dynamic configs should get removed from the dynamicDefaultConfigs list
+    assertEquals("ABSENT", config.dynamicConfig.currentDynamicDefaultConfigs.getOrElse(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG, "ABSENT"))
+  }
+
+  @Test
+  def testDynamicRecreateRecentlyDeletedTopicsRetentionMs(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
+    val config = KafkaConfig.fromProps(props)
+
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+
+    Mockito.when(serverMock.config).thenReturn(config)
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
+
+    assertEquals(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_DEFAULT, config.recentlyDeletedTopicsRetentionMs)
+
+    var overrideProp = new Properties()
+    overrideProp.put(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG, "60000")
+    config.dynamicConfig.updateDefaultConfig(overrideProp)
+    assertEquals(60000L, config.recentlyDeletedTopicsRetentionMs)
+
+    overrideProp = new Properties()
+    overrideProp.put(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG, "invalid")
+    config.dynamicConfig.updateDefaultConfig(overrideProp)
+    // For incorrect value passed, the reconfigured should be back to the default value: False.
+    assertEquals(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_DEFAULT, config.recentlyDeletedTopicsRetentionMs)
+    // Invalid dynamic configs should get removed from the dynamicDefaultConfigs list
+    assertEquals("ABSENT", config.dynamicConfig.currentDynamicDefaultConfigs.getOrElse(ServerLogConfigs.RECENTLY_DELETED_TOPICS_RETENTION_MS_CONFIG, "ABSENT"))
+  }
+
+  @Test
+  def testDynamicRecreateRecentlyDeletedTopicsDelayConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
+    val config = KafkaConfig.fromProps(props)
+
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+
+    Mockito.when(serverMock.config).thenReturn(config)
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
+
+    // Default is set to 0
+    assertEquals(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_DEFAULT, config.recreateRecentlyDeletedTopicsDelayMs)
+
+    // Change to 60ms
+    val overrideProp = new Properties()
+    overrideProp.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_CONFIG, "60")
+    config.dynamicConfig.updateDefaultConfig(overrideProp)
+    assertEquals(60L, config.recreateRecentlyDeletedTopicsDelayMs)
+  }
 }
 
 class TestDynamicThreadPool() extends BrokerReconfigurable {
