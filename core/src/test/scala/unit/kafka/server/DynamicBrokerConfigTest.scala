@@ -21,7 +21,7 @@ import java.{lang, util}
 import java.util.{Properties, Map => JMap}
 import java.util.concurrent.{CompletionStage, TimeUnit}
 import java.util.concurrent.atomic.AtomicReference
-import kafka.controller.KafkaController
+import kafka.controller.{ControllerContext, DeletionClient, KafkaController, MockPartitionStateMachine, MockReplicaStateMachine, TopicDeletionManager}
 import kafka.log.LogManager
 import kafka.log.remote.RemoteLogManager
 import kafka.network.{DataPlaneAcceptor, SocketServer}
@@ -1223,6 +1223,39 @@ class DynamicBrokerConfigTest {
     } catch {
       case e: ConfigException => // expected exception
     }
+  }
+
+  @Test
+  def testDynamicDeleteTopicEnable(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect)
+    val oldConfig =  KafkaConfig.fromProps(props)
+    val kafkaControllerContext: ControllerContext = Mockito.mock(classOf[kafka.controller.ControllerContext])
+    val partitionStateMachine = new MockPartitionStateMachine(kafkaControllerContext, uncleanLeaderElectionEnabled = false, isLeaderRecoverySupported = false)
+    val replicaStateMachine = new MockReplicaStateMachine(kafkaControllerContext)
+    val deletionClient = Mockito.mock(classOf[DeletionClient])
+    val topicDeletionManager = new TopicDeletionManager(oldConfig, kafkaControllerContext,
+      replicaStateMachine, partitionStateMachine, deletionClient)
+
+    // Default is set to true
+    assertTrue(oldConfig.deleteTopicEnable)
+    assertTrue(topicDeletionManager.isDeleteTopicEnabled)
+
+    // Change to false
+    var overrideProp = new Properties()
+    overrideProp.put(ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG, "false")
+    oldConfig.dynamicConfig.initialize(None, None)
+    oldConfig.dynamicConfig.updateDefaultConfig(overrideProp)
+    assertFalse(oldConfig.deleteTopicEnable)
+    assertFalse(topicDeletionManager.isDeleteTopicEnabled)
+
+    // For incorrect value passed, the reconfigured should be back to the default value: True.
+    overrideProp = new Properties()
+    overrideProp.put(ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG, "invalid_boolean")
+    oldConfig.dynamicConfig.updateDefaultConfig(overrideProp)
+    assertTrue(oldConfig.deleteTopicEnable)
+    assertTrue(topicDeletionManager.isDeleteTopicEnabled)
+    // Invalid dynamic configs should get removed from the dynamicDefaultConfigs list
+    assertEquals("ABSENT", oldConfig.dynamicConfig.currentDynamicDefaultConfigs.getOrElse(ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG, "ABSENT"))
   }
 }
 

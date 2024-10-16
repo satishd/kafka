@@ -100,7 +100,8 @@ object DynamicBrokerConfig {
     DynamicRemoteLogConfig.ReconfigurableConfigs ++
     DynamicKafkaSuperUsersConfig.ReconfigurableConfigs ++
     DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs ++
-    DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs
+    DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs ++
+    DynamicDeleteTopicEnableConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -278,6 +279,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicKafkaSuperUsersConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicReplicaStartOffsetStrategyConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicDeleteTopicEnableConfig)
   }
 
   /**
@@ -1337,5 +1339,25 @@ class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerR
       case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedList
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
+  }
+}
+
+object DynamicDeleteTopicEnableConfig {
+  val ReconfigurableConfigs: Set[String] = Set(
+    ServerConfigs.DELETE_TOPIC_ENABLE_CONFIG
+  )
+}
+
+class DynamicDeleteTopicEnableConfig extends BrokerReconfigurable {
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicDeleteTopicEnableConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    // DeleteTopicEnable is a boolean field, and the Config type has already been validated by now.
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config delete.topic.enable
   }
 }
