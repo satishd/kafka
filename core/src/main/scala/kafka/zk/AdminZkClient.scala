@@ -59,8 +59,10 @@ class AdminZkClient(zkClient: KafkaZkClient,
                   topicConfig: Properties = new Properties,
                   rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
                   usesTopicId: Boolean = false): Unit = {
-    val brokerMetadatas = getBrokerMetadatas(rackAwareMode).asJava
-    val replicaAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor))
+    val brokerMetadatas = getBrokerMetadatas(rackAwareMode)
+    val excludedBrokerList = getExcludedBrokerList
+    val validBrokerList = brokerMetadatas.filter(b => !excludedBrokerList.contains(b.id))
+    val replicaAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(validBrokerList.asJava, partitions, replicationFactor))
     createTopicWithAssignment(topic, topicConfig, replicaAssignment, usesTopicId = usesTopicId)
   }
 
@@ -274,8 +276,10 @@ class AdminZkClient(zkClient: KafkaZkClient,
     }
 
     val proposedAssignmentForNewPartitions = replicaAssignment.getOrElse {
-      val startIndex = math.max(0, allBrokers.indexWhere(_.id >= existingAssignmentPartition0.head))
-      CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(allBrokers.asJava, partitionsToAdd, existingAssignmentPartition0.size,
+      val excludedBrokerList = getExcludedBrokerList
+      val validBrokerList = allBrokers.filter(b => !excludedBrokerList.contains(b.id))
+      val startIndex = math.max(0, validBrokerList.indexWhere(_.id >= existingAssignmentPartition0.head))
+      CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(validBrokerList.asJava, partitionsToAdd, existingAssignmentPartition0.size,
         startIndex, existingAssignment.size))
     }
 
@@ -283,6 +287,20 @@ class AdminZkClient(zkClient: KafkaZkClient,
       tp -> ReplicaAssignment(replicas, List(), List())
     }
   }
+
+  /**
+   * Get the list of brokers that should be excluded from the replica assignment
+   *
+   * @return The list of broker ids that should be excluded from the replica assignment
+   */
+  private def getExcludedBrokerList: Seq[Int] = {
+    var excludedBrokerList: Seq[Int] = Seq.empty
+    if(kafkaConfig.isDefined) {
+      excludedBrokerList = kafkaConfig.get.newReplicaExcludeList
+    }
+    excludedBrokerList
+  }
+
 
   /**
    * Add partitions to the existing topic with the provided assignment. This method does

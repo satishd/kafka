@@ -1947,6 +1947,76 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
         self.logger.debug(output)
         return output
 
+    def alter_topic(self, topic_cfg, node=None):
+        """Run the admin tool alter topic command.
+        Specifying node is optional, and may be done if for different kafka nodes have different versions,
+        and we care where command gets run.
+
+        If the node is not specified, run the command from self.nodes[0]
+        """
+        if node is None:
+            node = self.nodes[0]
+        self.logger.info("Alter topic %s with settings %s",
+                         topic_cfg["topic"], topic_cfg)
+
+        force_use_zk_connection = not self.all_nodes_topic_command_supports_bootstrap_server() or \
+                                  (topic_cfg.get('if-not-exists', False) and not self.all_nodes_topic_command_supports_if_not_exists_with_bootstrap_server())
+
+        cmd = fix_opts_for_new_jvm(node)
+        cmd += "%(kafka_topics_cmd)s --alter --topic %(topic)s " % {
+            'kafka_topics_cmd': self.kafka_topics_cmd_with_optional_security_settings(node, force_use_zk_connection),
+            'topic': topic_cfg.get("topic"),
+        }
+
+        if 'replica-assignment' in topic_cfg:
+            cmd += " --replica-assignment %(replica-assignment)s" % {
+                'replica-assignment': topic_cfg.get('replica-assignment')
+            }
+        else:
+            cmd += " --partitions %(partitions)d " % {
+                'partitions': topic_cfg.get('partitions', 1)
+            }
+
+        if topic_cfg.get('if-not-exists', False):
+            cmd += ' --if-not-exists'
+
+        if "configs" in topic_cfg.keys() and topic_cfg["configs"] is not None:
+            for config_name, config_value in topic_cfg["configs"].items():
+                cmd += " --config %s=%s" % (config_name, str(config_value))
+
+        self.logger.info("Running topic alter command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+    def set_default_dynamic_config(self, dynamic_config_name, dynamic_config_value, node):
+        """Run the kafka-configs.sh command.
+        Specifying node is optional, if it's empty, pick the first node. The '<default>' config is cluster wide global config.
+        Even the controller is failover,  the new controller will have this dynamic config.
+
+        """
+        if node is None:
+            # pick the first node
+            node = self.nodes[0]
+        broker_id = self.idx(node)
+        self.logger.info("Setting dynamic_config %s with settings %s as '<default>' for the whole cluster on broker_id: %s",
+                         dynamic_config_name, dynamic_config_value, broker_id)
+        kafka_config_script = self.path.script("kafka-configs.sh", node)
+
+        cmd = kafka_config_script + " "
+        cmd += "--bootstrap-server localhost:9092 --alter --entity-type brokers --add-config %(dynamic_config_name)s=\"%(dynamic_config_value)s\" --entity-default " % {
+            'dynamic_config_name': dynamic_config_name,
+            'dynamic_config_value': dynamic_config_value
+        }
+
+        self.logger.info("Running broker '<default>' dynamic config command...\n%s" % cmd)
+        node.account.ssh(cmd)
+
+        time.sleep(1)
+        self.logger.info("Checking to see if dynamic was properly created...\n%s" % cmd)
+        broker_dynamic_config_info=self.zk.query("/config/brokers/'<default>'", chroot=self.zk_chroot)
+        self.logger.debug("Broker <default> info: %s", broker_dynamic_config_info)
+        new_dynamic_config= '"' + dynamic_config_name + '":"' + dynamic_config_value + '"'
+        assert new_dynamic_config in broker_dynamic_config_info
+
     def java_class_name(self):
         return "kafka.Kafka"
 

@@ -47,12 +47,12 @@ import org.apache.kafka.test.MockMetricsReporter
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.anyString
-import org.mockito.{ArgumentCaptor, ArgumentMatchers, Mockito}
 import org.mockito.Mockito.{mock, verify, verifyNoMoreInteractions, when}
+import org.mockito.{ArgumentCaptor, ArgumentMatchers, Mockito}
 
 import scala.annotation.nowarn
-import scala.jdk.CollectionConverters._
 import scala.collection.Set
+import scala.jdk.CollectionConverters._
 
 class DynamicBrokerConfigTest {
 
@@ -1332,6 +1332,84 @@ class DynamicBrokerConfigTest {
     overrideProp.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_CONFIG, "60")
     config.dynamicConfig.updateDefaultConfig(overrideProp)
     assertEquals(60L, config.recreateRecentlyDeletedTopicsDelayMs)
+  }
+
+  @Test
+  def testDynamicNewReplicaExcludeListConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config = KafkaConfig.fromProps(props)
+
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+
+    Mockito.when(serverMock.config).thenReturn(config)
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(serverMock))
+
+    // Default is ""
+    assertEquals(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_DEFAULT, config.newReplicaExcludeListString)
+    val singleList = "0"
+    var overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, singleList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(singleList, config.newReplicaExcludeListString)
+
+    // Restore it back to empty
+    val emptyList = ""
+    overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, emptyList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(emptyList, config.newReplicaExcludeListString)
+
+    val multipleList="0:1:2"
+    overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, multipleList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(multipleList, config.newReplicaExcludeListString)
+
+    // Test with Invalid Value
+    val invalidValueProps = new Properties()
+    try {
+      invalidValueProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "Invalid_Value")
+      config.dynamicConfig.updateBrokerConfig(0, invalidValueProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with ":100"
+    val startWithColonProps = new Properties()
+    try {
+      startWithColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":100")
+      config.dynamicConfig.updateBrokerConfig(0, startWithColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with "100:"
+    val endWithColonProps = new Properties()
+    try {
+      endWithColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100:")
+      config.dynamicConfig.updateBrokerConfig(0, endWithColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with "100::101"
+    val twoConsecutiveColonProps = new Properties()
+    try {
+      twoConsecutiveColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100::101")
+      config.dynamicConfig.updateBrokerConfig(0, twoConsecutiveColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with ":"
+    val justColonProps = new Properties()
+    try {
+      justColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":")
+      config.dynamicConfig.updateBrokerConfig(0, justColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
   }
 }
 

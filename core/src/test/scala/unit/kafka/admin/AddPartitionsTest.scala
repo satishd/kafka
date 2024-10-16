@@ -19,16 +19,18 @@ package kafka.admin
 
 import java.util.{Collections, Optional}
 import kafka.controller.ReplicaAssignment
-import kafka.server.{BaseRequestTest, BrokerServer}
+import kafka.server.{BaseRequestTest, BrokerServer, KafkaConfig}
 import kafka.utils.TestUtils
 import kafka.utils.TestUtils._
+import kafka.zk.AdminZkClient
 import org.apache.kafka.clients.admin.{Admin, NewPartitions, NewTopic}
-import org.apache.kafka.common.errors.InvalidReplicaAssignmentException
+import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, InvalidReplicationFactorException}
 import org.apache.kafka.common.requests.MetadataResponse.TopicMetadata
 import org.apache.kafka.common.requests.{MetadataRequest, MetadataResponse}
 import org.apache.kafka.server.common.AdminOperationException
+import org.apache.kafka.server.config.ReplicationConfigs
 import org.junit.jupiter.api.Assertions._
-import org.junit.jupiter.api.{BeforeEach, TestInfo}
+import org.junit.jupiter.api.{BeforeEach, Test, TestInfo}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -245,4 +247,32 @@ class AddPartitionsTest extends BaseRequestTest {
     assertEquals(expectedReplicas, partition.replicaIds.asScala.toSet, "Replica set should match")
   }
 
+  @Test
+  def testAddPartitionsWithExcludedBrokers(): Unit = {
+    val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2")
+
+    val kafkaConfig = KafkaConfig.fromProps(configs)
+    val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
+    // add new partitions
+    adminZkClient.addPartitions(topic1, topic1Assignment, adminZkClient.getBrokerMetadatas(), 3)
+
+    zkClient.getReplicaAssignmentForTopics(Set(topic1)).foreach { case (_, replicas) =>
+      for (brokerId <- replicas) {
+        assertNotEquals(2, brokerId)
+      }
+    }
+  }
+
+  @Test
+  def testAddPartitionsWithoutEnoughValidBrokers(): Unit = {
+    val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2:3:0")
+    val kafkaConfig = KafkaConfig.fromProps(configs)
+    val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
+
+    // add new partitions
+    assertThrows(classOf[InvalidReplicationFactorException],
+      () => adminZkClient.addPartitions(topic1, topic1Assignment, adminZkClient.getBrokerMetadatas(), 3))
+  }
 }

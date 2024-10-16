@@ -538,8 +538,11 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   val leaderImbalanceCheckIntervalSeconds: Long = getLong(ReplicationConfigs.LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS_CONFIG)
   val uncleanLeaderElectionCheckIntervalMs: Long = getLong(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_INTERVAL_MS_CONFIG)
   def uncleanLeaderElectionEnable: java.lang.Boolean = getBoolean(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG)
-  def replicaStartOffsetStrategy = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
-  def leaderDeprioritizedList = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+  def replicaStartOffsetStrategy: String = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
+  def leaderDeprioritizedList: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+  def newReplicaExcludeListString: String = getString(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
+  def newReplicaExcludeList: scala.Seq[Int] = newReplicaExcludeListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
+
 
   // We keep the user-provided String as `MetadataVersion.fromVersionString` can choose a slightly different version (eg if `0.10.0`
   // is passed, `0.10.0-IV0` may be picked)

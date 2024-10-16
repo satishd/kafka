@@ -102,7 +102,8 @@ object DynamicBrokerConfig {
     DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs ++
     DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs ++
     DynamicDeleteTopicEnableConfig.ReconfigurableConfigs ++
-    DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs
+    DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs ++
+    DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -282,6 +283,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicDeleteTopicEnableConfig)
     addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
+    addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(kafkaServer))
   }
 
   /**
@@ -1383,5 +1385,43 @@ class DynamicRecreateRecentlyDeletedTopicsEnableConfig() extends BrokerReconfigu
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
     // Currently, there is noop to reconfigure for this dynamic config recreate.recently.deleted.topics.enable
+  }
+}
+
+object DynamicNewReplicaExcludeListConfig {
+  val ReconfigurableConfigs = Set(
+    ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
+}
+
+class DynamicNewReplicaExcludeListConfig (server: KafkaBroker) extends BrokerReconfigurable {
+
+  val newReplicaExcludeListConfigPattern = """(\d+(:\d+)*)?""".r.pattern
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        val oldValue = currentValue(k)
+        if (newValue != oldValue) {
+          if (!newReplicaExcludeListConfigPattern.matcher(newValue).matches)
+            throw new ConfigException(s"Dynamic New Replica Exclude List failed for $k=$v, value contains invalid characters other than colon and digits. e.g. broker_id1:broker_id2, no spaces.")
+        }
+      }
+    }
+  }
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config new.replica.exclude.list.
+  }
+
+  private def currentValue(name: String): String = {
+    name match {
+      case ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG => server.config.newReplicaExcludeListString
+      case n => throw new IllegalStateException(s"Unexpected config $n")
+    }
   }
 }

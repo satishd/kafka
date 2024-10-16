@@ -28,12 +28,12 @@ import kafka.zk._
 import org.apache.kafka.admin.BrokerMetadata
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.TopicConfig
-import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, InvalidTopicException, TopicExistsException}
+import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, InvalidReplicationFactorException, InvalidTopicException, TopicExistsException}
 import org.apache.kafka.common.metrics.Quota
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.common.{AdminOperationException, MetadataVersion}
-import org.apache.kafka.server.config.{ConfigType, QuotaConfigs}
+import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ReplicationConfigs}
 import org.apache.kafka.storage.internals.log.LogConfig
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.jupiter.api.Assertions._
@@ -454,5 +454,41 @@ class AdminZkClientTest extends QuorumTestHarness with Logging with RackAwareTes
       topicPartition -> LeaderIsrAndControllerEpoch(newLeaderAndIsr, 1)
     }
     zkClient.setTopicPartitionStatesRaw(newLeaderIsrAndControllerEpochs, ZkVersion.MatchAnyVersion)
+  }
+
+  @Test
+  def testTopicCreationWithExcludedBrokers(): Unit = {
+    val topic = "test"
+    createBrokersInZk(zkClient, List(0, 1, 2, 3, 4))
+
+    val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0")
+    val kafkaConfig = KafkaConfig.fromProps(configs)
+    val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
+
+    // create the topic
+    val partitions = 3
+    val replicationFactor = 3
+    adminZkClient.createTopic(topic, partitions, replicationFactor)
+
+    zkClient.getReplicaAssignmentForTopics(Set(topic)).foreach { case (_, replicas) =>
+      for (brokerId <- replicas) {
+        assertNotEquals(0, brokerId)
+      }
+    }
+  }
+
+  @Test
+  def testTopicCreationWithoutEnoughValidBrokers(): Unit = {
+    val topic = "test"
+    createBrokersInZk(zkClient, List(0, 1, 2, 3, 4))
+
+    val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0:4:2")
+    val kafkaConfig = KafkaConfig.fromProps(configs)
+    val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
+
+    // create the topic
+    assertThrows(classOf[InvalidReplicationFactorException], () => adminZkClient.createTopic(topic, 3, 3))
   }
 }

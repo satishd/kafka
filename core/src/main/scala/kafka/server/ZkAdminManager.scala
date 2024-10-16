@@ -165,6 +165,8 @@ class ZkAdminManager(val config: KafkaConfig,
 
     // 1. map over topics creating assignment and calling zookeeper
     val brokers = metadataCache.getAliveBrokers()
+    val excludedBrokerList = config.newReplicaExcludeList
+    val validBrokerList = brokers.filter(b => !excludedBrokerList.contains(b.id))
     val metadata = toCreate.values.map(topic =>
       try {
         if (metadataCache.contains(topic.name))
@@ -187,7 +189,7 @@ class ZkAdminManager(val config: KafkaConfig,
 
         val assignments = if (topic.assignments.isEmpty) {
           CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(
-            brokers.asJavaCollection, resolvedNumPartitions, resolvedReplicationFactor))
+            validBrokerList.asJavaCollection, resolvedNumPartitions, resolvedReplicationFactor))
         } else {
           val assignments = new mutable.HashMap[Int, Seq[Int]]
           // Note: we don't check that replicaAssignment contains unknown brokers - unlike in add-partitions case,
