@@ -657,7 +657,7 @@ public class SharePartitionManager implements AutoCloseable {
         // TODO: We need to know the isolation level from group configs, for now we are passing Option.empty() for isolationLevel
         Option<TimestampAndOffset> timestampAndOffset = replicaManager.fetchOffsetForTimestamp(
             topicIdPartition.topicPartition(), ListOffsetsRequest.EARLIEST_TIMESTAMP, Option.empty(),
-            Optional.empty(), true);
+            Optional.empty(), true).timestampAndOffsetOpt();
         return timestampAndOffset.isEmpty() ? (long) 0 : timestampAndOffset.get().offset;
     }
 

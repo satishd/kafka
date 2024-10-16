@@ -867,9 +867,11 @@ class LogLoaderTest {
     for (i <- 0 until numMessages) {
       assertEquals(i, LogTestUtils.readLog(log, i, 100).records.batches.iterator.next().lastOffset)
       if (i == 0)
-        assertEquals(log.logSegments.asScala.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertEquals(log.logSegments.asScala.head.baseOffset,
+          log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).timestampAndOffsetOpt.get.offset)
       else
-        assertEquals(i, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertEquals(i,
+          log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).timestampAndOffsetOpt.get.offset)
     }
     log.close()
   }
@@ -941,9 +943,11 @@ class LogLoaderTest {
     for (i <- 0 until numMessages) {
       assertEquals(i, LogTestUtils.readLog(log, i, 100).records.batches.iterator.next().lastOffset)
       if (i == 0)
-        assertEquals(log.logSegments.asScala.head.baseOffset, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertEquals(log.logSegments.asScala.head.baseOffset,
+          log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).timestampAndOffsetOpt.get.offset)
       else
-        assertEquals(i, log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).get.offset)
+        assertEquals(i,
+          log.fetchOffsetByTimestamp(mockTime.milliseconds + i * 10).timestampAndOffsetOpt.get.offset)
     }
     log.close()
   }
