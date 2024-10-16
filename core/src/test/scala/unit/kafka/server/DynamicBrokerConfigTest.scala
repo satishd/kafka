@@ -1145,6 +1145,85 @@ class DynamicBrokerConfigTest {
     dynamicBrokerConfig.updateBrokerConfig(0, restoreProps)
     assertEquals("test1,test2,test3,test4", staticConfig.get(BrokerSecurityConfigs.KAFKA_SUPER_USERS_CONFIG))
   }
+
+  @Test
+  def testDynamicLeaderDeprioritizedListConfig(): Unit = {
+
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config =  KafkaConfig.fromProps(props)
+    val kafkaServer: KafkaBroker = Mockito.mock(classOf[kafka.server.KafkaBroker])
+    when(kafkaServer.config).thenReturn(config)
+
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
+
+    // Default is ""
+    assertEquals("", config.leaderDeprioritizedList)
+    val singleList = "0"
+    var overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, singleList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(singleList, config.leaderDeprioritizedList)
+
+    // Restore it back to empty
+    val emptyList = ""
+    overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, emptyList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(emptyList, config.leaderDeprioritizedList)
+
+    // Test with valid values
+    val multipleList="0:1:2"
+    overrideProp = new Properties()
+    overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, multipleList)
+    config.dynamicConfig.updateBrokerConfig(0, overrideProp)
+    assertEquals(multipleList, config.leaderDeprioritizedList)
+
+    // Test with Invalid Value
+    val invalidValueProps = new Properties()
+    try {
+      invalidValueProps.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, "Invalid_Value")
+      config.dynamicConfig.updateBrokerConfig(0, invalidValueProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with ":100"
+    val startWithColonProps = new Properties()
+    try {
+      startWithColonProps.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, ":100")
+      config.dynamicConfig.updateBrokerConfig(0, startWithColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with "100:"
+    val endWithColonProps = new Properties()
+    try {
+      endWithColonProps.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, "100:")
+      config.dynamicConfig.updateBrokerConfig(0, endWithColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with "100::101"
+    val twoConsecutiveColonProps = new Properties()
+    try {
+      twoConsecutiveColonProps.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, "100::101")
+      config.dynamicConfig.updateBrokerConfig(0, twoConsecutiveColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+
+    // Test with ":"
+    val justColonProps = new Properties()
+    try {
+      justColonProps.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, ":")
+      config.dynamicConfig.updateBrokerConfig(0, justColonProps)
+    } catch {
+      case e: ConfigException => // expected exception
+    }
+  }
 }
 
 class TestDynamicThreadPool() extends BrokerReconfigurable {

@@ -99,7 +99,8 @@ object DynamicBrokerConfig {
     DynamicProducerStateManagerConfig ++
     DynamicRemoteLogConfig.ReconfigurableConfigs ++
     DynamicKafkaSuperUsersConfig.ReconfigurableConfigs ++
-    DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs
+    DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs ++
+    DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -276,6 +277,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicRemoteLogConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicKafkaSuperUsersConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicReplicaStartOffsetStrategyConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
   }
 
   /**
@@ -1295,6 +1297,44 @@ class DynamicReplicaStartOffsetStrategyConfig (server: KafkaBroker) extends Brok
   private def currentValue(name: String): String = {
     name match {
       case ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG => server.config.replicaStartOffsetStrategy
+      case n => throw new IllegalStateException(s"Unexpected config $n")
+    }
+  }
+}
+
+object DynamicLeaderDeprioritizedListConfig {
+  val ReconfigurableConfigs: Set[String] = Set(
+    ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+}
+
+class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerReconfigurable {
+
+  private val leaderDeprioritizedListConfigPattern = """(\d+(:\d+)*)?""".r.pattern
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        val oldValue = currentValue(k)
+        if (newValue != oldValue) {
+          if (!leaderDeprioritizedListConfigPattern.matcher(newValue).matches)
+            throw new ConfigException(s"Dynamic Leader Deprioritized List failed for $k=$v, value contains invalid characters other than colon and digits. e.g. broker_id1:broker_id2, no spaces.")
+        }
+      }
+    }
+  }
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config leader.deprioritized.list.
+  }
+
+  private def currentValue(name: String): String = {
+    name match {
+      case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedList
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }
