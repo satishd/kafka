@@ -31,7 +31,7 @@ import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceT
 import org.apache.kafka.common.security.JaasUtils
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
 import org.apache.kafka.common.utils.{Time, Utils}
-import org.apache.kafka.common.{KafkaException, TopicPartition, Uuid}
+import org.apache.kafka.common.{KafkaException, RecentlyDeletedTopicMetadata, TopicPartition, Uuid}
 import org.apache.kafka.metadata.migration.ZkMigrationLeadershipState
 import org.apache.kafka.security.authorizer.AclEntry
 import org.apache.kafka.server.config.{ConfigType, ZkConfigs}
@@ -1463,6 +1463,44 @@ class KafkaZkClient private[zk] (
       if (deleteResponse.resultCode != Code.NONODE) {
         deleteResponse.maybeThrow()
       }
+    }
+  }
+
+  /**
+   * Creates or updates the recently deleted topic znode.
+   * @param topicName topic name
+   * @throws KeeperException if there is an error while setting or creating the znode
+   */
+  def createOrUpdateRecentlyDeletedTopicPath(recentlyDeletedTopicMetadata: RecentlyDeletedTopicMetadata): Unit = {
+    val topic = recentlyDeletedTopicMetadata.topicName
+    val path = RecentlyDeletedTopicsTopicZNode.path(topic)
+    val setDataRequest = SetDataRequest(path, RecentlyDeletedTopicsTopicZNode.encode(
+      recentlyDeletedTopicMetadata), ZkVersion.MatchAnyVersion)
+    makeSurePersistentPathExists(RecentlyDeletedTopicsTopicZNode.path(topic))
+    retryRequestUntilConnected(setDataRequest)
+  }
+
+  /**
+   * Checks if topic is present in recently deleted topics
+   * @param topic
+   * @return true if topic is present in recently deleted topics, else false
+   */
+  def isTopicPresentInRecentlyDeletedTopics(topic: String): Boolean = {
+    pathExists(RecentlyDeletedTopicsTopicZNode.path(topic))
+  }
+
+  /**
+   * Gets the topic metadata from recently deleted topics list.
+   * @return optional integer that is Some if the controller znode exists and can be parsed and None other
+wise.
+   */
+  def getRecentlyDeletedTopicMetadata(topic: String): Option[RecentlyDeletedTopicMetadata] = {
+    val getDataRequest = GetDataRequest(RecentlyDeletedTopicsTopicZNode.path(topic))
+    val getDataResponse = retryRequestUntilConnected(getDataRequest)
+    getDataResponse.resultCode match {
+      case Code.OK => RecentlyDeletedTopicsTopicZNode.decode(getDataResponse.data)
+      case Code.NONODE => None
+      case _ => throw getDataResponse.resultException.get
     }
   }
 

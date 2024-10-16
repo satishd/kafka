@@ -38,7 +38,7 @@ import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceT
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.token.delegation.TokenInformation
 import org.apache.kafka.common.utils.{SecurityUtils, Time}
-import org.apache.kafka.common.{KafkaException, TopicPartition, Uuid}
+import org.apache.kafka.common.{KafkaException, RecentlyDeletedTopicMetadata, TopicPartition, Uuid}
 import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.metadata.migration.ZkMigrationLeadershipState
 import org.apache.kafka.network.SocketServerConfigs
@@ -516,6 +516,40 @@ object DeleteTopicsZNode {
 
 object DeleteTopicsTopicZNode {
   def path(topic: String) = s"${DeleteTopicsZNode.path}/$topic"
+}
+
+object RecentlyDeletedTopicsZNode {
+  def path = s"${AdminZNode.path}/recently_deleted_topics"
+}
+
+object RecentlyDeletedTopicsTopicZNode {
+  def path(topic: String) = s"${RecentlyDeletedTopicsZNode.path}/$topic"
+  def encode(topicMetadata: RecentlyDeletedTopicMetadata): Array[Byte] = {
+    Json.encodeAsBytes(Map(
+      "version" -> 1, "topicName" -> topicMetadata.topicName,
+      "numPartitions" -> topicMetadata.numPartitions,
+      "replicationFactor" -> topicMetadata.replicationFactor,
+      "deleteEpochTimestampMs" -> topicMetadata.deleteEpochTimestampMs,
+      "configs" -> topicMetadata.configs).asJava)
+  }
+  def decode(bytes: Array[Byte]): Option[RecentlyDeletedTopicMetadata] = {
+    if (bytes == null || bytes.isEmpty)
+      return None
+    Json.parseBytes(bytes) match {
+      case Some(js) =>
+        val props = new Properties
+        val topicName = js.asJsonObject("topicName").to[String]
+        val numPartitions = js.asJsonObject("numPartitions").to[Int]
+        val replicationFactor = js.asJsonObject("replicationFactor").to[Int].toShort
+        val timestamp = js.asJsonObject("deleteEpochTimestampMs").to[Long]
+        val configOpt = js.asJsonObjectOption.flatMap(_.get("configs").flatMap(_.asJsonObjectOption))
+        configOpt.foreach(config => config.iterator.foreach { case (k, v) => props.setProperty(k, v.to[String]) })
+
+        Some(new RecentlyDeletedTopicMetadata(topicName, numPartitions, replicationFactor, timestamp, props))
+      case None =>
+        None
+    }
+  }
 }
 
 /**

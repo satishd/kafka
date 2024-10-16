@@ -39,7 +39,7 @@ import org.apache.kafka.common.message.AddPartitionsToTxnResponseData.{AddPartit
 import org.apache.kafka.common.message.AlterConfigsResponseData.AlterConfigsResourceResponse
 import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData.{ReassignablePartitionResponse, ReassignableTopicResponse}
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult
-import org.apache.kafka.common.message.CreateTopicsRequestData.CreatableTopic
+import org.apache.kafka.common.message.CreateTopicsRequestData.{CreatableTopic, CreatableTopicConfig, CreatableTopicConfigCollection}
 import org.apache.kafka.common.message.CreateTopicsResponseData.{CreatableTopicResult, CreatableTopicResultCollection}
 import org.apache.kafka.common.message.DeleteRecordsResponseData.{DeleteRecordsPartitionResult, DeleteRecordsTopicResult}
 import org.apache.kafka.common.message.DeleteTopicsResponseData.{DeletableTopicResult, DeletableTopicResultCollection}
@@ -1305,7 +1305,8 @@ class KafkaApis(val requestChannel: RequestChannel,
     topics: Set[String],
     listenerName: ListenerName,
     errorUnavailableEndpoints: Boolean,
-    errorUnavailableListeners: Boolean
+    errorUnavailableListeners: Boolean,
+    recreateRecentlyDeletedTopic: Boolean,
   ): Seq[MetadataResponseTopic] = {
     val topicResponses = metadataCache.getTopicMetadata(topics, listenerName,
       errorUnavailableEndpoints, errorUnavailableListeners)
@@ -1314,9 +1315,33 @@ class KafkaApis(val requestChannel: RequestChannel,
       topicResponses
     } else {
       val nonExistingTopics = topics.diff(topicResponses.map(_.name).toSet)
+      val controllerMutationQuota = quotas.controllerMutation.newPermissiveQuotaFor(request)
       val nonExistingTopicResponses = if (allowAutoTopicCreation) {
-        val controllerMutationQuota = quotas.controllerMutation.newPermissiveQuotaFor(request)
         autoTopicCreationManager.createTopics(nonExistingTopics, controllerMutationQuota, Some(request.context))
+      } else if (recreateRecentlyDeletedTopic) {
+        val zkSupport = metadataSupport.requireZkOrThrow(KafkaApis.shouldAlwaysForward(request))
+        val responses = mutable.Buffer.empty[MetadataResponseTopic]
+        val createableTopics = mutable.Map.empty[String, CreatableTopic]
+        nonExistingTopics.map { topic =>
+          if (zkSupport.zkClient.isTopicPresentInRecentlyDeletedTopics(topic)) {
+            val topicMetadata = zkSupport.zkClient.getRecentlyDeletedTopicMetadata(topic)
+            val currentTimestamp = time.milliseconds
+            if (!topicMetadata.isEmpty && !(currentTimestamp > config.recentlyDeletedTopicsRetentionMs + topicMetadata.get.deleteEpochTimestampMs)
+              && (currentTimestamp >= config.recreateRecentlyDeletedTopicsDelayMs + topicMetadata.get.deleteEpochTimestampMs())) {
+              info(s"Attempting to recreate topic with the following Topic Metadata : ${topicMetadata} by client id : ${request.header.clientId}")
+              val topicConfigs = new CreatableTopicConfigCollection()
+              topicMetadata.get.configs.forEach { (k, v) => topicConfigs.add(new CreatableTopicConfig().setName(k.toString).setValue(v.toString)) }
+              val createableTopic = new CreatableTopic().setName(topic).setNumPartitions(topicMetadata.get.numPartitions).setReplicationFactor(topicMetadata.get.replicationFactor)
+                .setConfigs(topicConfigs)
+              createableTopics.put(topic, createableTopic)
+            } else {
+               responses += metadataResponseTopic(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, metadataCache.getTopicId(topic), Topic.isInternal(topic), util.Collections.emptyList())
+            }
+          } else {
+            responses += metadataResponseTopic(Errors.UNKNOWN_TOPIC_OR_PARTITION, topic, metadataCache.getTopicId(topic),  Topic.isInternal(topic), util.Collections.emptyList())
+          }
+        }
+        responses ++ autoTopicCreationManager.createTopics(createableTopics, controllerMutationQuota, Some(request.context))
       } else {
         nonExistingTopics.map { topic =>
           val error = try {
@@ -1418,8 +1443,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val errorUnavailableListeners = requestVersion >= 6
 
     val allowAutoCreation = config.autoCreateTopicsEnable && metadataRequest.allowAutoTopicCreation && !metadataRequest.isAllTopics
+    val recreateRecentlyDeletedTopic = config.recreateRecentlyDeletedTopicsEnable && !metadataRequest.isAllTopics
     val topicMetadata = getTopicMetadata(request, metadataRequest.isAllTopics, allowAutoCreation, authorizedTopics,
-      request.context.listenerName, errorUnavailableEndpoints, errorUnavailableListeners)
+      request.context.listenerName, errorUnavailableEndpoints, errorUnavailableListeners, recreateRecentlyDeletedTopic)
 
     var clusterAuthorizedOperations = Int.MinValue // Default value in the schema
     if (requestVersion >= 8) {

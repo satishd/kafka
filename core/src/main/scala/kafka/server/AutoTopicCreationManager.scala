@@ -46,6 +46,12 @@ trait AutoTopicCreationManager {
     controllerMutationQuota: ControllerMutationQuota,
     metadataRequestContext: Option[RequestContext]
   ): Seq[MetadataResponseTopic]
+
+  def createTopics(
+    creatableTopics: Map[String, CreatableTopic],
+    controllerMutationQuota: ControllerMutationQuota,
+    metadataRequestContext: Option[RequestContext]
+  ): Seq[MetadataResponseTopic]
 }
 
 object AutoTopicCreationManager {
@@ -77,6 +83,21 @@ class DefaultAutoTopicCreationManager(
 
   private val inflightTopics = Collections.newSetFromMap(new ConcurrentHashMap[String, java.lang.Boolean]())
 
+  override def createTopics(
+    topics: Map[String, CreatableTopic],
+    controllerMutationQuota: ControllerMutationQuota,
+    metadataRequestContext: Option[RequestContext]
+  ): Seq[MetadataResponseTopic] = {
+    val (creatableTopics, uncreatableTopicResponses) = filterCreatableTopics(topics.keySet, topics)
+    val creatableTopicResponses = if (creatableTopics.isEmpty) {
+      Seq.empty
+    } else if (controller.isEmpty || !controller.get.isActive && channelManager.isDefined) {
+      sendCreateTopicRequest(creatableTopics, metadataRequestContext)
+    } else {
+      createTopicsInZk(creatableTopics, controllerMutationQuota)
+    }
+    uncreatableTopicResponses ++ creatableTopicResponses
+  }
   /**
    * Initiate auto topic creation for the given topics.
    *
@@ -92,7 +113,7 @@ class DefaultAutoTopicCreationManager(
     controllerMutationQuota: ControllerMutationQuota,
     metadataRequestContext: Option[RequestContext]
   ): Seq[MetadataResponseTopic] = {
-    val (creatableTopics, uncreatableTopicResponses) = filterCreatableTopics(topics)
+    val (creatableTopics, uncreatableTopicResponses) = filterCreatableTopics(topics, creatableTopic)
 
     val creatableTopicResponses = if (creatableTopics.isEmpty) {
       Seq.empty
@@ -274,13 +295,13 @@ class DefaultAutoTopicCreationManager(
   }
 
   private def filterCreatableTopics(
-    topics: Set[String]
+    topicNames: Set[String], creatableTopicFunc: String => CreatableTopic
   ): (Map[String, CreatableTopic], Seq[MetadataResponseTopic]) = {
 
     val creatableTopics = mutable.Map.empty[String, CreatableTopic]
     val uncreatableTopics = mutable.Buffer.empty[MetadataResponseTopic]
 
-    topics.foreach { topic =>
+    topicNames.foreach { topic =>
       // Attempt basic topic validation before sending any requests to the controller.
       val validationError: Option[Errors] = if (!isValidTopicName(topic)) {
         Some(Errors.INVALID_TOPIC_EXCEPTION)
@@ -297,7 +318,7 @@ class DefaultAutoTopicCreationManager(
             .setName(topic)
             .setIsInternal(Topic.isInternal(topic))
         case None =>
-          creatableTopics.put(topic, creatableTopic(topic))
+          creatableTopics.put(topic, creatableTopicFunc(topic))
       }
     }
 

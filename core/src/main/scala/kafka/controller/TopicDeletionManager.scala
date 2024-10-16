@@ -19,13 +19,15 @@ package kafka.controller
 import kafka.server.KafkaConfig
 import kafka.utils.Logging
 import kafka.zk.KafkaZkClient
-import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.{RecentlyDeletedTopicMetadata, TopicPartition}
+import org.apache.kafka.server.config.ConfigType
 
 import scala.collection.Set
 import scala.collection.mutable
 
 trait DeletionClient {
   def deleteTopic(topic: String, epochZkVersion: Int): Unit
+  def createOrUpdateRecentlyDeletedTopic(topic: String, replicationFactor: Short, numPartitions: Int): Unit
   def deleteTopicDeletions(topics: Seq[String], epochZkVersion: Int): Unit
   def mutePartitionModifications(topic: String): Unit
   def sendMetadataUpdate(partitions: Set[TopicPartition]): Unit
@@ -36,6 +38,13 @@ class ControllerDeletionClient(controller: KafkaController, zkClient: KafkaZkCli
     zkClient.deleteTopicZNode(topic, epochZkVersion)
     zkClient.deleteTopicConfigs(Seq(topic), epochZkVersion)
     zkClient.deleteTopicDeletions(Seq(topic), epochZkVersion)
+  }
+
+  override def createOrUpdateRecentlyDeletedTopic(topic: String, replicationFactor: Short, numPartitions: Int): Unit = {
+    val deleteEpochTimestampMs = System.currentTimeMillis
+    val config = zkClient.getEntityConfigs(ConfigType.TOPIC, topic)
+    val topicDetails = new RecentlyDeletedTopicMetadata(topic, numPartitions, replicationFactor, deleteEpochTimestampMs, config)
+    zkClient.createOrUpdateRecentlyDeletedTopicPath(topicDetails)
   }
 
   override def deleteTopicDeletions(topics: Seq[String], epochZkVersion: Int): Unit = {
@@ -240,8 +249,16 @@ class TopicDeletionManager(config: KafkaConfig,
     // firing before the new topic listener when a deleted topic gets auto created
     client.mutePartitionModifications(topic)
     val replicasForDeletedTopic = controllerContext.replicasInState(topic, ReplicaDeletionSuccessful)
+    val numPartitions = controllerContext.partitionsForTopic(topic).size
+    val replicationFactor = replicasForDeletedTopic.size.toShort / numPartitions
     // controller will remove this replica from the state machine as well as its partition assignment cache
     replicaStateMachine.handleStateChanges(replicasForDeletedTopic.toSeq, NonExistentReplica)
+
+    val isRecreateRecentlyDeletedTopicsEnabled = config.recreateRecentlyDeletedTopicsEnable
+    // Store in recently.deleted.topics list if enabled
+    if (isRecreateRecentlyDeletedTopicsEnabled) {
+      client.createOrUpdateRecentlyDeletedTopic(topic, replicationFactor.toShort, numPartitions)
+    }
     client.deleteTopic(topic, controllerContext.epochZkVersion)
     controllerContext.removeTopic(topic)
   }

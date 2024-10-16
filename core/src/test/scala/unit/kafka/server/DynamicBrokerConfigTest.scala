@@ -1277,7 +1277,6 @@ class DynamicBrokerConfigTest {
     config.dynamicConfig.updateDefaultConfig(overrideProp)
     assertEquals(true, config.recreateRecentlyDeletedTopicsEnable)
 
-    // Change to invalid should skip the wrong value, and retain the old one
     overrideProp = new Properties()
     overrideProp.put(ServerLogConfigs.RECREATE_RECENTLY_DELETED_TOPICS_ENABLE_CONFIG, "invalid_boolean")
     config.dynamicConfig.updateDefaultConfig(overrideProp)
