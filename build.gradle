@@ -981,7 +981,9 @@ project(':core') {
 
     implementation libs.reload4j
     // TODO: Revert adding caffeine library after we create a new shaded jar. (JIRA: DKAFC-5307)
-    implementation libs.caffeine
+    implementation(libs.caffeine) {
+      exclude group: 'org.checkerframework', module: 'checker-qual'
+    }
     implementation libs.kafkasecurity
 
     testImplementation project(':clients').sourceSets.test.output
@@ -1191,6 +1193,24 @@ project(':core') {
     from(project(':tools:tools-api').configurations.runtimeClasspath) { into("libs/") }
     from(project(':graphite').jar) { into("libs/") }
     from(project(':graphite').configurations.runtimeClasspath) { into("libs/") }
+
+    // Copy only the HDFS dependencies to the "external/hdfs/libs" folder.
+    // The RemoteStorageManager loads in a separate classloader and loads the jars in the "external/hdfs/libs" folder.
+    // If the class to be loaded is not present in the child classloader, then it loads it from the parent classloader.
+    // This is to avoid any classloading issues on the RSM.
+    from(project(':remote-storage-managers:hdfs').jar) { into("external/hdfs/libs/") }
+    from(project(':remote-storage-managers:hdfs').configurations.runtimeClasspath -
+            project(':server-common').configurations.runtimeClasspath -
+            project(':storage:storage-api').configurations.runtimeClasspath) {
+      // The below excluded jar gets loaded from the parent classloader, we can include them if there are no conflicts
+      // with remote-storage-manager transitive dependency list. The exclusion made here is optional.
+      exclude('caffeine*')
+      exclude('error_prone_annotations*')
+      exclude('kafka*')
+      exclude('metrics-core*')
+      into("external/hdfs/libs/")
+      duplicatesStrategy 'exclude'
+    }
     duplicatesStrategy 'exclude'
   }
 
@@ -2109,6 +2129,34 @@ project(':storage') {
 
   checkstyle {
     configProperties = checkstyleConfigProperties("import-control-storage.xml")
+  }
+}
+
+project(':remote-storage-managers:hdfs') {
+  base {
+    archivesName = "kafka-rsm-hdfs"
+  }
+
+  dependencies {
+    implementation project(':server-common')
+    implementation project(':storage:storage-api')
+    implementation libs.hadoopClient
+    implementation(libs.caffeine) {
+      exclude group: 'org.checkerframework', module: 'checker-qual'
+    }
+    implementation(libs.metrics) {
+      exclude group: 'org.slf4j', module: 'sl4j-api'
+    }
+
+    testImplementation libs.hadoopMiniCluster
+    testImplementation libs.argparse4j
+    testImplementation libs.junitJupiter
+    testImplementation project(':storage')
+    testImplementation project(':clients').sourceSets.test.output
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("import-control-remote-storage-managers.xml")
   }
 }
 

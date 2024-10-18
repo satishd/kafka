@@ -166,6 +166,7 @@ versions += [
   junitPlatform: "1.10.2",
   // TODO: Update the version to current production version when required (JIRA: DKAFC-5307)
   kafkasecurity: "0.0.4",
+  hadoop: '2.8.2.18b2c1e428284d81'
 ]
 
 libs += [
@@ -267,4 +268,6 @@ libs += [
   zstd: "com.github.luben:zstd-jni:$versions.zstd",
   httpclient: "org.apache.httpcomponents:httpclient:$versions.httpclient",
   kafkasecurity: "com.uber.kafka:kafkasecurity-core-shaded:$versions.kafkasecurity",
+  hadoopClient: "org.apache.hadoop:hadoop-client:$versions.hadoop",
+  hadoopMiniCluster: "org.apache.hadoop:hadoop-minicluster:$versions.hadoop"
 ]
