@@ -539,7 +539,8 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   val uncleanLeaderElectionCheckIntervalMs: Long = getLong(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_INTERVAL_MS_CONFIG)
   def uncleanLeaderElectionEnable: java.lang.Boolean = getBoolean(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG)
   def replicaStartOffsetStrategy: String = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
-  def leaderDeprioritizedList: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+  def leaderDeprioritizedListString: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+  def leaderDeprioritizedList: scala.Seq[Int] = leaderDeprioritizedListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
   def newReplicaExcludeListString: String = getString(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
   def newReplicaExcludeList: scala.Seq[Int] = newReplicaExcludeListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
 

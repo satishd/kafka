@@ -17,30 +17,31 @@
 
 package kafka.integration
 
-import java.util.Properties
-import java.util.concurrent.ExecutionException
-import scala.util.Random
-import scala.jdk.CollectionConverters._
-import scala.collection.{Map, Seq}
+import com.yammer.metrics.core.Meter
 import kafka.server.{KafkaBroker, KafkaConfig, MetadataCache, QuorumTestHarness}
-import kafka.utils.{CoreUtils, TestUtils}
 import kafka.utils.TestUtils._
+import kafka.utils.{CoreUtils, TestUtils}
+import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.config.{ConfigResource, TopicConfig}
 import org.apache.kafka.common.errors.{InvalidConfigurationException, TimeoutException}
-import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.apache.kafka.clients.admin.{Admin, AdminClientConfig, AlterConfigOp, AlterConfigsResult, ConfigEntry}
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.metadata.LeaderConstants
 import org.apache.kafka.server.config.ReplicationConfigs
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.log4j.{Level, Logger}
-import org.junit.jupiter.api.{AfterEach, BeforeEach, TestInfo}
 import org.junit.jupiter.api.Assertions._
+import org.junit.jupiter.api.{AfterEach, BeforeEach, TestInfo}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
-import com.yammer.metrics.core.Meter
-import org.apache.kafka.metadata.LeaderConstants
+
+import java.util.Properties
+import java.util.concurrent.ExecutionException
+import scala.collection.{Map, Seq}
+import scala.jdk.CollectionConverters._
+import scala.util.Random
 
 class UncleanLeaderElectionTest extends QuorumTestHarness {
   val brokerId1 = 0
@@ -428,5 +429,21 @@ class UncleanLeaderElectionTest extends QuorumTestHarness {
       metadataCache.getPartitionInfo(topic, partitionId).get.leader() == LeaderConstants.NO_LEADER &&
       java.util.Arrays.asList(leaderId).equals(metadataCache.getPartitionInfo(topic, partitionId).get.isr()),
       "Timed out waiting for broker metadata cache updates the info for topic partition:" + topicPartition)
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = Array("0", "0:1"))
+  def testUncleanLeaderElectionEnabledWithLeaderDeprioritizedList(leaderDeprioritisedList: String): Unit = {
+    // enable unclean leader election, leader.deprioritized.list=brokerId1 to deprioritize just 1 broker.
+    configProps1.put("unclean.leader.election.enable", "true")
+    configProps1.put("leader.deprioritized.list", leaderDeprioritisedList)
+    configProps2.put("unclean.leader.election.enable", "true")
+    configProps2.put("leader.deprioritized.list", leaderDeprioritisedList)
+    startBrokers(Seq(configProps1, configProps2))
+
+    // create topic with 1 partition, 2 replicas, one on each broker
+    TestUtils.createTopicWithAdmin(admin, topic, brokers, controllerServers, replicaAssignment =  Map(partitionId -> Seq(brokerId1, brokerId2)))
+
+    verifyUncleanLeaderElectionEnabled()
   }
 }

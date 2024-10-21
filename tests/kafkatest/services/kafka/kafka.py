@@ -2168,3 +2168,63 @@ Configs for topic 'georgeli_test1' are cleanup.policy=compact
         self.logger.debug("Topic Config info: %s", topic_config_info)
         new_topic_config= '"' + topic_config_name + '":"' + topic_config_value + '"'
         assert not new_topic_config in topic_config_info
+
+    def parse_describe_topic_with_leader(self, topic_description):
+        """Parse output of kafka-topics.sh --describe (or describe_topic() method above), which is a string of form
+        PartitionCount:2\tReplicationFactor:2\tConfigs:
+            Topic: test_topic\ttPartition: 0\tLeader: 3\tReplicas: 3,1\tIsr: 3,1
+            Topic: test_topic\tPartition: 1\tLeader: 1\tReplicas: 1,2\tIsr: 1,2
+        into a dictionary structure appropriate for use with reassign-partitions tool:
+        {
+            "partitions": [
+                {"topic": "test_topic", "partition": 0, "leader": 1, "replicas": [3, 1]},
+                {"topic": "test_topic", "partition": 1, "leader": 3, "replicas": [1, 2]}
+            ]
+        }
+        """
+        lines = map(lambda x: x.strip(), topic_description.split("\n"))
+        partitions = []
+        for line in lines:
+            m = re.match(".*Leader:.*", line)
+            if m is None:
+                continue
+
+            fields = line.split("\t")
+            # ["Partition: 4", "Leader: 0"] -> ["4", "0"]
+            fields = list(map(lambda x: x.split(" ")[1], fields))
+            partitions.append(
+                {"topic": fields[0],
+                 "partition": int(fields[1]),
+                 "leader": int(fields[2]),
+                 "replicas": list(map(int, fields[3].split(',')))})
+        return {"partitions": partitions}
+
+    def run_preferred_leader_election(self, topic, node=None):
+        # generate the preferred leader election json for this topic
+        topic_partitions = self.parse_describe_topic(self.describe_topic(topic))
+
+        if node is None:
+            node = self.nodes[0]
+        json_file = "/tmp/%s_preferred_leader_election.json" % str(time.time())
+
+        # topic_partitions to json
+        json_str = json.dumps(topic_partitions)
+        json_str = json.dumps(json_str)
+
+        # create command
+        cmd = "echo %s > %s && " % (json_str, json_file)
+        cmd += "%s " % self.path.script( "kafka-leader-election.sh", node)
+        cmd += "--bootstrap-server %s " % self.bootstrap_servers(self.security_protocol)
+        cmd += "--path-to-json-file %s " % json_file
+        cmd += "--election-type PREFERRED "
+        cmd += " && sleep 1 && rm -f %s" % json_file
+
+        # send command
+        self.logger.info("Executing parition preferred leader election...")
+        self.logger.debug(cmd)
+        output = ""
+        for line in node.account.ssh_capture(cmd):
+            output += line
+
+        self.logger.debug("Verify partition preferred leader election:")
+        self.logger.debug(output)

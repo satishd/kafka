@@ -17,28 +17,25 @@
 
 package kafka.controller
 
-import java.util.Properties
-import java.util.concurrent.{CompletableFuture, CountDownLatch, LinkedBlockingQueue, TimeUnit}
-import java.util.stream.{Stream => JStream}
 import com.yammer.metrics.core.Timer
 import kafka.api.LeaderAndIsr
 import kafka.server.{KafkaConfig, KafkaServer, QuorumTestHarness}
 import kafka.utils.TestUtils
 import kafka.zk._
+import org.apache.kafka.clients.admin._
 import org.apache.kafka.common.errors.{ControllerMovedException, StaleBrokerEpochException}
 import org.apache.kafka.common.message.{AlterPartitionRequestData, AlterPartitionResponseData}
 import org.apache.kafka.common.metrics.KafkaMetric
-import org.apache.kafka.common.protocol.ApiKeys
-import org.apache.kafka.common.protocol.Errors
+import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.requests.AlterPartitionRequest
-import org.apache.kafka.common.utils.annotation.ApiKeyVersionsSource
 import org.apache.kafka.common.utils.LogCaptureAppender
+import org.apache.kafka.common.utils.annotation.ApiKeyVersionsSource
 import org.apache.kafka.common.{ElectionType, TopicPartition, Uuid}
 import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.network.SocketServerConfigs
-import org.apache.kafka.server.config.ReplicationConfigs
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.kafka.server.common.MetadataVersion.{IBP_2_6_IV0, IBP_2_7_IV0, IBP_3_2_IV0}
+import org.apache.kafka.server.config.ReplicationConfigs
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.log4j.Level
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotEquals, assertTrue}
@@ -48,9 +45,12 @@ import org.junit.jupiter.params.provider.{Arguments, MethodSource}
 import org.mockito.Mockito.{doAnswer, spy, verify}
 import org.mockito.invocation.InvocationOnMock
 
+import java.util.Properties
+import java.util.concurrent.{CompletableFuture, CountDownLatch, LinkedBlockingQueue, TimeUnit}
+import java.util.stream.{Stream => JStream}
 import scala.collection.{Map, Seq, mutable}
 import scala.jdk.CollectionConverters._
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success, Try, Using}
 
 object ControllerIntegrationTest {
   def testAlterPartitionSource(): JStream[Arguments] = {
@@ -77,6 +77,26 @@ class ControllerIntegrationTest extends QuorumTestHarness {
   override def tearDown(): Unit = {
     TestUtils.shutdownServers(servers)
     super.tearDown()
+  }
+
+  private def getAdminProps(servers: Seq[KafkaServer]): Properties = {
+    val props = new Properties()
+    props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, TestUtils.plaintextBootstrapServers(servers))
+    props.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+    props
+  }
+
+  /**
+   * ...
+   * @params deprioritizedBrokers multiple brokers in the list will be separated by colon :   not by comma ,  and no spaces.  e.g. <broker_id1>:<broker_id2>
+   * */
+  private def setLeaderDeprioritizedList(deprioritizedBrokers: String): Unit = {
+    Using(Admin.create(getAdminProps(servers))) { admin =>
+      val props = new Properties()
+      props.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, deprioritizedBrokers)
+      TestUtils.incrementalAlterConfigs(servers, admin, props, perBrokerConfig = false).all.get()
+      TestUtils.waitUntilTrue(() => servers.head.config.leaderDeprioritizedListString == deprioritizedBrokers, s"servers.head.config.leaderDeprioritizedList: ${servers.head.config.leaderDeprioritizedListString} not the same as deprioritizedBrokers: ${deprioritizedBrokers}")
+    }
   }
 
   @Test
@@ -457,7 +477,7 @@ class ControllerIntegrationTest extends QuorumTestHarness {
     val assignment = Map(tp.partition -> Seq(otherBroker.config.brokerId, controllerId))
     TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
     preferredReplicaLeaderElection(controllerId, otherBroker, tp, assignment(tp.partition).toSet, LeaderAndIsr.InitialLeaderEpoch)
-    preferredReplicaLeaderElection(controllerId, otherBroker, tp, assignment(tp.partition).toSet, LeaderAndIsr.InitialLeaderEpoch + 2)
+    preferredReplicaLeaderElection(controllerId, otherBroker, tp, assignment(tp.partition).toSet, LeaderAndIsr.InitialLeaderEpoch + 4)
   }
 
   @Test
@@ -478,6 +498,65 @@ class ControllerIntegrationTest extends QuorumTestHarness {
   }
 
   @Test
+  def testPreferredReplicaLeaderElectionWithOfflinePreferredReplicaWithLeaderDeprioritizedList(): Unit = {
+    servers = makeServers(2)
+    val controllerId = TestUtils.waitUntilControllerElected(zkClient)
+    val otherBrokerId = servers.map(_.config.brokerId).filter(_ != controllerId).head
+    val tp = new TopicPartition("t", 0)
+    val assignment = Map(tp.partition -> Seq(otherBrokerId, controllerId))
+    TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
+    // Test dynamic config leader.deprioritized.list
+    TestUtils.waitUntilTrue(() => zkClient.getInSyncReplicasForPartition(tp).getOrElse(List()).toSet == assignment(tp.partition).toSet, "restarted broker failed to join in-sync replicas")
+    servers(otherBrokerId).shutdown()
+    servers(otherBrokerId).awaitShutdown()
+    setLeaderDeprioritizedList(s"${controllerId}")
+    // After otherBrokerId shutdown and run preferred leader election,
+    // the controllerId will remain as leader because otherBrokerId is not available: leader.deprioritized.list=controllerId
+    zkClient.createPreferredReplicaElection(Set(tp))
+    TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
+      "failed to remove preferred replica leader election path after giving up")
+    waitForPartitionState(tp, firstControllerEpoch, controllerId, LeaderAndIsr.InitialLeaderEpoch + 1,
+      "failed to get expected partition state upon broker shutdown")
+
+    servers(otherBrokerId).startup()
+    TestUtils.waitUntilTrue(() => zkClient.getInSyncReplicasForPartition(tp).get.toSet == Set(controllerId, otherBrokerId), "restarted broker failed to join in-sync replicas")
+    zkClient.createPreferredReplicaElection(Set(tp))
+    TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
+      "failed to remove preferred replica leader election path after giving up")
+    waitForPartitionState(tp, firstControllerEpoch, otherBrokerId, LeaderAndIsr.InitialLeaderEpoch + 2,
+      "failed to get expected partition state upon broker shutdown")
+  }
+
+  @Test
+  def testPreferredReplicaLeaderElectionWithMultipleDeprioritizedBrokers(): Unit = {
+    servers = makeServers(3, autoLeaderRebalanceEnable = false)
+    val controllerId = TestUtils.waitUntilControllerElected(zkClient)
+    val otherBroker_1 = servers.find(_.config.brokerId != controllerId).get
+    val otherBroker_2 = servers.find(x => x.config.brokerId != controllerId && x.config.brokerId != otherBroker_1.config.brokerId).get
+    val tp = new TopicPartition("t", 0)
+    val assignment = Map(tp.partition -> Seq(otherBroker_1.config.brokerId, controllerId, otherBroker_2.config.brokerId))
+    TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
+
+    // Set 2 brokers in the deprioritized list, separated by colon :
+    // The 3rd replica in the partition assignment should be elected as leader
+    setLeaderDeprioritizedList(s"${otherBroker_1.config.brokerId}:${controllerId}")
+    zkClient.createPreferredReplicaElection(Set(tp))
+    TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
+      "failed to remove preferred replica leader election path after giving up")
+    waitForPartitionState(tp, firstControllerEpoch, otherBroker_2.config.brokerId, LeaderAndIsr.InitialLeaderEpoch + 1,
+      "failed to get expected partition state after setting multiple LeaderDeprioritizedList")
+
+    // Set all 3 brokers in the deprioritzed list, separated by colon :
+    // The 1st replica in the partition assignment should be elected as leader
+    setLeaderDeprioritizedList(s"${otherBroker_1.config.brokerId}:${otherBroker_2.config.brokerId}:${controllerId}")
+    zkClient.createPreferredReplicaElection(Set(tp))
+    TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
+      "failed to remove preferred replica leader election path after giving up")
+    waitForPartitionState(tp, firstControllerEpoch, otherBroker_1.config.brokerId, LeaderAndIsr.InitialLeaderEpoch + 2,
+      "failed to get expected partition state after setting multiple LeaderDeprioritizedList")
+  }
+
+  @Test
   def testAutoPreferredReplicaLeaderElection(): Unit = {
     servers = makeServers(2, autoLeaderRebalanceEnable = true)
     val controllerId = TestUtils.waitUntilControllerElected(zkClient)
@@ -492,6 +571,26 @@ class ControllerIntegrationTest extends QuorumTestHarness {
     servers(otherBrokerId).startup()
     waitForPartitionState(tp, firstControllerEpoch, otherBrokerId, LeaderAndIsr.InitialLeaderEpoch + 2,
       "failed to get expected partition state upon broker startup")
+  }
+
+  @Test
+  def testAutoPreferredReplicaLeaderElectionWithLeaderDeprioritizedList(): Unit = {
+    servers = makeServers(2, autoLeaderRebalanceEnable = true)
+    val controllerId = TestUtils.waitUntilControllerElected(zkClient)
+    val otherBrokerId = servers.map(_.config.brokerId).filter(_ != controllerId).head
+    val tp = new TopicPartition("t", 0)
+    val assignment = Map(tp.partition -> Seq(otherBrokerId, controllerId))
+    TestUtils.createTopic(zkClient, tp.topic, partitionReplicaAssignment = assignment, servers = servers)
+    // Test with LeaderDeprioritizedList, AutoPreferredLeaderElection should not happen
+    servers(otherBrokerId).shutdown()
+    servers(otherBrokerId).awaitShutdown()
+    waitForPartitionState(tp, firstControllerEpoch, controllerId, LeaderAndIsr.InitialLeaderEpoch + 1,
+      "failed to get expected partition state upon broker shutdown")
+    setLeaderDeprioritizedList(s"$otherBrokerId")
+    servers(otherBrokerId).startup()
+    TestUtils.waitUntilTrue(() => zkClient.getInSyncReplicasForPartition(tp).getOrElse(List()).toSet == assignment(tp.partition).toSet, "restarted broker failed to join in-sync replicas")
+    waitForPartitionState(tp, firstControllerEpoch, controllerId, LeaderAndIsr.InitialLeaderEpoch + 1,
+      "failed to get expected partition state upon broker shutdown")
   }
 
   @Test
@@ -1893,17 +1992,28 @@ class ControllerIntegrationTest extends QuorumTestHarness {
 
   private def preferredReplicaLeaderElection(controllerId: Int, otherBroker: KafkaServer, tp: TopicPartition,
                                              replicas: Set[Int], leaderEpoch: Int): Unit = {
+    def electPreferredReplica(leader: Int, leaderEpoch: Int): Unit = {
+      zkClient.createPreferredReplicaElection(Set(tp))
+      TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
+        "failed to remove preferred replica leader election path after completion")
+      waitForPartitionState(tp, firstControllerEpoch, leader, leaderEpoch,
+        "failed to get expected partition state upon broker startup")
+    }
     otherBroker.shutdown()
     otherBroker.awaitShutdown()
     waitForPartitionState(tp, firstControllerEpoch, controllerId, leaderEpoch + 1,
       "failed to get expected partition state upon broker shutdown")
     otherBroker.startup()
-    TestUtils.waitUntilTrue(() => zkClient.getInSyncReplicasForPartition(new TopicPartition(tp.topic, tp.partition)).get.toSet == replicas, "restarted broker failed to join in-sync replicas")
-    zkClient.createPreferredReplicaElection(Set(tp))
-    TestUtils.waitUntilTrue(() => !zkClient.pathExists(PreferredReplicaElectionZNode.path),
-      "failed to remove preferred replica leader election path after completion")
-    waitForPartitionState(tp, firstControllerEpoch, otherBroker.config.brokerId, leaderEpoch + 2,
-      "failed to get expected partition state upon broker startup")
+    TestUtils.waitUntilTrue(() => zkClient.getInSyncReplicasForPartition(tp).get.toSet == replicas, "restarted broker failed to join in-sync replicas")
+    electPreferredReplica(otherBroker.config.brokerId, leaderEpoch + 2)
+
+    // set leader.deprioritized.list=otherBroker, preferred leader election will go to controllerId
+    setLeaderDeprioritizedList(s"${otherBroker.config.brokerId}")
+    electPreferredReplica(controllerId, leaderEpoch + 3)
+
+    // set leader.deprioritized.list="" empty, preferred leader election will go to otherBroker
+    setLeaderDeprioritizedList("")
+    electPreferredReplica(otherBroker.config.brokerId, leaderEpoch + 4)
   }
 
   private def waitUntilControllerEpoch(epoch: Int, message: String): Unit = {

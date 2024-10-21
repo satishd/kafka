@@ -19,6 +19,8 @@ package kafka.controller
 import com.yammer.metrics.core.{Meter, Timer}
 import kafka.api._
 import kafka.cluster.Broker
+import kafka.controller.Election.maybeLeaderDeprioritizedAssignment
+
 import kafka.common._
 import kafka.controller.KafkaController.{ActiveBrokerCountMetricName, ActiveControllerCountMetricName, AlterReassignmentsCallback, ControllerStateMetricName, ElectLeadersCallback, FencedBrokerCountMetricName, GlobalPartitionCountMetricName, GlobalTopicCountMetricName, ListReassignmentsCallback, OfflinePartitionsCountMetricName, PreferredReplicaImbalanceCountMetricName, ReplicasIneligibleToDeleteCountMetricName, ReplicasToDeleteCountMetricName, TopicsIneligibleToDeleteCountMetricName, TopicsToDeleteCountMetricName, UpdateFeaturesCallback, ZkMigrationStateMetricName}
 import kafka.controller.UnderReplicatedPartitionMetrics.{TAG_BROKER_ID, URPS_CAUSED_BY_BROKER}
@@ -2317,7 +2319,8 @@ class KafkaController(val config: KafkaConfig,
           electionType match {
             case ElectionType.PREFERRED =>
               val assignedReplicas = controllerContext.partitionReplicaAssignment(partition)
-              val preferredReplica = assignedReplicas.head
+              val assignment = maybeLeaderDeprioritizedAssignment(assignedReplicas, config.leaderDeprioritizedList)
+              val preferredReplica = assignment.head
               val currentLeader = controllerContext.partitionLeadershipInfo(partition).get.leaderAndIsr.leader
               currentLeader != preferredReplica
 

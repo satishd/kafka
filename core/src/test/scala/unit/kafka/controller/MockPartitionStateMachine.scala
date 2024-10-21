@@ -26,7 +26,8 @@ import scala.collection.{Seq, mutable}
 class MockPartitionStateMachine(
   controllerContext: ControllerContext,
   uncleanLeaderElectionEnabled: Boolean,
-  isLeaderRecoverySupported: Boolean
+  isLeaderRecoverySupported: Boolean,
+  leaderDeprioritizedList: Seq[Int] = Seq.empty
 ) extends PartitionStateMachine(controllerContext) {
 
   var stateChangesByTargetState = mutable.Map.empty[PartitionState, Int].withDefaultValue(0)
@@ -106,14 +107,15 @@ class MockPartitionStateMachine(
         leaderForOffline(
           controllerContext,
           isLeaderRecoverySupported,
-          partitionsWithUncleanLeaderElectionState
+          partitionsWithUncleanLeaderElectionState,
+          leaderDeprioritizedList
         )
       case ReassignPartitionLeaderElectionStrategy =>
-        leaderForReassign(controllerContext, validLeaderAndIsrs)
+        leaderForReassign(controllerContext, validLeaderAndIsrs, leaderDeprioritizedList)
       case PreferredReplicaPartitionLeaderElectionStrategy =>
-        leaderForPreferredReplica(controllerContext, validLeaderAndIsrs)
+        leaderForPreferredReplica(controllerContext, validLeaderAndIsrs, leaderDeprioritizedList)
       case ControlledShutdownPartitionLeaderElectionStrategy =>
-        leaderForControlledShutdown(controllerContext, validLeaderAndIsrs)
+        leaderForControlledShutdown(controllerContext, validLeaderAndIsrs, leaderDeprioritizedList)
     }
 
     val results: Map[TopicPartition, Either[Exception, LeaderAndIsr]] = electionResults.map { electionResult =>

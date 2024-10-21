@@ -1341,7 +1341,7 @@ class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerR
 
   private def currentValue(name: String): String = {
     name match {
-      case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedList
+      case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedListString
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }

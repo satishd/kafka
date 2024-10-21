@@ -1193,26 +1193,26 @@ class DynamicBrokerConfigTest {
     config.dynamicConfig.addBrokerReconfigurable(new DynamicLeaderDeprioritizedListConfig(kafkaServer))
 
     // Default is ""
-    assertEquals("", config.leaderDeprioritizedList)
+    assertEquals("", config.leaderDeprioritizedListString)
     val singleList = "0"
     var overrideProp = new Properties()
     overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, singleList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
-    assertEquals(singleList, config.leaderDeprioritizedList)
+    assertEquals(singleList, config.leaderDeprioritizedListString)
 
     // Restore it back to empty
     val emptyList = ""
     overrideProp = new Properties()
     overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, emptyList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
-    assertEquals(emptyList, config.leaderDeprioritizedList)
+    assertEquals(emptyList, config.leaderDeprioritizedListString)
 
     // Test with valid values
     val multipleList="0:1:2"
     overrideProp = new Properties()
     overrideProp.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, multipleList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
-    assertEquals(multipleList, config.leaderDeprioritizedList)
+    assertEquals(multipleList, config.leaderDeprioritizedListString)
 
     // Test with Invalid Value
     val invalidValueProps = new Properties()
