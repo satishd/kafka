@@ -29,7 +29,8 @@ import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, Of
 import kafka.server.metadata.ZkMetadataCache
 import kafka.utils.Implicits._
 import kafka.utils._
-import kafka.zk.KafkaZkClient
+import kafka.zk.{IsrBlackListZNode, KafkaZkClient}
+import kafka.zookeeper.ZNodeChildChangeHandler
 import org.apache.kafka.common.errors._
 import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.message.DeleteRecordsResponseData.DeleteRecordsPartitionResult
@@ -69,7 +70,7 @@ import java.nio.file.{Files, Paths}
 import java.util
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.Lock
-import java.util.concurrent.{CompletableFuture, Future, RejectedExecutionException, TimeUnit}
+import java.util.concurrent.{CompletableFuture, Executors, Future, RejectedExecutionException, TimeUnit}
 import java.util.{Collections, Optional, OptionalInt, OptionalLong}
 import scala.collection.{Map, Seq, Set, immutable, mutable}
 import scala.compat.java8.OptionConverters._
@@ -187,6 +188,17 @@ object HostedPartition {
    * This broker hosts the partition, but it is in an offline log directory.
    */
   final case class Offline(partition: Option[Partition]) extends HostedPartition
+}
+
+class IsrBlacklistHandler(val replicaManager: ReplicaManager) extends ZNodeChildChangeHandler {
+  override lazy val path: String = IsrBlackListZNode.path
+  private lazy val updateExecutor = Executors.newSingleThreadExecutor(r => new Thread(r, "isr-blacklist-handler"))
+
+  override def handleChildChange(): Unit = {
+    // We have to update the ISR black list in another thread,
+    // because we can't call ZooKeeper methods to retrieve ISR black list, inside the ZooKeeper callback thread.
+    updateExecutor.execute(() => replicaManager.updateIsrBlacklist())
+  }
 }
 
 object ReplicaManager {
@@ -372,6 +384,19 @@ class ReplicaManager(val config: KafkaConfig,
   val isrShrinkRate: Meter = metricsGroup.newMeter(IsrShrinksPerSecMetricName, "shrinks", TimeUnit.SECONDS)
   val failedIsrUpdatesRate: Meter = metricsGroup.newMeter(FailedIsrUpdatesPerSecMetricName, "failedUpdates", TimeUnit.SECONDS)
 
+  private val isrBlacklistHandler = new IsrBlacklistHandler(this)
+
+  // A list of broker ids that are blacklisted from becoming ISR.
+  // The purpose is to protect acks=all produce traffic. When a broker re-joins the cluster and starts to catch up,
+  // it can be degraded due to heavy load of replication. However some of the partitions on it can be ISR and slows down
+  // acks=all produce requests. Having a blacklist of ISR can prevent any partitions on the degraded broker from joining
+  // the ISR, until the broker is fully in-sync for all partitions. Also, replication traffic from blacklisted brokers can
+  // be throttled in the same way of consumer replication fetch, to further reduce the impact on the cluster.
+  // The blacklist is current maintained externally by an admin tool, which creates/deletes node under /isr_blacklist in zookeeper.
+  // Each time when the list is updated, this variable is set to a new Set object. The Set object itself is never modified.
+  // So that, it is safe to read this variable without lock.
+  @volatile var isrBlacklist: util.Set[Int] = Collections.emptySet()
+
   def underReplicatedPartitionCount: Int = leaderPartitionsIterator.count(_.isUnderReplicated)
 
   def startHighWatermarkCheckPointThread(): Unit = {
@@ -414,6 +439,11 @@ class ReplicaManager(val config: KafkaConfig,
     logDirFailureHandler.start()
     addPartitionsToTxnManager.foreach(_.start())
     remoteLogManager.foreach(rlm => rlm.setDelayedOperationPurgatory(delayedRemoteListOffsetsPurgatory))
+
+    zkClient.foreach { client =>
+      client.registerZNodeChildChangeHandler(isrBlacklistHandler)
+      updateIsrBlacklist()
+    }
   }
 
   private def maybeRemoveTopicMetrics(topic: String): Unit = {
@@ -2678,6 +2708,7 @@ class ReplicaManager(val config: KafkaConfig,
     delayedProducePurgatory.shutdown()
     delayedDeleteRecordsPurgatory.shutdown()
     delayedElectLeaderPurgatory.shutdown()
+    zkClient.foreach(client => client.unregisterZNodeChildChangeHandler(isrBlacklistHandler.path))
     if (checkpointHW)
       checkpointHighWatermarks()
     replicaSelectorOpt.foreach(_.close)
@@ -3054,5 +3085,18 @@ class ReplicaManager(val config: KafkaConfig,
       "Applying metadata delta",
       () => ()
     )
+  }
+
+  private[server] def updateIsrBlacklist(): Unit = {
+    try {
+      isrBlacklist = zkClient match {
+        case Some(client) => client.getISRBlackList.map(_.toInt).toSet.asJava
+        case None => Collections.emptySet()
+      }
+      info("Updated Isr blacklist: " + isrBlacklist)
+    } catch {
+      case e: Exception =>
+        error("Error fetching isr_blacklist", e)
+    }
   }
 }

@@ -16,8 +16,9 @@
  */
 package kafka.cluster
 
+import java.util
 import java.util.concurrent.locks.ReentrantReadWriteLock
-import java.util.Optional
+import java.util.{Collections, Optional}
 import java.util.concurrent.{CompletableFuture, CopyOnWriteArrayList}
 import kafka.api.LeaderAndIsr
 import kafka.common.UnexpectedAppendOffsetException
@@ -147,7 +148,8 @@ object Partition {
       delayedOperations = delayedOperations,
       metadataCache = replicaManager.metadataCache,
       logManager = replicaManager.logManager,
-      alterIsrManager = replicaManager.alterPartitionManager)
+      alterIsrManager = replicaManager.alterPartitionManager,
+      isrBlackList = () => replicaManager.isrBlacklist)
   }
 
   def removeMetrics(topicPartition: TopicPartition): Unit = {
@@ -302,7 +304,8 @@ class Partition(val topicPartition: TopicPartition,
                 metadataCache: MetadataCache,
                 logManager: LogManager,
                 alterIsrManager: AlterPartitionManager,
-                @volatile private var _topicId: Option[Uuid] = None // TODO: merge topicPartition and _topicId into TopicIdPartition once TopicId persist in most of the code by KAFKA-16212
+                @volatile private var _topicId: Option[Uuid] = None, // TODO: merge topicPartition and _topicId into TopicIdPartition once TopicId persist in most of the code by KAFKA-16212,
+                isrBlackList: () => util.Set[Int] = () => Collections.emptySet()
                ) extends Logging {
 
   import Partition.metricsGroup
@@ -1042,7 +1045,7 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   private def needsExpandIsr(followerReplica: Replica): Boolean = {
-    canAddReplicaToIsr(followerReplica.brokerId) && isFollowerInSync(followerReplica)
+    canAddReplicaToIsr(followerReplica.brokerId) && isFollowerInSync(followerReplica) && !isrBlackList().contains(followerReplica.brokerId)
   }
 
   private def canAddReplicaToIsr(followerReplicaId: Int): Boolean = {
@@ -1184,8 +1187,8 @@ class Partition(val topicPartition: TopicPartition,
 
       // Note here we are using the "maximal", see explanation above
       if (replicaState.logEndOffsetMetadata.messageOffset < newHighWatermark.messageOffset &&
-          (partitionState.maximalIsr.contains(replica.brokerId) || shouldWaitForReplicaToJoinIsr)
-      ) {
+          (partitionState.maximalIsr.contains(replica.brokerId) || shouldWaitForReplicaToJoinIsr) &&
+          !isrBlackList().contains(replica.brokerId)) {
         newHighWatermark = replicaState.logEndOffsetMetadata
       }
     }
@@ -1314,7 +1317,7 @@ class Partition(val topicPartition: TopicPartition,
       val candidateReplicaIds = current.isr - localBrokerId
       val currentTimeMs = time.milliseconds()
       val leaderEndOffset = localLogOrException.logEndOffset
-      candidateReplicaIds.filter(replicaId => isFollowerOutOfSync(replicaId, leaderEndOffset, currentTimeMs, maxLagMs))
+      candidateReplicaIds.filter(replicaId => isrBlackList().contains(replicaId) || isFollowerOutOfSync(replicaId, leaderEndOffset, currentTimeMs, maxLagMs))
     } else {
       Set.empty
     }

@@ -518,6 +518,10 @@ object DeleteTopicsTopicZNode {
   def path(topic: String) = s"${DeleteTopicsZNode.path}/$topic"
 }
 
+object IsrBlackListZNode {
+  def path = "/isr_blacklist"
+}
+
 object RecentlyDeletedTopicsZNode {
   def path = s"${AdminZNode.path}/recently_deleted_topics"
 }
@@ -1149,7 +1153,8 @@ object ZkData {
     DelegationTokenAuthZNode.path,
     ExtendedAclZNode.path,
     MigrationZNode.path,
-    FeatureZNode.path) ++ ZkAclStore.securePaths
+    FeatureZNode.path,
+    IsrBlackListZNode.path) ++ ZkAclStore.securePaths
 
   // These are persistent ZK paths that should exist on kafka broker startup.
   val PersistentZkPaths: Seq[String] = Seq(
@@ -1161,7 +1166,8 @@ object ZkData {
     BrokerSequenceIdZNode.path,
     IsrChangeNotificationZNode.path,
     ProducerIdBlockZNode.path,
-    LogDirEventNotificationZNode.path
+    LogDirEventNotificationZNode.path,
+    IsrBlackListZNode.path
   ) ++ ConfigType.ALL.asScala.map(ConfigEntityTypeZNode.path)
 
   val SensitiveRootPaths: Seq[String] = Seq(

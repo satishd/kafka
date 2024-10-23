@@ -1038,6 +1038,12 @@ class KafkaZkClient private[zk] (
   }
 
   /**
+   * Get ISR blacklist.
+   * @return sequence of broker IDs.
+   */
+  def getISRBlackList: Seq[String] = getChildren(IsrBlackListZNode.path)
+
+  /**
    * Returns all reassignments.
    * @return the reassignments for each partition.
    */

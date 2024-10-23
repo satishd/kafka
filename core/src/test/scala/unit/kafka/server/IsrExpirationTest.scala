@@ -23,6 +23,7 @@ import kafka.log.{LogManager, UnifiedLog}
 import kafka.server.QuotaFactory.QuotaManagers
 import kafka.utils.TestUtils.MockAlterPartitionManager
 import kafka.utils._
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.Time
@@ -32,6 +33,7 @@ import org.apache.kafka.server.util.MockTime
 import org.apache.kafka.storage.internals.log.{LogDirFailureChannel, LogOffsetMetadata}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
+import org.mockito.Mockito
 import org.mockito.Mockito.{atLeastOnce, mock, verify, when}
 
 import scala.collection.{Seq, mutable}
@@ -57,12 +59,14 @@ class IsrExpirationTest {
   var replicaManager: ReplicaManager = _
 
   var alterIsrManager: MockAlterPartitionManager = _
+  var zkClient: KafkaZkClient = _
 
   @BeforeEach
   def setUp(): Unit = {
     val logManager: LogManager = mock(classOf[LogManager])
     when(logManager.liveLogDirs).thenReturn(Array.empty[File])
 
+    zkClient = Mockito.mock(classOf[KafkaZkClient])
     alterIsrManager = TestUtils.createAlterIsrManager()
     quotaManager = QuotaFactory.instantiate(configs.head, metrics, time, "")
     replicaManager = new ReplicaManager(
@@ -74,7 +78,9 @@ class IsrExpirationTest {
       quotaManagers = quotaManager,
       metadataCache = MetadataCache.zkMetadataCache(configs.head.brokerId, configs.head.interBrokerProtocolVersion),
       logDirFailureChannel = new LogDirFailureChannel(configs.head.logDirs.size),
-      alterPartitionManager = alterIsrManager)
+      alterPartitionManager = alterIsrManager,
+      zkClient = Some(zkClient)
+    )
   }
 
   @AfterEach
@@ -82,6 +88,7 @@ class IsrExpirationTest {
     Option(replicaManager).foreach(_.shutdown(false))
     Option(quotaManager).foreach(_.shutdown())
     metrics.close()
+    Mockito.verify(zkClient, Mockito.times(1)).unregisterZNodeChildChangeHandler("/isr_blacklist")
   }
 
   /*

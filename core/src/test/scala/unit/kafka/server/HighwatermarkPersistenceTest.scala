@@ -25,10 +25,17 @@ import org.junit.jupiter.api.Assertions._
 import kafka.utils.TestUtils
 import kafka.cluster.Partition
 import kafka.server.metadata.MockConfigRepository
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.SimpleRecord
 import org.apache.kafka.server.util.{KafkaScheduler, MockTime}
 import org.apache.kafka.storage.internals.log.{CleanerConfig, LogDirFailureChannel}
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
+import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito
+
+import java.util
 
 class HighwatermarkPersistenceTest {
 
@@ -53,8 +60,12 @@ class HighwatermarkPersistenceTest {
       Utils.delete(dir)
   }
 
-  @Test
-  def testHighWatermarkPersistenceSinglePartition(): Unit = {
+  @ParameterizedTest
+  @MethodSource(Array("zkClientProvider"))
+  def testHighWatermarkPersistenceSinglePartition(zkClientOpt: Option[KafkaZkClient]): Unit = {
+    // mock zkclient
+    zkClientOpt.foreach(client => setupMock(client))
+
     // create kafka scheduler
     val scheduler = new KafkaScheduler(2)
     scheduler.startup()
@@ -71,7 +82,8 @@ class HighwatermarkPersistenceTest {
       quotaManagers = quotaManager,
       metadataCache = MetadataCache.zkMetadataCache(configs.head.brokerId, configs.head.interBrokerProtocolVersion),
       logDirFailureChannel = logDirFailureChannels.head,
-      alterPartitionManager = alterIsrManager)
+      alterPartitionManager = alterIsrManager,
+      zkClient = zkClientOpt)
     replicaManager.startup()
     try {
       replicaManager.checkpointHighWatermarks()
@@ -106,11 +118,18 @@ class HighwatermarkPersistenceTest {
       quotaManager.shutdown()
       metrics.close()
       scheduler.shutdown()
+
+      // verify mock zkclient calls
+      zkClientOpt.foreach(client => verifyMock(client))
     }
   }
 
-  @Test
-  def testHighWatermarkPersistenceMultiplePartitions(): Unit = {
+  @ParameterizedTest
+  @MethodSource(Array("zkClientProvider"))
+  def testHighWatermarkPersistenceMultiplePartitions(zkClientOpt: Option[KafkaZkClient]): Unit = {
+    // mock zkclient
+    zkClientOpt.foreach(client => setupMock(client))
+
     val topic1 = "foo1"
     val topic2 = "foo2"
     // create kafka scheduler
@@ -129,7 +148,8 @@ class HighwatermarkPersistenceTest {
       quotaManagers = quotaManager,
       metadataCache = MetadataCache.zkMetadataCache(configs.head.brokerId, configs.head.interBrokerProtocolVersion),
       logDirFailureChannel = logDirFailureChannels.head,
-      alterPartitionManager = alterIsrManager)
+      alterPartitionManager = alterIsrManager,
+      zkClient = zkClientOpt)
     replicaManager.startup()
     try {
       replicaManager.checkpointHighWatermarks()
@@ -182,6 +202,9 @@ class HighwatermarkPersistenceTest {
       quotaManager.shutdown()
       metrics.close()
       scheduler.shutdown()
+
+      // verify mock zkclient calls
+      zkClientOpt.foreach(client => verifyMock(client))
     }
   }
 
@@ -193,5 +216,21 @@ class HighwatermarkPersistenceTest {
   private def hwmFor(replicaManager: ReplicaManager, topic: String, partition: Int): Long = {
     replicaManager.highWatermarkCheckpoints(new File(replicaManager.config.logDirs.head).getAbsolutePath).read().getOrElse(
       new TopicPartition(topic, partition), 0L)
+  }
+
+  private def setupMock(client: KafkaZkClient): Unit = {
+      Mockito.when(client.getISRBlackList).thenReturn(Seq.empty[String])
+  }
+
+  private def verifyMock(client: KafkaZkClient): Unit = {
+    Mockito.verify(client).getISRBlackList;
+    Mockito.verify(client, Mockito.times(1)).registerZNodeChildChangeHandler(any(classOf[IsrBlacklistHandler]));
+    Mockito.verify(client).unregisterZNodeChildChangeHandler(path="/isr_blacklist")
+  }
+}
+
+object HighwatermarkPersistenceTest {
+  def zkClientProvider(): util.stream.Stream[Option[KafkaZkClient]] = {
+    util.stream.Stream.of(None, Some(Mockito.mock(classOf[KafkaZkClient])))
   }
 }
