@@ -499,9 +499,11 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     }
 
     private NewTopic createRemoteLogMetadataTopicRequest() {
+        int minInsyncReplicas = rlmmConfig.metadataTopicReplicationFactor() > 1 ? 2 : 1;
         Map<String, String> topicConfigs = new HashMap<>();
         topicConfigs.put(TopicConfig.RETENTION_MS_CONFIG, Long.toString(rlmmConfig.metadataTopicRetentionMs()));
         topicConfigs.put(TopicConfig.CLEANUP_POLICY_CONFIG, TopicConfig.CLEANUP_POLICY_DELETE);
+        topicConfigs.put(TopicConfig.MIN_IN_SYNC_REPLICAS_CONFIG, Integer.toString(minInsyncReplicas));
         topicConfigs.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "false");
         return new NewTopic(rlmmConfig.remoteLogMetadataTopicName(),
                             rlmmConfig.metadataTopicPartitionsCount(),
