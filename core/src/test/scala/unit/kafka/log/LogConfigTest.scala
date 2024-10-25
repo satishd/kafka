@@ -33,7 +33,7 @@ import org.apache.kafka.server.config.ServerLogConfigs
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.storage.internals.log.{LogConfig, ThrottledReplicaListValidator}
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.ValueSource
+import org.junit.jupiter.params.provider.{CsvSource, ValueSource}
 
 import scala.annotation.nowarn
 import scala.jdk.CollectionConverters._
@@ -345,8 +345,8 @@ class LogConfigTest {
   }
 
   @ParameterizedTest(name = "testDisableRemoteLogStorage with wasRemoteStorageEnabled: {0}")
-  @ValueSource(booleans = Array(true, false))
-  def testDisableRemoteLogStorage(wasRemoteStorageEnabled: Boolean): Unit = {
+  @CsvSource(Array("true, true", "true, false", "false, true", "false, false"))
+  def testDisableRemoteLogStorage(wasRemoteStorageEnabled: Boolean, fromZK: Boolean): Unit = {
     val kafkaProps = TestUtils.createDummyBrokerConfig()
     kafkaProps.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, "true")
     val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
@@ -356,7 +356,7 @@ class LogConfigTest {
     if (wasRemoteStorageEnabled) {
       val message = assertThrows(classOf[InvalidConfigurationException],
         () => LogConfig.validate(Collections.singletonMap(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true"),
-          logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), false))
+          logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), fromZK))
       assertTrue(message.getMessage.contains("It is invalid to disable remote storage without deleting remote data. " +
         "If you want to keep the remote data and turn to read only, please set `remote.storage.enable=true,remote.log.copy.disable=true`. " +
         "If you want to disable remote storage and delete all remote data, please set `remote.storage.enable=false,remote.log.delete.on.disable=true`."))
@@ -365,11 +365,11 @@ class LogConfigTest {
       // It should be able to disable the remote log storage when delete on disable is set to true
       logProps.put(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, "true")
       LogConfig.validate(Collections.singletonMap(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true"),
-        logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), false)
+        logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), fromZK)
     } else {
-      LogConfig.validate(Collections.emptyMap(), logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), true)
+      LogConfig.validate(Collections.emptyMap(), logProps, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), fromZK)
       LogConfig.validate(Collections.singletonMap(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "false"), logProps,
-        kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), false)
+        kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), fromZK)
     }
   }
 
@@ -453,21 +453,6 @@ class LogConfigTest {
     val logProps = new Properties
     logProps.put(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, deleteOnDisable.toString)
     LogConfig.validate(logProps)
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = Array(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG))
-  def testInValidRemoteConfigsInZK(configKey: String): Unit = {
-    val kafkaProps = TestUtils.createDummyBrokerConfig()
-    kafkaProps.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, "true")
-    val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
-    val logProps = new Properties
-    logProps.put(configKey, "true")
-
-    val message = assertThrows(classOf[InvalidConfigurationException],
-      () => LogConfig.validate(Collections.emptyMap(), logProps, kafkaConfig.extractLogConfigMap, true, true))
-    assertTrue(message.getMessage.contains("It is invalid to set `remote.log.delete.on.disable` or " +
-      "`remote.log.copy.disable` under Zookeeper's mode."))
   }
 
   /* Verify that when the deprecated config LOG_MESSAGE_TIMESTAMP_DIFFERENCE_MAX_MS_CONFIG has non default value the new configs

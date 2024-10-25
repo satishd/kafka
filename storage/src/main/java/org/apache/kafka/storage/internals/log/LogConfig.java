@@ -681,7 +681,9 @@ public class LogConfig extends AbstractConfig {
     public static void validateNoInvalidRemoteStorageConfigsInZK(Map<?, ?> newConfigs) {
         boolean isRemoteLogDeleteOnDisable = (Boolean) Utils.castToStringObjectMap(newConfigs).getOrDefault(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, false);
         boolean isRemoteLogCopyDisabled = (Boolean) Utils.castToStringObjectMap(newConfigs).getOrDefault(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG, false);
-        if (isRemoteLogDeleteOnDisable || isRemoteLogCopyDisabled) {
+        // DKAFC-5111: Support disabling the remote storage in ZK mode
+        boolean supportZKMode = true;
+        if (!supportZKMode && (isRemoteLogDeleteOnDisable || isRemoteLogCopyDisabled)) {
             throw new InvalidConfigurationException("It is invalid to set `remote.log.delete.on.disable` or " +
                     "`remote.log.copy.disable` under Zookeeper's mode.");
         }

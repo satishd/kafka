@@ -21,9 +21,6 @@ import org.apache.kafka.tiered.storage.TieredStorageTestBuilder;
 import org.apache.kafka.tiered.storage.TieredStorageTestHarness;
 import org.apache.kafka.tiered.storage.specs.KeyValueSpec;
 
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
-
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -39,12 +36,6 @@ public final class DisableRemoteLogOnTopicTest extends TieredStorageTestHarness 
     @Override
     public int brokerCount() {
         return 2;
-    }
-
-    @ParameterizedTest(name = "{displayName}.quorum={0}")
-    @ValueSource(strings = {"kraft"})
-    public void executeTieredStorageTest(String quorum) {
-        super.executeTieredStorageTest(quorum);
     }
 
     @Override
