@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.server.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 import org.apache.kafka.storage.internals.log.StorageAction;
 
@@ -92,6 +93,14 @@ public class ClassLoaderAwareRemoteStorageManager implements RemoteStorageManage
     public void deleteLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException {
         withClassLoader(() -> {
             delegate.deleteLogSegmentData(remoteLogSegmentMetadata);
+            return null;
+        });
+    }
+
+    @Override
+    public void deletePartition(TopicIdPartition topicIdPartition) throws RemoteStorageException {
+        withClassLoader(() -> {
+            delegate.deletePartition(topicIdPartition);
             return null;
         });
     }

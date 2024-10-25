@@ -27,7 +27,7 @@ import java.util.Map;
 
 import static org.apache.kafka.common.utils.Utils.mkEntry;
 import static org.apache.kafka.common.utils.Utils.mkMap;
-import static org.apache.kafka.server.log.remote.storage.LocalTieredStorageEvent.EventType.DELETE_SEGMENT;
+import static org.apache.kafka.server.log.remote.storage.LocalTieredStorageEvent.EventType.DELETE_PARTITION;
 
 public final class DeleteTopicTest extends TieredStorageTestHarness {
 
@@ -68,8 +68,8 @@ public final class DeleteTopicTest extends TieredStorageTestHarness {
                 .produce(topicA, p1, new KeyValueSpec("k0", "v0"), new KeyValueSpec("k1", "v1"),
                         new KeyValueSpec("k2", "v2"))
                 // delete the topic
-                .expectDeletionInRemoteStorage(broker0, topicA, p0, DELETE_SEGMENT, 2)
-                .expectDeletionInRemoteStorage(broker1, topicA, p1, DELETE_SEGMENT, 2)
+                .expectDeletionInRemoteStorage(broker0, topicA, p0, DELETE_PARTITION, 1)
+                .expectDeletionInRemoteStorage(broker1, topicA, p1, DELETE_PARTITION, 1)
                 .deleteTopic(Collections.singletonList(topicA))
                 .expectEmptyRemoteStorage(topicA, p0)
                 .expectEmptyRemoteStorage(topicA, p1);

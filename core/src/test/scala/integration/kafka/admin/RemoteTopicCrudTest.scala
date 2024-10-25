@@ -476,7 +476,7 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
   @ParameterizedTest
   @ValueSource(strings = Array("zk", "kraft"))
   def testTopicDeletion(quorum: String): Unit = {
-    MyRemoteStorageManager.deleteSegmentEventCounter.set(0)
+    MyRemoteStorageManager.deletePartitionEventCounter.set(0)
     val numPartitions = 2
     val topicConfig = new Properties()
     topicConfig.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true")
@@ -488,7 +488,7 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
     assertThrowsException(classOf[UnknownTopicOrPartitionException],
       () => TestUtils.describeTopic(createAdminClient(), testTopicName), "Topic should be deleted")
     TestUtils.waitUntilTrue(() =>
-      numPartitions * MyRemoteLogMetadataManager.segmentCountPerPartition == MyRemoteStorageManager.deleteSegmentEventCounter.get(),
+      numPartitions == MyRemoteStorageManager.deletePartitionEventCounter.get(),
       "Remote log segments should be deleted only once by the leader")
   }
 
@@ -601,6 +601,7 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
 
 object MyRemoteStorageManager {
   val deleteSegmentEventCounter = new AtomicInteger(0)
+  val deletePartitionEventCounter = new AtomicInteger(0)
 }
 
 class MyRemoteStorageManager extends NoOpRemoteStorageManager {
@@ -608,6 +609,10 @@ class MyRemoteStorageManager extends NoOpRemoteStorageManager {
 
   override def deleteLogSegmentData(remoteLogSegmentMetadata: RemoteLogSegmentMetadata): Unit = {
     deleteSegmentEventCounter.incrementAndGet()
+  }
+
+  override def deletePartition(partition: TopicIdPartition): Unit = {
+    deletePartitionEventCounter.incrementAndGet()
   }
 }
 

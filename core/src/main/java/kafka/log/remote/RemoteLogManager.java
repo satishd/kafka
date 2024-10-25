@@ -551,7 +551,7 @@ public class RemoteLogManager implements Closeable {
         }
     }
 
-    private void deleteRemoteLogPartition(TopicIdPartition partition) throws RemoteStorageException, ExecutionException, InterruptedException {
+    void deleteRemoteLogPartition(TopicIdPartition partition) throws RemoteStorageException, ExecutionException, InterruptedException {
         List<RemoteLogSegmentMetadata> metadataList = new ArrayList<>();
         remoteLogMetadataManager.listRemoteLogSegments(partition).forEachRemaining(metadataList::add);
 
@@ -562,11 +562,12 @@ public class RemoteLogManager implements Closeable {
                 .collect(Collectors.toList());
         publishEvents(deleteSegmentStartedEvents).get();
 
+        remoteLogStorageManager.deletePartition(partition);
+
         // KAFKA-15313: Delete remote log segments partition asynchronously when a partition is deleted.
         Collection<Uuid> deletedSegmentIds = new ArrayList<>();
         for (RemoteLogSegmentMetadata metadata: metadataList) {
             deletedSegmentIds.add(metadata.remoteLogSegmentId().id());
-            remoteLogStorageManager.deleteLogSegmentData(metadata);
         }
         indexCache.removeAll(deletedSegmentIds);
 

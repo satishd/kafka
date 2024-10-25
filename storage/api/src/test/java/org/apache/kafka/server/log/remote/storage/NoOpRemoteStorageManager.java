@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.server.log.remote.storage;
 
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 
 import java.io.ByteArrayInputStream;
@@ -51,6 +52,10 @@ public class NoOpRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void deleteLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+    }
+
+    @Override
+    public void deletePartition(TopicIdPartition partition) {
     }
 
     @Override

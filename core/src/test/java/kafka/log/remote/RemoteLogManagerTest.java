@@ -2061,7 +2061,7 @@ public class RemoteLogManagerTest {
         assertNull(remoteLogManager.leaderExpirationTask(leaderTopicIdPartition));
         assertNull(remoteLogManager.followerTask(followerTopicIdPartition));
         verify(remoteLogMetadataManager, times(1)).onStopPartitions(any());
-        verify(remoteStorageManager, times(8)).deleteLogSegmentData(any());
+        verify(remoteStorageManager, times(2)).deletePartition(any());
         verify(remoteLogMetadataManager, times(16)).updateRemoteLogSegmentMetadata(any());
     }
 
@@ -3117,6 +3117,49 @@ public class RemoteLogManagerTest {
                 assertEquals(MemoryRecords.EMPTY, fetchDataInfo.records);
             }
         }
+    }
+
+    @Test
+    public void testDeleteRemoteLogPartition() throws Exception {
+        int segmentCount = 10;
+        ClassLoaderAwareRemoteStorageManager rsmManager = mock(ClassLoaderAwareRemoteStorageManager.class);
+        RemoteLogMetadataManager rlmmManager = mock(RemoteLogMetadataManager.class);
+
+        List<RemoteLogSegmentMetadata> metadataList = listRemoteLogSegmentMetadata(leaderTopicIdPartition, segmentCount, 100, 1024, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        when(rlmmManager.listRemoteLogSegments(eq(leaderTopicIdPartition))).thenReturn(metadataList.iterator());
+
+        ArgumentCaptor<RemoteLogSegmentMetadataUpdate> updateMetadataCaptor = ArgumentCaptor.forClass(RemoteLogSegmentMetadataUpdate.class);
+        when(rlmmManager.updateRemoteLogSegmentMetadata(updateMetadataCaptor.capture()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        doNothing().when(rsmManager).deletePartition(leaderTopicIdPartition);
+
+        RemoteLogManager remoteLogManager = new RemoteLogManager(config.remoteLogManagerConfig(), brokerId, logDir, clusterId, time,
+                tp -> Optional.of(mockLog),
+                (topicPartition, offset) -> currentLogStartOffset.set(offset),
+                brokerTopicStats, metrics) {
+
+            @Override
+            protected ClassLoaderAwareRemoteStorageManager createRemoteStorageManager() {
+                return rsmManager;
+            }
+
+            @Override
+            protected RemoteLogMetadataManager createRemoteLogMetadataManager() {
+                return rlmmManager;
+            }
+        };
+
+        remoteLogManager.deleteRemoteLogPartition(leaderTopicIdPartition);
+
+        List<RemoteLogSegmentMetadataUpdate> updateMetadataValues = updateMetadataCaptor.getAllValues();
+        for (int idx = 0; idx < segmentCount; idx++) {
+            assertEquals(RemoteLogSegmentState.DELETE_SEGMENT_STARTED, updateMetadataValues.get(idx).state());
+            assertEquals(RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, updateMetadataValues.get(idx + segmentCount).state());
+        }
+
+        verify(rsmManager).deletePartition(leaderTopicIdPartition);
+        verify(rlmmManager, times(segmentCount * 2)).updateRemoteLogSegmentMetadata(any(RemoteLogSegmentMetadataUpdate.class));
     }
 
     @Test

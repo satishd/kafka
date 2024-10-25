@@ -17,6 +17,7 @@
 package org.apache.kafka.server.log.remote.storage;
 
 import org.apache.kafka.common.Configurable;
+import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 
@@ -150,4 +151,13 @@ public interface RemoteStorageManager extends Configurable, Closeable {
      * @throws RemoteStorageException          if there are any storage related errors occurred.
      */
     void deleteLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws RemoteStorageException;
+
+    /**
+     * Deletes all the remote log segments for the given partition.
+     *
+     * @param partition the partition to be deleted
+     * @throws RemoteStorageException when there are no resources associated with the given partition.
+     */
+    void deletePartition(TopicIdPartition partition) throws RemoteStorageException;
+
 }
