@@ -26,10 +26,15 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import org.apache.kafka.server.util.MockTime;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel;
+
+import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Metric;
+import com.yammer.metrics.core.MetricName;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.RejectedExecutionException;
@@ -47,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 import scala.Option;
 import scala.util.Either;
@@ -70,13 +77,14 @@ class RemoteLogOffsetReaderTest {
         logDir = Files.createTempDirectory("kafka-test");
         LeaderEpochCheckpointFile checkpoint = new LeaderEpochCheckpointFile(TestUtils.tempFile(), new LogDirFailureChannel(1));
         cache = new LeaderEpochFileCache(topicPartition, checkpoint, time.scheduler);
-        rlm = new MockRemoteLogManager(2, 1, logDir.toString());
+        rlm = new MockRemoteLogManager(2, 1, logDir.toString(), new Metrics());
     }
 
     @AfterEach
     void tearDown() throws IOException {
         rlm.close();
         Utils.delete(logDir.toFile());
+        TestUtils.clearYammerMetrics();
     }
 
     @Test
@@ -109,6 +117,7 @@ class RemoteLogOffsetReaderTest {
                 holderList.add(rlm.asyncOffsetRead(topicPartition, time.milliseconds(), 0L, cache, Option::empty)));
 
         holderList.get(2).jobFuture().cancel(false);
+        assertEquals(1, yammerGaugeValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
 
         rlm.resume();
         for (AsyncOffsetReadFutureHolder<Either<Exception, Option<TimestampAndOffset>>> holder : holderList) {
@@ -119,12 +128,13 @@ class RemoteLogOffsetReaderTest {
         assertEquals(3, holderList.size());
         assertEquals(2, holderList.stream().filter(h -> h.taskFuture().isDone()).count());
         assertEquals(1, holderList.stream().filter(h -> !h.taskFuture().isDone()).count());
+        assertEquals(0, yammerGaugeValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
     }
 
     @Test
     public void testThrowErrorOnFindOffsetByTimestamp() throws Exception {
         RemoteStorageException exception = new RemoteStorageException("Error");
-        try (RemoteLogManager rlm = new MockRemoteLogManager(2, 1, logDir.toString()) {
+        try (RemoteLogManager rlm = new MockRemoteLogManager(2, 1, logDir.toString(), new Metrics()) {
             @Override
             public Optional<TimestampAndOffset> findOffsetByTimestamp(TopicPartition tp,
                                                                       long timestamp,
@@ -143,12 +153,28 @@ class RemoteLogOffsetReaderTest {
         }
     }
 
+    private Object yammerGaugeValue(String name) {
+        Map<MetricName, Metric> allMetrics = KafkaYammerMetrics.defaultRegistry().allMetrics();
+        Map.Entry<MetricName, Metric> entry = allMetrics.entrySet().stream()
+                .filter(e -> e.getKey().getMBeanName().startsWith(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Unable to find broker metric " + name + ": allMetrics: " + allMetrics.keySet().stream().map(MetricName::getMBeanName).collect(Collectors.toSet())));
+
+        Metric metric = entry.getValue();
+        if (metric instanceof Gauge) {
+            return ((Gauge<?>) metric).value();
+        } else {
+            throw new AssertionError("Unexpected broker metric of class " + metric.getClass());
+        }
+    }
+
     private static class MockRemoteLogManager extends RemoteLogManager {
         private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
         public MockRemoteLogManager(int threads,
                                     int taskQueueSize,
-                                    String logDir) throws IOException {
+                                    String logDir,
+                                    Metrics metrics) throws IOException {
             super(rlmConfig(threads, taskQueueSize),
                     1,
                     logDir,
@@ -157,7 +183,7 @@ class RemoteLogOffsetReaderTest {
                     tp -> Optional.empty(),
                     (tp, logStartOffset) -> { },
                     new BrokerTopicStats(true),
-                    new Metrics()
+                    metrics
             );
         }
 
@@ -190,8 +216,8 @@ class RemoteLogOffsetReaderTest {
                 "org.apache.kafka.server.log.remote.storage.NoOpRemoteStorageManager");
         props.put(RemoteLogManagerConfig.REMOTE_LOG_METADATA_MANAGER_CLASS_NAME_PROP,
                 "org.apache.kafka.server.log.remote.storage.NoOpRemoteLogMetadataManager");
-        props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_THREADS_PROP, threads);
-        props.put(RemoteLogManagerConfig.REMOTE_LOG_READER_MAX_PENDING_TASKS_PROP, taskQueueSize);
+        props.put(RemoteLogManagerConfig.REMOTE_LOG_OFFSET_READER_THREADS_PROP, threads);
+        props.put(RemoteLogManagerConfig.REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP, taskQueueSize);
         AbstractConfig config = new AbstractConfig(RemoteLogManagerConfig.configDef(), props, false);
         return new RemoteLogManagerConfig(config);
     }

@@ -200,6 +200,15 @@ public final class RemoteLogManagerConfig {
     public static final String REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS_DOC = "The maximum amount of time the server will wait for the remote list offsets request to complete.";
     public static final long DEFAULT_REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS = 30000L;
 
+    public static final String REMOTE_LOG_OFFSET_READER_THREADS_PROP = "remote.log.offset.reader.threads";
+    public static final String REMOTE_LOG_OFFSET_READER_THREADS_DOC = "Size of the thread pool that is allocated for handling remote list offsets.";
+    public static final int DEFAULT_REMOTE_LOG_OFFSET_READER_THREADS = 5;
+
+    public static final String REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP = "remote.log.offset.reader.max.pending.tasks";
+    public static final String REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_DOC = "Maximum remote log offset reader thread pool task queue size. If the task queue " +
+            "is full, LIST_OFFSETS requests are served with an error.";
+    public static final int DEFAULT_REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS = 10000;
+
     private final AbstractConfig config;
 
     public static ConfigDef configDef() {
@@ -373,7 +382,21 @@ public final class RemoteLogManagerConfig {
                         DEFAULT_REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS,
                         atLeast(1),
                         MEDIUM,
-                        REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS_DOC);
+                        REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS_DOC)
+
+                // Uber specific configurations
+                .defineInternal(REMOTE_LOG_OFFSET_READER_THREADS_PROP,
+                        INT,
+                        DEFAULT_REMOTE_LOG_OFFSET_READER_THREADS,
+                        atLeast(1),
+                        MEDIUM,
+                        REMOTE_LOG_OFFSET_READER_THREADS_DOC)
+                .defineInternal(REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP,
+                        INT,
+                        DEFAULT_REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS,
+                        atLeast(1),
+                        MEDIUM,
+                        REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_DOC);
     }
     
     public RemoteLogManagerConfig(AbstractConfig config) {
@@ -509,6 +532,14 @@ public final class RemoteLogManagerConfig {
 
     public long remoteListOffsetsRequestTimeoutMs() {
         return config.getLong(REMOTE_LIST_OFFSETS_REQUEST_TIMEOUT_MS_PROP);
+    }
+
+    public int remoteLogOffsetReaderThreads() {
+        return config.getInt(REMOTE_LOG_OFFSET_READER_THREADS_PROP);
+    }
+
+    public int remoteLogOffsetReaderMaxPendingTasks() {
+        return config.getInt(REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP);
     }
 
     public static void main(String[] args) {

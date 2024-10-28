@@ -82,6 +82,7 @@ import org.apache.kafka.storage.internals.log.OffsetPosition;
 import org.apache.kafka.storage.internals.log.RemoteIndexCache;
 import org.apache.kafka.storage.internals.log.RemoteLogReadResult;
 import org.apache.kafka.storage.internals.log.RemoteStorageFetchInfo;
+import org.apache.kafka.storage.internals.log.RemoteStorageOffsetReaderThreadPool;
 import org.apache.kafka.storage.internals.log.RemoteStorageThreadPool;
 import org.apache.kafka.storage.internals.log.TransactionIndex;
 import org.apache.kafka.storage.internals.log.TxnIndexSearchResult;
@@ -162,6 +163,7 @@ public class RemoteLogManager implements Closeable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteLogManager.class);
     private static final String REMOTE_LOG_READER_THREAD_NAME_PREFIX = "remote-log-reader";
+    private static final String REMOTE_LOG_OFFSET_READER_THREAD_NAME_PREFIX = "remote-log-offset-reader";
     private final RemoteLogManagerConfig rlmConfig;
     private final int brokerId;
     private final String logDir;
@@ -184,6 +186,7 @@ public class RemoteLogManager implements Closeable {
 
     private final RemoteIndexCache indexCache;
     private final RemoteStorageThreadPool remoteStorageReaderThreadPool;
+    private final RemoteStorageOffsetReaderThreadPool remoteStorageOffsetReaderThreadPool;
     private final RLMScheduledThreadPool rlmCopyThreadPool;
     private final RLMScheduledThreadPool rlmExpirationThreadPool;
     private final RLMScheduledThreadPool followerThreadPool;
@@ -268,6 +271,11 @@ public class RemoteLogManager implements Closeable {
                 rlmConfig.remoteLogReaderThreads(),
                 rlmConfig.remoteLogReaderMaxPendingTasks()
         );
+        remoteStorageOffsetReaderThreadPool = new RemoteStorageOffsetReaderThreadPool(
+                REMOTE_LOG_OFFSET_READER_THREAD_NAME_PREFIX,
+                rlmConfig.remoteLogOffsetReaderThreads(),
+                rlmConfig.remoteLogOffsetReaderMaxPendingTasks()
+        );
     }
 
     public void setDelayedOperationPurgatory(DelayedOperationPurgatory<DelayedRemoteListOffsets> delayedRemoteListOffsetsPurgatory) {
@@ -292,6 +300,7 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
         remoteStorageReaderThreadPool.removeMetrics();
+        remoteStorageOffsetReaderThreadPool.removeMetrics();
     }
 
     /**
@@ -639,7 +648,7 @@ public class RemoteLogManager implements Closeable {
             LeaderEpochFileCache leaderEpochCache,
             Supplier<Option<FileRecords.TimestampAndOffset>> searchLocalLog) {
         CompletableFuture<Either<Exception, Option<FileRecords.TimestampAndOffset>>> taskFuture = new CompletableFuture<>();
-        Future<Void> jobFuture = remoteStorageReaderThreadPool.submit(
+        Future<Void> jobFuture = remoteStorageOffsetReaderThreadPool.submit(
                 new RemoteLogOffsetReader(this, topicPartition, timestamp, startingOffset, leaderEpochCache, searchLocalLog, result -> {
                     TopicPartitionOperationKey key = new TopicPartitionOperationKey(topicPartition.topic(), topicPartition.partition());
                     taskFuture.complete(result);
@@ -1975,6 +1984,7 @@ public class RemoteLogManager implements Closeable {
                 followerThreadPool.close();
                 try {
                     shutdownAndAwaitTermination(remoteStorageReaderThreadPool, "RemoteStorageReaderThreadPool", 10, TimeUnit.SECONDS);
+                    shutdownAndAwaitTermination(remoteStorageOffsetReaderThreadPool, "RemoteStorageOffsetReaderThreadPool", 10, TimeUnit.SECONDS);
                 } finally {
                     removeMetrics();
                 }

@@ -100,6 +100,17 @@ public class RemoteStorageMetrics {
     public static final MetricName REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC = getMetricName(
             "kafka.log.remote", "RemoteLogManager", REMOTE_LOG_READER_FETCH_RATE_AND_TIME_MS);
 
+    // DKAFC-5442: Separate thread-pool to handle remote LIST_OFFSETS requests.
+    private static final String REMOTE_LOG_OFFSET_READER_METRICS_NAME_PREFIX = "RemoteLogOffsetReader";
+    private static final String REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE = REMOTE_LOG_OFFSET_READER_METRICS_NAME_PREFIX + TASK_QUEUE_SIZE;
+    private static final String REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT = REMOTE_LOG_OFFSET_READER_METRICS_NAME_PREFIX + AVG_IDLE_PERCENT;
+    public static final Set<String> REMOTE_STORAGE_OFFSET_READER_THREAD_POOL_METRICS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE, REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT)));
+    public static final MetricName REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE_METRIC = getMetricName(
+            "org.apache.kafka.storage.internals.log", "RemoteStorageOffsetReaderThreadPool", REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE);
+    public static final MetricName REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT_METRIC = getMetricName(
+            "org.apache.kafka.storage.internals.log", "RemoteStorageOffsetReaderThreadPool", REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT);
+
     public static Set<MetricName> allMetrics() {
         Set<MetricName> metrics = new HashSet<>();
 
@@ -124,6 +135,8 @@ public class RemoteStorageMetrics {
         metrics.add(REMOTE_LOG_SIZE_COMPUTATION_TIME_METRIC);
         metrics.add(REMOTE_LOG_SIZE_BYTES_METRIC);
 
+        metrics.add(REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE_METRIC);
+        metrics.add(REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT_METRIC);
         return metrics;
     }
 

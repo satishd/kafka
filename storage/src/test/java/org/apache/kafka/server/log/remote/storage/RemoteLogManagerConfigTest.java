@@ -73,6 +73,20 @@ public class RemoteLogManagerConfigTest {
                 new RLMTestConfig(emptyStringProps).remoteLogManagerConfig());
     }
 
+    @Test
+    public void testRemoteLogOffsetReaderConfigs() {
+        Map<String, Object> props = new HashMap<>();
+        RemoteLogManagerConfig rlmConfig = new RLMTestConfig(props).remoteLogManagerConfig();
+        assertEquals(RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_OFFSET_READER_THREADS, rlmConfig.remoteLogOffsetReaderThreads());
+        assertEquals(RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS, rlmConfig.remoteLogOffsetReaderMaxPendingTasks());
+
+        props.put(RemoteLogManagerConfig.REMOTE_LOG_OFFSET_READER_THREADS_PROP, 10);
+        props.put(RemoteLogManagerConfig.REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP, 100);
+        rlmConfig = new RLMTestConfig(props).remoteLogManagerConfig();
+        assertEquals(10, rlmConfig.remoteLogOffsetReaderThreads());
+        assertEquals(100, rlmConfig.remoteLogOffsetReaderMaxPendingTasks());
+    }
+
     private Map<String, Object> getRLMProps(String rsmPrefix, String rlmmPrefix) {
         Map<String, Object> props = new HashMap<>();
         props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true);
