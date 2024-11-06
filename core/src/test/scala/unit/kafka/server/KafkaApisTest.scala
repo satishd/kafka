@@ -4058,12 +4058,12 @@ class KafkaApisTest extends Logging {
 
   @Test
   def testListOffsetEarliestLocalTimestampWithUnsupportedVersion(): Unit = {
-    testConsumerListOffsetWithUnsupportedVersion(ListOffsetsRequest.EARLIEST_LOCAL_TIMESTAMP, 7)
+    testConsumerListOffsetWithUnsupportedVersion(ListOffsetsRequest.EARLIEST_LOCAL_TIMESTAMP, 5)
   }
 
   @Test
   def testListOffsetLatestTieredTimestampWithUnsupportedVersion(): Unit = {
-    testConsumerListOffsetWithUnsupportedVersion(ListOffsetsRequest.LATEST_TIERED_TIMESTAMP, 8)
+    testConsumerListOffsetWithUnsupportedVersion(ListOffsetsRequest.LATEST_TIERED_TIMESTAMP, 5)
   }
 
   @Test
