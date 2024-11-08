@@ -357,6 +357,17 @@ public class TopicBasedRemoteLogMetadataManager implements RemoteLogMetadataMana
     }
 
     @Override
+    public Optional<RemoteLogSegmentMetadata> nextSegmentWithTxnIndex(TopicIdPartition topicIdPartition, int epoch, long offset) throws RemoteStorageException {
+        lock.readLock().lock();
+        try {
+            ensureInitializedAndNotClosed();
+            return remotePartitionMetadataStore.nextSegmentWithTxnIndex(topicIdPartition, epoch, offset);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
     public boolean isInitialized(TopicIdPartition topicIdPartition) {
         return remotePartitionMetadataStore.isInitialized(topicIdPartition);
     }

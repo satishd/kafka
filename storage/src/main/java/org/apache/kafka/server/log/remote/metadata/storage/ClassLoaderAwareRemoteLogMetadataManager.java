@@ -107,6 +107,11 @@ public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetada
     }
 
     @Override
+    public Optional<RemoteLogSegmentMetadata> nextSegmentWithTxnIndex(TopicIdPartition topicIdPartition, int epoch, long offset) throws RemoteStorageException {
+        return withClassLoader(() -> delegate.nextSegmentWithTxnIndex(topicIdPartition, epoch, offset));
+    }
+
+    @Override
     public boolean isInitialized(TopicIdPartition topicIdPartition) {
         return withClassLoader(() -> delegate.isInitialized(topicIdPartition));
     }
