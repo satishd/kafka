@@ -122,7 +122,9 @@
       "default": "null",
       "versions": "0+",
       "nullableVersions": "0+",
-      "about": "Custom metadata."
+      "about": "Custom metadata.",
+      "taggedVersions": "0+",
+      "tag": 0
     },
     {
       "name": "RemoteLogSegmentState",
@@ -136,7 +138,7 @@
       "versions": "0+",
       "about": "Flag to indicate if the transaction index is empty.",
       "taggedVersions": "0+",
-      "tag": 0
+      "tag": 1
     }
   ]
 }
