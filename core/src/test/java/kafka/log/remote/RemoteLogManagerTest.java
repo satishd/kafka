@@ -165,9 +165,12 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -260,7 +263,7 @@ public class RemoteLogManagerTest {
                 return 0L;
             }
         };
-        doReturn(true).when(remoteLogMetadataManager).isInitialized(any());
+        doReturn(true).when(remoteLogMetadataManager).isReady(any(TopicIdPartition.class));
     }
 
     @AfterEach
@@ -3691,6 +3694,36 @@ public class RemoteLogManagerTest {
         // firstBatch baseOffset may not be equal to the fetchOffset
         assertEquals(9, fetchDataInfo.fetchOffsetMetadata.messageOffset);
         assertEquals(273, fetchDataInfo.fetchOffsetMetadata.relativePositionInSegment);
+    }
+
+    @Test
+    public void testRLMOpsWhenMetadataIsNotReady() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(2);
+        when(remoteLogMetadataManager.isReady(any(TopicIdPartition.class)))
+                .thenAnswer(ans -> {
+                    latch.countDown();
+                    return false;
+                });
+        remoteLogManager.startup();
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(leaderTopicIdPartition)),
+                Collections.singleton(mockPartition(followerTopicIdPartition)),
+                topicIds
+        );
+        assertNotNull(remoteLogManager.rlmCopyTask(leaderTopicIdPartition));
+        assertNotNull(remoteLogManager.leaderExpirationTask(leaderTopicIdPartition));
+        assertNotNull(remoteLogManager.followerTask(followerTopicIdPartition));
+
+        // Once the partitions are assigned to the broker either as leader (or) follower in RLM#onLeadershipChange,
+        // then it should have called the `isReady` method for each of the partitions. Otherwise, the test will fail.
+        latch.await(5, TimeUnit.SECONDS);
+        verify(remoteLogMetadataManager).configure(anyMap());
+        verify(remoteLogMetadataManager).onPartitionLeadershipChanges(anySet(), anySet());
+        verify(remoteLogMetadataManager, atLeastOnce()).isReady(eq(leaderTopicIdPartition));
+        verify(remoteLogMetadataManager, atLeastOnce()).isReady(eq(followerTopicIdPartition));
+        verifyNoMoreInteractions(remoteLogMetadataManager);
+        verify(remoteStorageManager).configure(anyMap());
+        verifyNoMoreInteractions(remoteStorageManager);
     }
 
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {

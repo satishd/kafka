@@ -153,8 +153,8 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         assertThrows(RemoteResourceNotFoundException.class, () -> topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition));
         assertThrows(RemoteResourceNotFoundException.class, () -> topicBasedRlmm().listRemoteLogSegments(newFollowerTopicIdPartition));
 
-        assertFalse(topicBasedRlmm().isInitialized(newLeaderTopicIdPartition));
-        assertFalse(topicBasedRlmm().isInitialized(newFollowerTopicIdPartition));
+        assertFalse(topicBasedRlmm().isReady(newLeaderTopicIdPartition));
+        assertFalse(topicBasedRlmm().isReady(newFollowerTopicIdPartition));
 
         topicBasedRlmm().onPartitionLeadershipChanges(Collections.singleton(newLeaderTopicIdPartition),
                                                       Collections.singleton(newFollowerTopicIdPartition));
@@ -171,8 +171,8 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         assertTrue(topicBasedRlmm().listRemoteLogSegments(newLeaderTopicIdPartition).hasNext());
         assertTrue(topicBasedRlmm().listRemoteLogSegments(newFollowerTopicIdPartition).hasNext());
 
-        assertTrue(topicBasedRlmm().isInitialized(newLeaderTopicIdPartition));
-        assertTrue(topicBasedRlmm().isInitialized(newFollowerTopicIdPartition));
+        assertTrue(topicBasedRlmm().isReady(newLeaderTopicIdPartition));
+        assertTrue(topicBasedRlmm().isReady(newFollowerTopicIdPartition));
     }
 
     @ClusterTest

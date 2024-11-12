@@ -489,9 +489,9 @@ public class RemoteLogManager implements Closeable {
             if (topicIdByPartitionMap.containsKey(tp)) {
                 TopicIdPartition tpId = new TopicIdPartition(topicIdByPartitionMap.get(tp), tp);
                 leaderCopyRLMTasks.computeIfPresent(tpId, (topicIdPartition, task) -> {
-                    LOGGER.info("Cancelling the copy RLM task for tpId: {}", tpId);
+                    LOGGER.info("Cancelling the copy RLM task for partition: {}", tpId);
                     task.cancel();
-                    LOGGER.info("Resetting remote copy lag metrics for tpId: {}", tpId);
+                    LOGGER.info("Resetting remote copy lag metrics for partition: {}", tpId);
                     ((RLMCopyTask) task.rlmTask).resetLagStats();
                     return null;
                 });
@@ -516,17 +516,17 @@ public class RemoteLogManager implements Closeable {
                 if (topicIdByPartitionMap.containsKey(tp)) {
                     TopicIdPartition tpId = new TopicIdPartition(topicIdByPartitionMap.get(tp), tp);
                     leaderCopyRLMTasks.computeIfPresent(tpId, (topicIdPartition, task) -> {
-                        LOGGER.info("Cancelling the copy RLM task for tpId: {}", tpId);
+                        LOGGER.info("Cancelling the copy RLM task for partition: {}", tpId);
                         task.cancel();
                         return null;
                     });
                     leaderExpirationRLMTasks.computeIfPresent(tpId, (topicIdPartition, task) -> {
-                        LOGGER.info("Cancelling the expiration RLM task for tpId: {}", tpId);
+                        LOGGER.info("Cancelling the expiration RLM task for partition: {}", tpId);
                         task.cancel();
                         return null;
                     });
                     followerRLMTasks.computeIfPresent(tpId, (topicIdPartition, task) -> {
-                        LOGGER.info("Cancelling the follower RLM task for tpId: {}", tpId);
+                        LOGGER.info("Cancelling the follower RLM task for partition: {}", tpId);
                         task.cancel();
                         return null;
                     });
@@ -806,8 +806,12 @@ public class RemoteLogManager implements Closeable {
         }
 
         public void run() {
-            if (isCancelled() || !remoteLogMetadataManager.isInitialized(topicIdPartition)) {
-                logger.debug("Partition: {} is either cancelled or not initialized", topicIdPartition);
+            if (isCancelled()) {
+                logger.debug("Skipping the current run for partition {} as it is cancelled", topicIdPartition);
+                return;
+            }
+            if (!remoteLogMetadataManager.isReady(topicIdPartition)) {
+                logger.debug("Skipping the current run for partition {} as the remote-log metadata is not ready", topicIdPartition);
                 return;
             }
 
@@ -821,13 +825,13 @@ public class RemoteLogManager implements Closeable {
                 execute(unifiedLogOptional.get());
             } catch (InterruptedException ex) {
                 if (!isCancelled()) {
-                    logger.warn("Current thread for topic-partition-id {} is interrupted", topicIdPartition, ex);
+                    logger.warn("Current thread for partition {} is interrupted", topicIdPartition, ex);
                 }
             } catch (RetriableException ex) {
-                logger.debug("Encountered a retryable error while executing current task for topic-partition {}", topicIdPartition, ex);
+                logger.debug("Encountered a retryable error while executing current task for partition {}", topicIdPartition, ex);
             } catch (Exception ex) {
                 if (!isCancelled()) {
-                    logger.warn("Current task for topic-partition {} received error but it will be scheduled", topicIdPartition, ex);
+                    logger.warn("Current task for partition {} received error but it will be scheduled", topicIdPartition, ex);
                 }
             }
         }

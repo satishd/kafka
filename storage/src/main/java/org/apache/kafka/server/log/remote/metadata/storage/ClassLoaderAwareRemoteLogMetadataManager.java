@@ -112,8 +112,8 @@ public class ClassLoaderAwareRemoteLogMetadataManager implements RemoteLogMetada
     }
 
     @Override
-    public boolean isInitialized(TopicIdPartition topicIdPartition) {
-        return withClassLoader(() -> delegate.isInitialized(topicIdPartition));
+    public boolean isReady(TopicIdPartition topicIdPartition) {
+        return withClassLoader(() -> delegate.isReady(topicIdPartition));
     }
 
     @Override
