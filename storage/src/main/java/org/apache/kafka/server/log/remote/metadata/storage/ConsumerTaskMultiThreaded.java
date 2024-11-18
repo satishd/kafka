@@ -23,6 +23,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.WakeupException;
+import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadata;
@@ -31,6 +32,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
@@ -39,7 +41,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME;
@@ -57,14 +67,20 @@ import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemo
  * Any leadership changes later are called through the same API. We will remove the partitions that are deleted from
  * this broker which are received through {@link #removeAssignmentsForPartitions(Set)}.
  * <p>
+ * For any new assignment we need to seek to the beginning of the partition and consume all the messages stored in the
+ * topic. This task is now delegated to secondary threads called {@link CatchupConsumer}. These threads run from the beginning
+ * offset of the partition to the end offset that is stored at the creation time of these threads. After these threads
+ * are completed, these partitions get re-assigned back to the primary thread.
+ * <p>
  * After receiving these events it invokes {@link RemotePartitionMetadataEventHandler#handleRemoteLogSegmentMetadata(RemoteLogSegmentMetadata)},
  * which maintains in-memory representation of the state of {@link RemoteLogSegmentMetadata}.
  */
-public class ConsumerTask implements IConsumerTask {
-    private static final Logger log = LoggerFactory.getLogger(ConsumerTask.class);
+public class ConsumerTaskMultiThreaded implements IConsumerTask {
+    private static final Logger log = LoggerFactory.getLogger(ConsumerTaskMultiThreaded.class);
 
     private final RemoteLogMetadataSerde serde = new RemoteLogMetadataSerde();
-    private final Consumer<byte[], byte[]> consumer;
+    private final Consumer<byte[], byte[]> primaryConsumer;
+    private final Function<Optional<String>, Consumer<byte[], byte[]>> consumerSupplier;
     private final RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler;
     private final RemoteLogMetadataTopicPartitioner topicPartitioner;
     // The timeout for the consumer to poll records from the remote log metadata topic.
@@ -95,7 +111,7 @@ public class ConsumerTask implements IConsumerTask {
 
     // Map of remote log metadata topic partition to consumed offsets.
     private final Map<Integer, Long> readOffsetsByMetadataPartition = new ConcurrentHashMap<>();
-    private final Map<TopicIdPartition, Long> readOffsetsByUserTopicPartition = new HashMap<>();
+    private volatile Map<TopicIdPartition, Long> readOffsetsByUserTopicPartition = new ConcurrentHashMap<>();
 
     private Map<TopicPartition, StartAndEndOffsetHolder> offsetHolderByMetadataPartition = new HashMap<>();
     private boolean hasLastOffsetsFetchFailed = false;
@@ -103,19 +119,24 @@ public class ConsumerTask implements IConsumerTask {
     // The interval between retries to fetch the start and end offsets for the metadata partitions after a failed fetch.
     private final long offsetFetchRetryIntervalMs;
 
-    public ConsumerTask(RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler,
-                        RemoteLogMetadataTopicPartitioner topicPartitioner,
-                        Consumer<byte[], byte[]> consumer,
-                        long pollTimeoutMs,
-                        long offsetFetchRetryIntervalMs,
-                        Time time) {
-        this.consumer = consumer;
+    private final ExecutorService catchupConsumerExecutorService = Executors.newCachedThreadPool(ThreadUtils
+            .createThreadFactory("RLMMCatchupConsumer-%d", false));
+    private Map<TopicPartition, CatchupConsumerInfo> activeCatchupConsumers = new HashMap<>();
+
+    public ConsumerTaskMultiThreaded(final RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler,
+                                     final RemoteLogMetadataTopicPartitioner topicPartitioner,
+                                     final Function<Optional<String>, Consumer<byte[], byte[]>> consumerSupplier,
+                                     long pollTimeoutMs,
+                                     long offsetFetchRetryIntervalMs,
+                                     Time time) {
+        this.primaryConsumer = consumerSupplier.apply(Optional.empty());
         this.remotePartitionMetadataEventHandler = Objects.requireNonNull(remotePartitionMetadataEventHandler);
         this.topicPartitioner = Objects.requireNonNull(topicPartitioner);
         this.pollTimeoutMs = pollTimeoutMs;
         this.offsetFetchRetryIntervalMs = offsetFetchRetryIntervalMs;
         this.time = Objects.requireNonNull(time);
         this.uninitializedAt = time.milliseconds();
+        this.consumerSupplier = consumerSupplier;
     }
 
     @Override
@@ -134,12 +155,8 @@ public class ConsumerTask implements IConsumerTask {
             if (hasAssignmentChanged) {
                 maybeWaitForPartitionAssignments();
             }
-
-            log.trace("Polling consumer to receive remote log metadata topic records");
-            final ConsumerRecords<byte[], byte[]> consumerRecords = consumer.poll(Duration.ofMillis(pollTimeoutMs));
-            for (ConsumerRecord<byte[], byte[]> record : consumerRecords) {
-                processConsumerRecord(record);
-            }
+            handleCatchupThreadsCompletion();
+            pollAndProcessRecords(primaryConsumer);
             maybeMarkUserPartitionsAsReady();
         } catch (final WakeupException ex) {
             // ignore logging the error
@@ -155,24 +172,32 @@ public class ConsumerTask implements IConsumerTask {
     // public for testing
     public void closeConsumer() {
         try {
-            consumer.close(Duration.ofSeconds(30));
+            primaryConsumer.close(Duration.ofSeconds(30));
         } catch (final Exception e) {
             log.error("Error encountered while closing the consumer", e);
         }
         log.info("Exited from consumer task thread");
     }
 
-    private void processConsumerRecord(ConsumerRecord<byte[], byte[]> record) {
-        final RemoteLogMetadata remoteLogMetadata = serde.deserialize(record.value());
-        if (shouldProcess(remoteLogMetadata, record.offset())) {
-            remotePartitionMetadataEventHandler.handleRemoteLogMetadata(remoteLogMetadata);
-            readOffsetsByUserTopicPartition.put(remoteLogMetadata.topicIdPartition(), record.offset());
-        } else {
-            log.trace("The event {} is skipped because it is either already processed or not assigned to this consumer",
-                    remoteLogMetadata);
+    private void pollAndProcessRecords(Consumer<byte[], byte[]> consumer) {
+        if (!consumer.assignment().isEmpty()) {
+            final ConsumerRecords<byte[], byte[]> consumerRecords = consumer.poll(Duration.ofMillis(pollTimeoutMs));
+            if (!consumerRecords.isEmpty()) {
+                log.debug("Processing {} records", consumerRecords.count());
+                for (final ConsumerRecord<byte[], byte[]> record : consumerRecords) {
+                    final RemoteLogMetadata remoteLogMetadata = serde.deserialize(record.value());
+                    if (shouldProcess(remoteLogMetadata, record.offset())) {
+                        remotePartitionMetadataEventHandler.handleRemoteLogMetadata(remoteLogMetadata);
+                        readOffsetsByUserTopicPartition.put(remoteLogMetadata.topicIdPartition(), record.offset());
+                    } else {
+                        log.trace("The event {} is skipped because it is either already processed or not assigned to this consumer",
+                                remoteLogMetadata);
+                    }
+                    log.trace("Updating consumed offset: {} for partition {}", record.offset(), record.partition());
+                    readOffsetsByMetadataPartition.put(record.partition(), record.offset());
+                }
+            }
         }
-        log.trace("Updating consumed offset: {} for partition {}", record.offset(), record.partition());
-        readOffsetsByMetadataPartition.put(record.partition(), record.offset());
     }
 
     private boolean shouldProcess(final RemoteLogMetadata metadata, final long recordOffset) {
@@ -220,6 +245,32 @@ public class ConsumerTask implements IConsumerTask {
         isAllUserTopicPartitionsInitialized = isAllInitialized;
     }
 
+    private void handleCatchupThreadsCompletion() {
+        if (!activeCatchupConsumers.isEmpty()) {
+            // If primary consumer has no assignment then wait for atleast one of catch up consumer to finish
+            if (primaryConsumer.assignment().isEmpty()) {
+                CompletableFuture<?>[] cfs = activeCatchupConsumers.values()
+                        .stream().map(m -> m.future).toArray(CompletableFuture[]::new);
+                try {
+                    // Wait for a minute since there are no assignments to the primary consumer.
+                    // Added a timeout of 1 minute so that we can pick up any new assignment that happened while we are waiting
+                    CompletableFuture.anyOf(cfs).get(1, TimeUnit.MINUTES);
+                } catch (Exception e) {
+                    // Swallow exception since we can fall back on primary consumer to continue where ever catch up thread left off at
+                    log.error("Waiting for catch up consumers did not exit gracefully");
+                }
+            }
+            // Check if any catch up consumer is done
+            boolean isAnyConsumerCaughtUp = activeCatchupConsumers.keySet().removeIf(tp -> activeCatchupConsumers.get(tp).future.isDone());
+            // If done then assign that metadata partition to the primary consumer
+            if (isAnyConsumerCaughtUp) {
+                Set<TopicPartition> topicPartitions = toRemoteLogPartitions(this.assignedMetadataPartitions);
+                topicPartitions.removeAll(activeCatchupConsumers.keySet());
+                assignPartitionsToPrimaryConsumer(topicPartitions);
+            }
+        }
+    }
+
     void maybeWaitForPartitionAssignments() throws InterruptedException {
         // Snapshots of the metadata-partition and user-topic-partition are used to reduce the scope of the
         // synchronization block.
@@ -245,25 +296,64 @@ public class ConsumerTask implements IConsumerTask {
         }
         if (!metadataPartitionSnapshot.isEmpty()) {
             final Set<TopicPartition> remoteLogPartitions = toRemoteLogPartitions(metadataPartitionSnapshot);
-            consumer.assign(remoteLogPartitions);
             this.assignedMetadataPartitions = Collections.unmodifiableSet(metadataPartitionSnapshot);
-            // for newly assigned user-partitions, read from the beginning of the corresponding metadata partition
-            final Set<TopicPartition> seekToBeginOffsetPartitions = assignedUserTopicIdPartitionsSnapshot
+
+            // Identify the newly assigned user topic partitions
+            final Set<TopicPartition> metadataPartitionsForNewUtps = assignedUserTopicIdPartitionsSnapshot
                     .stream()
                     .filter(utp -> !utp.isAssigned)
-                    .map(utp -> utp.metadataPartition)
-                    // When reset to beginning is happening, we also need to reset the last read offset
-                    // Otherwise if the next reassignment request for the same metadata partition comes in
-                    // before the record of already assigned topic has been read, then the reset will happen again to the last read offset
-                    .peek(readOffsetsByMetadataPartition::remove)
-                    .map(ConsumerTask::toRemoteLogPartition)
+                    .map(utp -> toRemoteLogPartition(utp.metadataPartition))
                     .collect(Collectors.toSet());
-            consumer.seekToBeginning(seekToBeginOffsetPartitions);
-            // for other metadata partitions, read from the offset where the processing left last time.
-            remoteLogPartitions.stream()
-                .filter(tp -> !seekToBeginOffsetPartitions.contains(tp) &&
-                    readOffsetsByMetadataPartition.containsKey(tp.partition()))
-                .forEach(tp -> consumer.seek(tp, readOffsetsByMetadataPartition.get(tp.partition())));
+
+            final Set<TopicPartition> metadataPartitionsCatchingUp = activeCatchupConsumers.keySet();
+
+            // Actively catching up consumers need to be killed if they have a new utp assigned
+            HashSet<TopicPartition> catchupConsumersToKill =
+                    new HashSet<>(metadataPartitionsForNewUtps);
+            catchupConsumersToKill.retainAll(metadataPartitionsCatchingUp);
+            catchupConsumersToKill.forEach(tp -> activeCatchupConsumers.get(tp).catchupConsumer.close());
+
+            CompletableFuture<?>[] cfs = catchupConsumersToKill.stream().map(tp -> activeCatchupConsumers.get(tp).future)
+                    .toArray(CompletableFuture[]::new);
+            try {
+                // Wait for 2x the poll wait time for the closed runnables to complete execution
+                CompletableFuture.allOf(cfs).get(pollTimeoutMs * 2, TimeUnit.MILLISECONDS);
+            } catch (CancellationException | ExecutionException e) {
+                // Ignore any runnable execution failures
+            } catch (TimeoutException e) {
+                log.warn("Timeout[200ms] while waiting for catchup consumers to close");
+                // Reset isAssignmentChanged and return from the method. The cancellation will be retried again.
+                hasAssignmentChanged = true;
+                return;
+            }
+
+            catchupConsumersToKill.forEach(tp -> activeCatchupConsumers.remove(tp));
+
+            processedAssignmentOfUserTopicIdPartitions = assignedUserTopicIdPartitionsSnapshot.stream()
+                    .map(utp -> utp.topicIdPartition).collect(Collectors.toSet());
+
+            // For all newly assigned utps we need to start a new catch up thread
+            metadataPartitionsForNewUtps.forEach(tp -> {
+                try {
+                    // If not removed then new utp could be potentially marked initialized. The read offset value for the
+                    // partition will now only be updated inside the new catchup thread. In the interim the primary thread
+                    // might read the old set value and mark the new utp as intialized.
+                    readOffsetsByMetadataPartition.remove(tp.partition());
+                    CatchupConsumer catchupConsumer = new CatchupConsumer(tp);
+                    CompletableFuture<?> completableFuture = CompletableFuture.runAsync(catchupConsumer, catchupConsumerExecutorService);
+                    activeCatchupConsumers.put(tp, new CatchupConsumerInfo(completableFuture, catchupConsumer));
+                } catch (Exception e) {
+                    // Swallow exception since this failure usually happens due to offline partitions. The failed tp will
+                    // now be assigned to the primary consumer.
+                    log.error("Exception when trying to assign metadata partition {} to catch up threads", tp.partition(), e);
+                }
+            });
+
+            // All metadata partitions not catching up on a separate thread are assigned to primary consumer
+            final Set<TopicPartition> caughtUpMetadataPartitions = remoteLogPartitions.stream()
+                    .filter(tp -> !activeCatchupConsumers.containsKey(tp)).collect(Collectors.toSet());
+            assignPartitionsToPrimaryConsumer(caughtUpMetadataPartitions);
+
             Set<TopicIdPartition> processedAssignmentPartitions = new HashSet<>();
             // mark all the user-topic-partitions as assigned to the consumer.
             assignedUserTopicIdPartitionsSnapshot.forEach(utp -> {
@@ -275,12 +365,26 @@ public class ConsumerTask implements IConsumerTask {
                 }
                 processedAssignmentPartitions.add(utp.topicIdPartition);
             });
-            processedAssignmentOfUserTopicIdPartitions = new HashSet<>(processedAssignmentPartitions);
+
             clearResourcesForUnassignedUserTopicPartitions(processedAssignmentPartitions);
             isAllUserTopicPartitionsInitialized = false;
             uninitializedAt = time.milliseconds();
             fetchStartAndEndOffsets();
         }
+    }
+
+    /**
+     * This method assigns the given topic partitions to the primary consumer. It also seeks to the last read offset for the topic partition.
+     *
+     * @param caughtUpMetadataPartitions the topic partitions to assign to the primary consumer
+     */
+    private void assignPartitionsToPrimaryConsumer(Set<TopicPartition> caughtUpMetadataPartitions) {
+        primaryConsumer.assign(caughtUpMetadataPartitions);
+        caughtUpMetadataPartitions.forEach(tp -> {
+            if (readOffsetsByMetadataPartition.containsKey(tp.partition())) {
+                primaryConsumer.seek(tp, readOffsetsByMetadataPartition.get(tp.partition()));
+            }
+        });
     }
 
     private void clearResourcesForUnassignedUserTopicPartitions(Set<TopicIdPartition> assignedPartitions) {
@@ -345,7 +449,13 @@ public class ConsumerTask implements IConsumerTask {
             synchronized (assignPartitionsLock) {
                 isClosed = true;
                 assignedUserTopicIdPartitions.values().forEach(this::markInitialized);
-                consumer.wakeup();
+                catchupConsumerExecutorService.shutdownNow();
+                try {
+                    catchupConsumerExecutorService.awaitTermination(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    log.error("Could not close the catchup consumer executor service within given timeout", e);
+                }
+                primaryConsumer.wakeup();
                 assignPartitionsLock.notifyAll();
             }
         }
@@ -365,8 +475,8 @@ public class ConsumerTask implements IConsumerTask {
             // call to `earliest` and `latest` offset fails, then we should not use the previous values.
             uninitializedPartitions.forEach(tp -> offsetHolderByMetadataPartition.remove(tp));
             if (!uninitializedPartitions.isEmpty()) {
-                Map<TopicPartition, Long> endOffsets = consumer.endOffsets(uninitializedPartitions);
-                Map<TopicPartition, Long> startOffsets = consumer.beginningOffsets(uninitializedPartitions);
+                Map<TopicPartition, Long> endOffsets = primaryConsumer.endOffsets(uninitializedPartitions);
+                Map<TopicPartition, Long> startOffsets = primaryConsumer.beginningOffsets(uninitializedPartitions);
                 offsetHolderByMetadataPartition = endOffsets.entrySet()
                     .stream()
                     .collect(Collectors.toMap(Map.Entry::getKey,
@@ -409,7 +519,7 @@ public class ConsumerTask implements IConsumerTask {
 
     static Set<TopicPartition> toRemoteLogPartitions(final Set<Integer> partitions) {
         return partitions.stream()
-            .map(ConsumerTask::toRemoteLogPartition)
+            .map(ConsumerTaskMultiThreaded::toRemoteLogPartition)
             .collect(Collectors.toSet());
     }
 
@@ -477,6 +587,75 @@ public class ConsumerTask implements IConsumerTask {
                 "startOffset=" + startOffset +
                 ", endOffset=" + endOffset +
                 '}';
+        }
+    }
+
+    class CatchupConsumer implements Runnable, Closeable {
+        final TopicPartition metadataTopicPartition;
+        final long endOffset;
+        final Consumer<byte[], byte[]> consumer;
+        long currentOffset;
+        volatile boolean isClosed = false;
+
+        public CatchupConsumer(TopicPartition metadataTopicPartition) {
+            this.metadataTopicPartition = metadataTopicPartition;
+            int partitionId = metadataTopicPartition.partition();
+            this.consumer = consumerSupplier.apply(Optional.of("-" + partitionId));
+            Set<TopicPartition> assignment = Collections.singleton(metadataTopicPartition);
+            this.consumer.assign(assignment);
+            this.consumer.seekToBeginning(assignment);
+            this.endOffset = this.consumer.endOffsets(assignment).get(metadataTopicPartition);
+            this.currentOffset = this.consumer.beginningOffsets(assignment).get(metadataTopicPartition);
+            log.info("Created catch up consumer for metadata topic partition {}", partitionId);
+        }
+
+        @Override
+        public void run() {
+            // Catch up till the end offset that was captured when the runnable was created
+            while ((currentOffset + 1) < endOffset && !isClosed) {
+                try {
+                    pollAndProcessRecords(consumer);
+                    currentOffset = readOffsetsByMetadataPartition.getOrDefault(metadataTopicPartition.partition(), currentOffset);
+                } catch (final WakeupException ex) {
+                    // ignore logging the error
+                    break;
+                } catch (final RetriableException ex) {
+                    log.warn("Retriable error occurred while processing the records for partition {}. Retrying...",
+                            metadataTopicPartition.partition(), ex);
+                } catch (final Exception ex) {
+                    log.error("Error occurred while processing the records for partition {}",
+                            metadataTopicPartition.partition(), ex);
+                    break;
+                }
+            }
+            // Closing the consumer before closing the thread.
+            try {
+                consumer.close();
+            } catch (final Exception e) {
+                log.error("Error encountered while closing the catchup consumer for partition: {}",
+                        metadataTopicPartition.partition(), e);
+            }
+            if ((currentOffset + 1) < endOffset)
+                log.info("Catch up consumer finished execution for metadata partition: {}. Status: cancelled. Current offset: {}, End offset: {}",
+                        metadataTopicPartition, currentOffset, endOffset);
+            else
+                log.info("Catch up consumer finished execution for metadata partition: {}. Status: success. Current offset: {}, End offset: {}",
+                        metadataTopicPartition, currentOffset, endOffset);
+        }
+
+        @Override
+        public void close() {
+            isClosed = true;
+        }
+    }
+
+    static class CatchupConsumerInfo {
+        final CompletableFuture<?> future;
+        final CatchupConsumer catchupConsumer;
+
+        CatchupConsumerInfo(CompletableFuture<?> future, CatchupConsumer catchupConsumer) {
+            this.future = future;
+            this.catchupConsumer = catchupConsumer;
         }
     }
 }

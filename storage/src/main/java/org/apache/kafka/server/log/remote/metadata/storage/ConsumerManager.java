@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.server.log.remote.metadata.storage;
 
+import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.KafkaException;
@@ -29,12 +31,15 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 /**
- * This class manages the consumer thread viz {@link ConsumerTask} that polls messages from the assigned metadata topic partitions.
+ * This class manages the consumer thread viz {@link IConsumerTask} that polls messages from the assigned metadata topic partitions.
  * It also provides a way to wait until the given record is received by the consumer before it is timed out with an interval of
  * {@link TopicBasedRemoteLogMetadataManagerConfig#consumeWaitMs()}.
  */
@@ -45,7 +50,7 @@ public class ConsumerManager implements Closeable {
 
     private final TopicBasedRemoteLogMetadataManagerConfig rlmmConfig;
     private final Time time;
-    private final ConsumerTask consumerTask;
+    private final IConsumerTask consumerTask;
     private final Thread consumerTaskThread;
 
     public ConsumerManager(TopicBasedRemoteLogMetadataManagerConfig rlmmConfig,
@@ -56,15 +61,23 @@ public class ConsumerManager implements Closeable {
         this.time = time;
 
         //Create a task to consume messages and submit the respective events to RemotePartitionMetadataEventHandler.
-        KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(rlmmConfig.consumerProperties());
-        consumerTask = new ConsumerTask(
-            remotePartitionMetadataEventHandler,
-            topicPartitioner,
-            consumer,
-            100L,
-            300_000L,
-            time
-        );
+        if (ConsumerTask.class.getName().equals(rlmmConfig.consumerTaskImplementation())) {
+            log.info("Creating single threaded consumer task");
+            KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(rlmmConfig.consumerProperties());
+            this.consumerTask = new ConsumerTask(remotePartitionMetadataEventHandler, topicPartitioner,
+                    consumer, 100L, 300_000L, time);
+        } else {
+            log.info("Creating multi threaded consumer task");
+            Function<Optional<String>, Consumer<byte[], byte[]>> createConsumerFunction = clientIdSuffix -> {
+                Map<String, Object> props = new HashMap<>(rlmmConfig.consumerProperties());
+                // Assign different client id for each catch up consumer with the given suffix
+                clientIdSuffix.ifPresent(s ->
+                        props.computeIfPresent(CommonClientConfigs.CLIENT_ID_CONFIG, (k, v) -> v + s));
+                return new KafkaConsumer<>(props);
+            };
+            this.consumerTask = new ConsumerTaskMultiThreaded(remotePartitionMetadataEventHandler, topicPartitioner,
+                    createConsumerFunction, 100L, 300_000L, time);
+        }
         consumerTaskThread = KafkaThread.nonDaemon("RLMMConsumerTask", consumerTask);
     }
 
