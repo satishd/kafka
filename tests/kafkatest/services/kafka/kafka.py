@@ -463,7 +463,7 @@ class KafkaService(KafkaPathResolverMixin, JmxMixin, Service):
 
     def node_id_as_isolated_controller(self, node):
         """
-        Generates the node id for a controller-only node, starting from config_property.FIRST_CONTROLLER_ID so as not  
+        Generates the node id for a controller-only node, starting from config_property.FIRST_CONTROLLER_ID so as not
         to overlap with broker id numbering.
         This method does not do any validation to check this node is actually part of an isolated controller quorum.
         """
