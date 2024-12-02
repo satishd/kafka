@@ -88,18 +88,19 @@ class TopicConfigHandler(private val replicaManager: ReplicaManager,
     val (leaderPartitions, followerPartitions) =
       logs.flatMap(log => replicaManager.onlinePartition(log.topicPartition)).partition(_.isLeader)
 
+    val leaderTopicPartitions = leaderPartitions.map( p => p.topicPartition).toSet.asJava
     // Topic configs gets updated incrementally. This check is added to prevent redundant updates.
     // When remote log is enabled, or remote copy is enabled, we should create RLM tasks accordingly via `onLeadershipChange`.
     if (isRemoteLogEnabled && (!wasRemoteLogEnabled || (wasCopyDisabled && !isCopyDisabled))) {
       val topicIds = Collections.singletonMap(topic, replicaManager.metadataCache.getTopicId(topic))
       replicaManager.remoteLogManager.foreach(rlm =>
-        rlm.onLeadershipChange(leaderPartitions.toSet.asJava, followerPartitions.toSet.asJava, topicIds))
+        rlm.onLeadershipChange(leaderTopicPartitions, followerPartitions.map( p => p.topicPartition).toSet.asJava, topicIds))
     }
 
     // When copy disabled, we should stop leaderCopyRLMTask, but keep expirationTask
     if (isRemoteLogEnabled && !wasCopyDisabled && isCopyDisabled) {
       replicaManager.remoteLogManager.foreach(rlm => {
-        rlm.stopLeaderCopyRLMTasks(leaderPartitions.toSet.asJava)
+        rlm.stopLeaderCopyRLMTasks(leaderTopicPartitions)
       })
     }
 

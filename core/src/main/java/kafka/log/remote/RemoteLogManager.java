@@ -16,7 +16,6 @@
  */
 package kafka.log.remote;
 
-import kafka.cluster.Partition;
 import kafka.log.AsyncOffsetReadFutureHolder;
 import kafka.log.UnifiedLog;
 import kafka.server.DelayedRemoteListOffsets;
@@ -411,9 +410,10 @@ public class RemoteLogManager implements Closeable {
         return remoteLogStorageManager;
     }
 
-    private Stream<Partition> filterPartitions(Set<Partition> partitions) {
+    private Stream<TopicPartition> filterPartitions(Set<TopicPartition> partitions) {
         // We are not specifically checking for internal topics etc here as `log.remoteLogEnabled()` already handles that.
-        return partitions.stream().filter(partition -> partition.log().exists(UnifiedLog::remoteLogEnabled));
+        return partitions.stream().filter(partition ->
+            fetchLog.apply(partition).map(UnifiedLog::remoteLogEnabled).orElse(false));
     }
 
     private void cacheTopicPartitionIds(TopicIdPartition topicIdPartition) {
@@ -433,8 +433,8 @@ public class RemoteLogManager implements Closeable {
      * @param partitionsBecomeFollower partitions that have become followers on this broker.
      * @param topicIds                 topic name to topic id mappings.
      */
-    public void onLeadershipChange(Set<Partition> partitionsBecomeLeader,
-                                   Set<Partition> partitionsBecomeFollower,
+    public void onLeadershipChange(Set<TopicPartition> partitionsBecomeLeader,
+                                   Set<TopicPartition> partitionsBecomeFollower,
                                    Map<String, Uuid> topicIds) {
         LOGGER.debug("Received leadership changes for leaders: {} and followers: {}", partitionsBecomeLeader, partitionsBecomeFollower);
 
@@ -443,12 +443,12 @@ public class RemoteLogManager implements Closeable {
         }
 
         Map<TopicIdPartition, Boolean> leaderPartitions = filterPartitions(partitionsBecomeLeader)
-                .collect(Collectors.toMap(p -> new TopicIdPartition(topicIds.get(p.topic()), p.topicPartition()),
-                        p -> p.log().exists(log -> log.config().remoteLogCopyDisable())));
+                .collect(Collectors.toMap(p -> new TopicIdPartition(topicIds.get(p.topic()), p),
+                        p -> fetchLog.apply(p).map(log -> log.config().remoteLogCopyDisable()).orElse(false)));
 
         Map<TopicIdPartition, Boolean> followerPartitions = filterPartitions(partitionsBecomeFollower)
-                .collect(Collectors.toMap(p -> new TopicIdPartition(topicIds.get(p.topic()), p.topicPartition()),
-                        p -> p.log().exists(log -> log.config().remoteLogCopyDisable())));
+                .collect(Collectors.toMap(p -> new TopicIdPartition(topicIds.get(p.topic()), p),
+                        p -> fetchLog.apply(p).map(log -> log.config().remoteLogCopyDisable()).orElse(false)));
 
         if (!leaderPartitions.isEmpty() || !followerPartitions.isEmpty()) {
             LOGGER.debug("Effective topic partitions after filtering compact and internal topics, leaders: {} and followers: {}",
@@ -468,9 +468,8 @@ public class RemoteLogManager implements Closeable {
         }
     }
 
-    public void stopLeaderCopyRLMTasks(Set<Partition> partitions) {
-        for (Partition partition : partitions) {
-            TopicPartition tp = partition.topicPartition();
+    public void stopLeaderCopyRLMTasks(Set<TopicPartition> partitions) {
+        for (TopicPartition tp : partitions) {
             if (topicIdByPartitionMap.containsKey(tp)) {
                 TopicIdPartition tpId = new TopicIdPartition(topicIdByPartitionMap.get(tp), tp);
                 leaderCopyRLMTasks.computeIfPresent(tpId, (topicIdPartition, task) -> {

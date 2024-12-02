@@ -2236,7 +2236,8 @@ class ReplicaManager(val config: KafkaConfig,
           replicaFetcherManager.shutdownIdleFetcherThreads()
           replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
 
-          remoteLogManager.foreach(rlm => rlm.onLeadershipChange(partitionsBecomeLeader.asJava, partitionsBecomeFollower.asJava, topicIds))
+          remoteLogManager.foreach(rlm => rlm.onLeadershipChange(partitionsBecomeLeader.map( p => p.topicPartition).asJava,
+            partitionsBecomeFollower.map( p => p.topicPartition).asJava, topicIds))
 
           onLeadershipChange(partitionsBecomeLeader, partitionsBecomeFollower)
 
@@ -2937,7 +2938,8 @@ class ReplicaManager(val config: KafkaConfig,
         replicaFetcherManager.shutdownIdleFetcherThreads()
         replicaAlterLogDirsManager.shutdownIdleFetcherThreads()
 
-        remoteLogManager.foreach(rlm => rlm.onLeadershipChange(leaderChangedPartitions.asJava, followerChangedPartitions.asJava, localChanges.topicIds()))
+        remoteLogManager.foreach(rlm => rlm.onLeadershipChange(leaderChangedPartitions.map( p => p.topicPartition).asJava,
+          followerChangedPartitions.map( p => p.topicPartition).asJava, localChanges.topicIds()))
       }
 
       if (metadataVersion.isDirectoryAssignmentSupported) {

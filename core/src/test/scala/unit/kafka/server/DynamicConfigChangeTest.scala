@@ -597,8 +597,8 @@ class DynamicConfigChangeUnitTest {
     when(replicaManager.onlinePartition(tp1)).thenReturn(Some(partition1))
     when(log1.config).thenReturn(new LogConfig(Collections.emptyMap()))
 
-    val leaderPartitionsArg: ArgumentCaptor[util.Set[Partition]] = ArgumentCaptor.forClass(classOf[util.Set[Partition]])
-    val followerPartitionsArg: ArgumentCaptor[util.Set[Partition]] = ArgumentCaptor.forClass(classOf[util.Set[Partition]])
+    val leaderPartitionsArg: ArgumentCaptor[util.Set[TopicPartition]] = ArgumentCaptor.forClass(classOf[util.Set[TopicPartition]])
+    val followerPartitionsArg: ArgumentCaptor[util.Set[TopicPartition]] = ArgumentCaptor.forClass(classOf[util.Set[TopicPartition]])
     doNothing().when(rlm).onLeadershipChange(leaderPartitionsArg.capture(), followerPartitionsArg.capture(), any())
 
     val isRemoteLogEnabledBeforeUpdate = false
