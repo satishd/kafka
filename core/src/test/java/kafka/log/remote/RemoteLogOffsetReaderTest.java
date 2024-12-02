@@ -16,7 +16,7 @@
  */
 package kafka.log.remote;
 
-import kafka.log.AsyncOffsetReadFutureHolder;
+import org.apache.kafka.storage.internals.log.AsyncOffsetReadFutureHolder;
 import kafka.utils.TestUtils;
 
 import org.apache.kafka.common.TopicPartition;

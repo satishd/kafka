@@ -17,7 +17,7 @@
 package kafka.server
 
 import com.yammer.metrics.core.Meter
-import kafka.utils.{Logging, Pool}
+import kafka.utils.{Logging}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.message.ListOffsetsResponseData.{ListOffsetsPartitionResponse, ListOffsetsTopicResponse}
@@ -150,15 +150,14 @@ class DelayedRemoteListOffsets(delayMs: Long,
 object DelayedRemoteListOffsetsMetrics {
   private val metricsGroup = new KafkaMetricsGroup(DelayedRemoteListOffsetsMetrics.getClass)
   private[server] val aggregateExpirationMeter = metricsGroup.newMeter("ExpiresPerSec", "requests", TimeUnit.SECONDS)
-  private val partitionExpirationMeterFactory = (key: TopicPartition) =>
-    metricsGroup.newMeter("ExpiresPerSec",
-      "requests",
-      TimeUnit.SECONDS,
-      Map("topic" -> key.topic, "partition" -> key.partition.toString).asJava)
-  private[server] val partitionExpirationMeters = new Pool[TopicPartition, Meter](valueFactory = Some(partitionExpirationMeterFactory))
+  private[server] val partitionExpirationMeters = new java.util.concurrent.ConcurrentHashMap[TopicPartition, Meter]()
 
   def recordExpiration(partition: TopicPartition): Unit = {
     aggregateExpirationMeter.mark()
-    partitionExpirationMeters.getAndMaybePut(partition).mark()
+    partitionExpirationMeters.computeIfAbsent(partition, (key: TopicPartition) =>
+      metricsGroup.newMeter("ExpiresPerSec",
+        "requests",
+        TimeUnit.SECONDS,
+        Map("topic" -> key.topic, "partition" -> key.partition.toString).asJava)).mark()
   }
 }

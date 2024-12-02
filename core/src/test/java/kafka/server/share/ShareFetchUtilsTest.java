@@ -16,7 +16,7 @@
  */
 package kafka.server.share;
 
-import kafka.log.OffsetResultHolder;
+import org.apache.kafka.storage.internals.log.OffsetResultHolder;
 import kafka.server.ReplicaManager;
 
 import org.apache.kafka.common.TopicIdPartition;
