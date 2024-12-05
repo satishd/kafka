@@ -16,26 +16,26 @@
  */
 package kafka.server
 
-import com.yammer.metrics.core.Meter
-import kafka.utils.{Logging, Pool}
+import kafka.utils.Logging
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.errors.ApiException
 import org.apache.kafka.common.message.ListOffsetsResponseData.{ListOffsetsPartitionResponse, ListOffsetsTopicResponse}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ListOffsetsResponse
-import org.apache.kafka.server.metrics.KafkaMetricsGroup
 import org.apache.kafka.server.purgatory.DelayedOperation
+import org.apache.kafka.storage.internals.log.DelayedRemoteListOffsetsMetrics
 
-import java.util.concurrent.TimeUnit
-import scala.collection.{Map, mutable}
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 class DelayedRemoteListOffsets(delayMs: Long,
                                version: Int,
                                statusByPartition: mutable.Map[TopicPartition, ListOffsetsPartitionStatus],
-                               replicaManager: ReplicaManager,
-                               responseCallback: List[ListOffsetsTopicResponse] => Unit)
+                               checkPartition: TopicPartition => Unit,
+                               responseCallback: List[ListOffsetsTopicResponse] => Unit,
+                               metrics: DelayedRemoteListOffsetsMetrics)
   extends DelayedOperation(delayMs) with Logging {
+
   // Mark the status as completed, if there is no async task to track.
   // If there is a task to track, then build the response as REQUEST_TIMED_OUT by default.
   statusByPartition.foreachEntry { (topicPartition, status) =>
@@ -54,7 +54,7 @@ class DelayedRemoteListOffsets(delayMs: Long,
       if (!status.completed) {
         debug(s"Expiring list offset request for partition $topicPartition with status $status")
         status.futureHolderOpt.foreach(futureHolder => futureHolder.jobFuture.cancel(true))
-        DelayedRemoteListOffsetsMetrics.recordExpiration(topicPartition)
+        metrics.recordExpiration(topicPartition)
       }
     }
   }
@@ -83,7 +83,7 @@ class DelayedRemoteListOffsets(delayMs: Long,
     statusByPartition.foreachEntry { (partition, status) =>
       if (!status.completed) {
         try {
-          replicaManager.getPartitionOrException(partition)
+          checkPartition(partition)
         } catch {
           case e: ApiException =>
             status.futureHolderOpt.foreach { futureHolder =>
@@ -144,21 +144,5 @@ class DelayedRemoteListOffsets(delayMs: Long,
       .setErrorCode(e.code)
       .setTimestamp(ListOffsetsResponse.UNKNOWN_TIMESTAMP)
       .setOffset(ListOffsetsResponse.UNKNOWN_OFFSET)
-  }
-}
-
-object DelayedRemoteListOffsetsMetrics {
-  private val metricsGroup = new KafkaMetricsGroup(DelayedRemoteListOffsetsMetrics.getClass)
-  private[server] val aggregateExpirationMeter = metricsGroup.newMeter("ExpiresPerSec", "requests", TimeUnit.SECONDS)
-  private val partitionExpirationMeterFactory = (key: TopicPartition) =>
-    metricsGroup.newMeter("ExpiresPerSec",
-      "requests",
-      TimeUnit.SECONDS,
-      Map("topic" -> key.topic, "partition" -> key.partition.toString).asJava)
-  private[server] val partitionExpirationMeters = new Pool[TopicPartition, Meter](valueFactory = Some(partitionExpirationMeterFactory))
-
-  def recordExpiration(partition: TopicPartition): Unit = {
-    aggregateExpirationMeter.mark()
-    partitionExpirationMeters.getAndMaybePut(partition).mark()
   }
 }
