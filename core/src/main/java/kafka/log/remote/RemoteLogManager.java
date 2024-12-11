@@ -1897,7 +1897,7 @@ public class RemoteLogManager implements Closeable {
             return Optional.empty();
         }
         OptionalInt initialEpochOpt = leaderEpochCache.epochForOffset(offset);
-        if (initialEpochOpt.isEmpty()) {
+        if (!initialEpochOpt.isPresent()) {
             return Optional.empty();
         }
         int initialEpoch = initialEpochOpt.getAsInt();
