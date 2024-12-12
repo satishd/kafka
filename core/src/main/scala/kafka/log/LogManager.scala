@@ -1564,7 +1564,7 @@ class LogManager(logDirs: Seq[File],
           error ("Error warming file system cache of topic partition " + log.topicPartition, e)
       }
     }
-    info ("Warmed " + logLastWarmupTime.size + " topic partitions in " + (time.milliseconds - start) +
+    debug("Warmed " + logLastWarmupTime.size + " topic partitions in " + (time.milliseconds - start) +
       "ms. The least-recently-used topic partition was warmed " + (start - logLastWarmupTime(0)._2) + " ms ago.")
   }
 }
