@@ -54,12 +54,12 @@ public class HDFSStaleFileFinder {
     }
 
     private void listPathStatus(FileSystem fs,
-                               Path path,
-                               Duration maxRetentionTime,
-                               AtomicInteger emptyDirectoriesCount,
-                               AtomicInteger staleEmptyDirectoriesCount,
-                               int level,
-                               Map<Uuid, StaleTopic> staleTopicsMap) throws IOException {
+                                Path path,
+                                Duration maxRetentionTime,
+                                AtomicInteger emptyDirectoriesCount,
+                                AtomicInteger staleEmptyDirectoriesCount,
+                                int level,
+                                Map<Uuid, StaleTopic> staleTopicsMap) throws IOException {
         LOGGER.trace("Auditing Level: {}, Path: {}", level, path);
         if (level > 1) {
             LOGGER.warn("Auditing Level: {} is greater than 1. Path: {}", level, path);
@@ -103,9 +103,9 @@ public class HDFSStaleFileFinder {
                     TopicIdPartition tpId = remoteLogSegmentId.topicIdPartition();
 
                     StaleTopic staleTopic = staleTopicsMap.computeIfAbsent(tpId.topicId(),
-                        k -> new StaleTopic(tpId.topic(), tpId.topicId()));
+                            k -> new StaleTopic(tpId.topic(), tpId.topicId()));
                     staleTopic.segmentsByPartition.computeIfAbsent(tpId.partition(), k -> new HashSet<>())
-                        .add(remoteLogSegmentId.id());
+                            .add(new UuidAndLen(remoteLogSegmentId.id(), status.getLen()));
                     if (timeElapsedSinceUpdate.toMillis() > staleTopic.maxTimeElapsedSinceUpdate) {
                         staleTopic.maxTimeElapsedSinceUpdate = timeElapsedSinceUpdate.toMillis();
                     }
@@ -141,14 +141,19 @@ public class HDFSStaleFileFinder {
 
             LOGGER.info("====== SUMMARY ======");
             for (StaleTopic staleTopic : staleTopicsMap.values()) {
-                LOGGER.info("Topic: {} has not been modified for {} and contains stale segment-count: {} in {} partitions. topic-id: {}",
+                LOGGER.info("Topic: {} has not been modified for {} and contains stale segment-count: {} in {} partitions. topic-id: {}. Total-size: {}",
                         staleTopic.topic,
                         formatDuration(Duration.ofMillis(staleTopic.maxTimeElapsedSinceUpdate)),
                         staleTopic.segmentsByPartition.entrySet()
-                            .stream()
-                            .reduce(0, (acc, entry) -> acc + entry.getValue().size(), Integer::sum),
+                                .stream()
+                                .reduce(0, (acc, entry) -> acc + entry.getValue().size(), Integer::sum),
                         staleTopic.segmentsByPartition.size(),
-                        staleTopic.topicId);
+                        staleTopic.topicId,
+                        humanReadableByteCountBin(staleTopic.segmentsByPartition.values()
+                                .stream()
+                                .flatMap(Set::stream)
+                                .mapToLong(segment -> segment.length)
+                                .sum()));
             }
             LOGGER.info("Total number of empty directories: {}, stale: {}. Time taken: {} ms",
                     emptyDirectoriesCount.get(),
@@ -188,7 +193,7 @@ public class HDFSStaleFileFinder {
             return;
         }
         List<String> validClusters = Arrays.asList("arm", "staging1", "d", "logging", "logging2", "ingestion",
-                "ingestion2", "dbevents1", "f", "a", "g", "agg1", "h");
+                "ingestion2", "dbevents1", "f", "a", "g", "agg1", "agg2", "h");
         String cluster = args[0];
         if (cluster == null || cluster.isEmpty() || !validClusters.contains(cluster)) {
             LOGGER.error("Invalid cluster: {}", cluster);
@@ -298,7 +303,7 @@ public class HDFSStaleFileFinder {
     private static class StaleTopic {
         String topic;
         Uuid topicId;
-        Map<Integer, Set<Uuid>> segmentsByPartition;
+        Map<Integer, Set<UuidAndLen>> segmentsByPartition;
         long maxTimeElapsedSinceUpdate;
 
         private StaleTopic(String topic, Uuid topicId) {
@@ -314,6 +319,16 @@ public class HDFSStaleFileFinder {
 
         private DirContentSummary(int fileCount, long length) {
             this.fileCount = fileCount;
+            this.length = length;
+        }
+    }
+
+    private static class UuidAndLen {
+        Uuid uuid;
+        long length;
+
+        private UuidAndLen(Uuid uuid, long length) {
+            this.uuid = uuid;
             this.length = length;
         }
     }
