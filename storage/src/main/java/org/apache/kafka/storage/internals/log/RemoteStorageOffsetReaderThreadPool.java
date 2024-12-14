@@ -33,18 +33,21 @@ import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.RE
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_STORAGE_OFFSET_READER_THREAD_POOL_METRICS;
 
-public class RemoteStorageOffsetReaderThreadPool extends ThreadPoolExecutor {
+public final class RemoteStorageOffsetReaderThreadPool extends ThreadPoolExecutor {
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteStorageOffsetReaderThreadPool.class);
     private final KafkaMetricsGroup metricsGroup = new KafkaMetricsGroup(this.getClass());
 
-    public RemoteStorageOffsetReaderThreadPool(String threadNamePrefix,
+    public RemoteStorageOffsetReaderThreadPool(String threadNamePattern,
                                                int numThreads,
                                                int maxPendingTasks) {
-        super(numThreads, numThreads,
+        super(numThreads,
+                numThreads,
                 0L,
                 TimeUnit.MILLISECONDS,
                 new LinkedBlockingQueue<>(maxPendingTasks),
-                ThreadUtils.createThreadFactory(threadNamePrefix + "-%d", false));
+                ThreadUtils.createThreadFactory(threadNamePattern, false,
+                        (t, e) -> LOGGER.error("Uncaught exception in thread '{}':", t.getName(), e))
+        );
         metricsGroup.newGauge(REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE_METRIC.getName(), () -> getQueue().size());
         metricsGroup.newGauge(REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT_METRIC.getName(), () -> 1 - (double) getActiveCount() / (double) getCorePoolSize());
     }
