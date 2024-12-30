@@ -78,24 +78,14 @@ if cat /etc/kafka/server.properties | grep -e "^zookeeper.set.acl=true"; then
   export EXTRA_ARGS="${EXTRA_ARGS} -Djava.security.auth.login.config=${JAAS_CONFIG}"
 fi
 
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS} ${HEAP_OPTS_JDK11}"
+export EXTRA_ARGS="${EXTRA_ARGS} --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED"
 # Check if cluster is currently setup with secure settings. If true, add secure to Kafka lib folder
 if cat /etc/kafka/server.properties | grep -e "^listeners=" | grep -q "SSL://"; then
   # EXTRA_ARGS is picked up by kafka-server-start.sh
   export EXTRA_ARGS="${EXTRA_ARGS} -Dupki.properties=/etc/kafka/broker-security.properties \
-                                   -Dcom.uber.engsec.auth.bouncycastle-enabled=false \
-                                   --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED"
-
-  # Use JDK11 for secure clusters.
-  export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-  export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS} ${HEAP_OPTS_JDK11}"
-elif [ "$(readlink /usr/lib/jvm/java-8-openjdk-amd64)" == "/usr/lib/jvm/java-11-openjdk-amd64" ]
-then
-  # it is possible non-secure clusters also using jdk11, check the symlink
-  export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
-  export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS} ${HEAP_OPTS_JDK11}"
-  export EXTRA_ARGS="${EXTRA_ARGS} --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED"
-else  
-  export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS} ${HEAP_OPTS_JDK8}"
+                                   -Dcom.uber.engsec.auth.bouncycastle-enabled=false"
 fi
 
 if [ ! -f "$(echo ${KAFKA_LOG4J_OPTS} | cut -d: -f2)" ]; then

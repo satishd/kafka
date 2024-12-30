@@ -75,7 +75,7 @@ export EXTRA_ARGS=${EXTRA_ARGS:-${DEFAULT_EXTRA_ARGS}}
 # RSYNC_PORT default to 29000 if it's not set in the environment variable by odin-kafka-worker
 RSYNC_PORT=${RSYNC_PORT:-29000}
 
-OFFLINE_REBUILD_ROOT_PATH=/usr/lib/python2.7/dist-packages/partition_moving_tools
+OFFLINE_REBUILD_ROOT_PATH=/usr/lib/python3/dist-packages/partition_moving_tools
 SHARED_RSYNC_PATH=/shared/rsync
 OFFLINE_REBUILD_ROOT_PATH_OVERRIDE="${SHARED_RSYNC_PATH}/partition_moving_tools"
 OFFLINE_REBUILD_COMMAND_SUFFIX=/scripts/rebuild_broker_odin_kafka_container.sh

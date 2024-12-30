@@ -20,39 +20,40 @@
 schema_version: 2.0.0
 service_name: odin-kafka
 service_type: java_standard
-distribution: buster
+distribution: bullseye
 
 java_standard:
   build_cmds:
   - 'RUN mkdir -p /etc/kafka /usr/share/kafka/lib /var/kafka-spool /usr/lib/kafka/intel_zlib /var/log/kafka /usr/local/bin /usr/share/man/man1'
   - 'RUN chmod 777 /etc/kafka'
   - 'RUN apt-get update'
-  - 'RUN apt-get install openjdk-11-jre-headless=11.0.23+9-1~deb10u1 -y'
-  - 'RUN ln -s /usr/lib/jvm/java-11-openjdk-amd64 /usr/lib/jvm/java-8-openjdk-amd64'
+  - 'RUN apt-get install openjdk-11-jre-headless=11.0.25+9-1~deb11u1 -y'
+  - 'RUN ARCH=$(dpkg --print-architecture) && ln -s /usr/lib/jvm/java-11-openjdk-$ARCH /usr/lib/jvm/java-8-openjdk-amd64 && ln -s /usr/lib/jvm/java-11-openjdk-$ARCH /usr/lib/jvm/java-11-openjdk'
   - 'RUN apt-get install fabric -y'
   - 'RUN apt-get install gettext -y'
   - 'RUN apt-get install muttley-config -y'
-  - 'RUN apt-get install python-dateutil -y'
-  - 'RUN apt-get install python-kazoo -y'
-  - 'RUN apt-get install python-kafka-rest-py -y'
-  - 'RUN apt-get install python-m3 -y'
-  - 'RUN apt-get install python-numpy -y'
-  - 'RUN apt-get install python-tz -y'
-  - 'RUN apt-get install python-yaml -y'
-  - 'RUN apt-get install kafka-tools-odin=1.4.2~5720.gbp1b686d -y'
-  - 'RUN apt-get install uber-kafka -y'
+  - 'RUN apt-get install python3-dev python3-pip -y'
+  - 'RUN pip3 install python-dateutil'
+  - 'RUN pip3 install kazoo'
+  - 'RUN pip3 install numpy'
+  - 'RUN pip3 install pytz'
+  - 'RUN pip3 install PyYAML'
+  - 'RUN pip3 install m3'
+  #  Before changing the kafka-tools-odin version, read this document: https://docs.google.com/document/d/1Gv9K2tlsxwtWq1DCSJO8dLMuQEdmihRb_kn237CnGTo/edit?usp=sharing
+  - 'RUN apt-get install kafka-tools-odin=2.0.1~9328.gbp201013 -y'
   # Kerberos client libs are required to connect to
   #   1. secured HDFS cluster when remote storage option is enabled
   #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
   - 'RUN DEBIAN_FRONTEND=noninteractive apt-get install krb5-user uber-data-krb5-conf -y'
   - 'RUN apt-get install netcat -y'
   - 'RUN apt-get install rsync -y'
-  - 'RUN apt-get install jmx-exporter -y'
   - 'RUN apt-get install ngrep -y'
   - 'RUN apt-get install sudo -y'
   - 'RUN apt-get install telnet -y'
   - 'RUN apt-get install vim -y'
   - 'RUN udeploy/build.sh'
+  - 'RUN mkdir -p /usr/share/jmx_exporter'
+  - 'RUN curl -L https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_httpserver/0.12.0/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar -o /usr/share/jmx_exporter/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar'
 
 applications:
   - app_type: command_line
