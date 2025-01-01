@@ -16,7 +16,7 @@
 */
 package kafka.zk
 
-import java.util.Properties
+import java.util.{Locale, Properties}
 import com.yammer.metrics.core.MetricName
 import kafka.api.LeaderAndIsr
 import kafka.cluster.Broker
@@ -40,13 +40,17 @@ import org.apache.kafka.storage.internals.log.LogConfig
 import org.apache.zookeeper.KeeperException.{Code, NodeExistsException}
 import org.apache.zookeeper.OpResult.{CheckResult, CreateResult, ErrorResult, SetDataResult}
 import org.apache.zookeeper.client.ZKClientConfig
+import org.apache.zookeeper.ZooDefs
 import org.apache.zookeeper.common.ZKConfig
 import org.apache.zookeeper.data.{ACL, Stat}
 import org.apache.zookeeper.{CreateMode, KeeperException, OpResult, ZooKeeper}
 
 import java.util
 import java.lang.{Long => JLong}
+import java.util.concurrent.TimeUnit
 import scala.collection.{Map, Seq, mutable}
+import scala.jdk.CollectionConverters._
+
 
 sealed trait KRaftRegistrationResult
 case class FailedRegistrationResult() extends KRaftRegistrationResult
@@ -74,6 +78,7 @@ class KafkaZkClient private[zk] (
   }
 
   private val latencyMetric = metricsGroup.newHistogram("ZooKeeperRequestLatencyMs")
+  private val authorizationFailuresMetric = metricsGroup.newMeter("NoAuthorizationFailures", "authorization".toLowerCase(Locale.ROOT), TimeUnit.SECONDS)
 
   import KafkaZkClient._
 
@@ -1725,6 +1730,7 @@ wise.
    */
   def close(): Unit = {
     metricsGroup.removeMetric("ZooKeeperRequestLatencyMs")
+    metricsGroup.removeMetric("NoAuthorizationFailures")
     zooKeeperClient.close()
   }
 
@@ -2026,7 +2032,22 @@ wise.
     retryRequestsUntilConnected(getDataRequests)
   }
 
-  def defaultAcls(path: String): Seq[ACL] = ZkData.defaultAcls(isSecure, path)
+  private def isCriticalPath(path: String): Boolean = {
+    val (data, _) = getDataAndStat(CriticalPathsZNode.path)
+    if (data.isDefined) {
+      CriticalPathsZNode.decode(data.get).split(",").exists(path.startsWith)
+    } else {
+      false
+    }
+  }
+
+  def defaultAcls(path: String): Seq[ACL] = {
+    if (isSecure && pathExists(DefaultACLsZNode.path) && pathExists(CriticalPathsZNode.path) && isCriticalPath(path)) {
+      getAcl(DefaultACLsZNode.path)
+    } else {
+      ZooDefs.Ids.OPEN_ACL_UNSAFE.asScala
+    }
+  }
 
   def secure: Boolean = isSecure
 
@@ -2182,7 +2203,13 @@ wise.
     while (remainingRequests.nonEmpty) {
       val batchResponses = zooKeeperClient.handleRequests(remainingRequests)
 
-      batchResponses.foreach(response => latencyMetric.update(response.metadata.responseTimeMs))
+      batchResponses.foreach(response => {
+        latencyMetric.update(response.metadata.responseTimeMs)
+        response.resultCode match {
+          case Code.NOAUTH => authorizationFailuresMetric.mark()
+          case _ =>
+        }
+      })
 
       // Only execute slow path if we find a response with CONNECTIONLOSS
       if (batchResponses.exists(_.resultCode == Code.CONNECTIONLOSS)) {

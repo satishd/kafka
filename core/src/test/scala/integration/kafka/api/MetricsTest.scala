@@ -32,6 +32,7 @@ import org.junit.jupiter.api.{AfterEach, BeforeEach, TestInfo}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.apache.zookeeper.ZooDefs
 
 import scala.annotation.nowarn
 import scala.jdk.CollectionConverters._
@@ -116,6 +117,7 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
     generateAuthenticationFailure(tp)
     verifyBrokerAuthenticationMetrics(server)
     verifyRemoteStorageMetrics(systemRemoteStorageEnabled)
+    verifyZKNoAuthorizationFailures()
   }
 
   private def sendRecords(producer: KafkaProducer[Array[Byte], Array[Byte]], numRecords: Int,
@@ -193,6 +195,21 @@ class MetricsTest extends IntegrationTestHarness with SaslSetup {
         assertTrue(metric.metricName.tags.containsKey("client-id"), "Client-id not specified")
       }
     }
+  }
+
+  private def verifyZKNoAuthorizationFailures(): Unit = {
+    val mockPath = "/foo"
+    servers.head.zkClient.createRecursive(mockPath)
+    servers.head.zkClient.setAcl(mockPath, ZooDefs.Ids.READ_ACL_UNSAFE.asScala)
+    // No Authorization to set any ACLs, user is only allowed to read the ACL
+    try {
+      servers.head.zkClient.setAcl(mockPath, ZooDefs.Ids.READ_ACL_UNSAFE.asScala)
+      fail("Expected exception")
+    } catch {
+      case _: Exception => // expected exception
+    }
+
+    verifyYammerMetricRecorded("kafka.server:type=ZooKeeperClientMetrics,name=NoAuthorizationFailures")
   }
 
   private def verifyBrokerAuthenticationMetrics(server: KafkaServer): Unit = {

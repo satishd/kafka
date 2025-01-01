@@ -18,14 +18,13 @@
 package kafka.security.auth
 
 import java.nio.charset.StandardCharsets
-
 import kafka.admin.ZkSecurityMigrator
 import kafka.server.QuorumTestHarness
 import kafka.utils.{Logging, TestUtils}
 import kafka.zk._
 import org.apache.kafka.common.{KafkaException, TopicPartition, Uuid}
 import org.apache.kafka.common.security.JaasUtils
-import org.apache.zookeeper.data.{ACL, Stat}
+import org.apache.zookeeper.data.{ACL, Id, Stat}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test, TestInfo}
 
@@ -38,13 +37,19 @@ import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.zookeeper.client.ZKClientConfig
+import org.apache.zookeeper.ZooDefs
 
+import java.nio.charset.StandardCharsets.UTF_8
 import scala.jdk.CollectionConverters._
 import scala.collection.Seq
 
 class ZkAuthorizationTest extends QuorumTestHarness with Logging {
   val jaasFile = kafka.utils.JaasTestUtils.writeJaasContextsToFile(kafka.utils.JaasTestUtils.zkSections)
   val authProvider = "zookeeper.authProvider.1"
+
+  val aclWorldAll = new ACL(ZooDefs.Perms.ALL, new Id("world", "anyone"))
+  val aclWorldRead = new ACL(ZooDefs.Perms.READ, new Id("world", "anyone"))
+  val aclKafka = new ACL(ZooDefs.Perms.ALL, new Id("sasl", "kafka"))
 
   @BeforeEach
   override def setUp(testInfo: TestInfo): Unit = {
@@ -92,18 +97,15 @@ class ZkAuthorizationTest extends QuorumTestHarness with Logging {
         assertEquals(1, aclList.size, s"Unexpected acl list size for $path")
         for (acl <- aclList)
           assertTrue(TestUtils.isAclSecure(acl, sensitive = true))
-      } else if (!path.equals(ConsumerPathZNode.path)) {
-        val aclList = zkClient.getAcl(path)
-        assertEquals(2, aclList.size, s"Unexpected acl list size for $path")
-        for (acl <- aclList)
-          assertTrue(TestUtils.isAclSecure(acl, sensitive = false))
+      }else   {
+        verifyWorldAcl(path)
       }
     }
 
     // Test that creates Ephemeral node
     val brokerInfo = createBrokerInfo(1, "test.host", 9999, SecurityProtocol.PLAINTEXT)
     zkClient.registerBroker(brokerInfo)
-    verify(brokerInfo.path)
+    verifyWorldAcl(brokerInfo.path)
 
     // Test that creates persistent nodes
     val topic1 = "topic1"
@@ -116,11 +118,11 @@ class ZkAuthorizationTest extends QuorumTestHarness with Logging {
 
     // create a topic assignment
     zkClient.createTopicAssignment(topic1, topicId, assignment)
-    verify(TopicZNode.path(topic1))
+    verifyWorldAcl(TopicZNode.path(topic1))
 
     // Test that can create: createSequentialPersistentPath
     val seqPath = zkClient.createSequentialPersistentPath("/c", "".getBytes(StandardCharsets.UTF_8))
-    verify(seqPath)
+    verifyWorldAcl(seqPath)
 
     // Test that can update Ephemeral node
     val updatedBrokerInfo = createBrokerInfo(1, "test.host2", 9995, SecurityProtocol.SSL)
@@ -215,6 +217,92 @@ class ZkAuthorizationTest extends QuorumTestHarness with Logging {
   }
 
   /**
+   * Tests critical znodes are set ACLs as default_acls in secure ZK cluster.
+   */
+  @Test
+  def testZKDefaultAcls(): Unit = {
+    assertTrue(zkClient.secure)
+    val criticalPaths = "/controller,/controller_eppch,/brokers,/admin"
+    val acls = Seq(aclWorldRead, aclKafka) ++ZooDefs.Ids.CREATOR_ALL_ACL.asScala
+    zkClient.createRecursive(CriticalPathsZNode.path, CriticalPathsZNode.encode(criticalPaths))
+    zkClient.createRecursive(DefaultACLsZNode.path, "test".getBytes(UTF_8), throwIfPathExists = false)
+
+    zkClient.setAcl(DefaultACLsZNode.path, acls)
+    var aclList = zkClient.getAcl(DefaultACLsZNode.path)
+    assertEquals(acls.size, aclList.size, s"Unexpected acl list size for ${DefaultACLsZNode.path}")
+    assertTrue(aclList.contains(aclWorldRead))
+    assertTrue(aclList.contains(aclKafka))
+
+    for (path <- ZkData.PersistentZkPaths) {
+      zkClient.makeSurePersistentPathExists(path)
+    }
+
+    val paths = Seq("/brokers/ids", "/brokers/topics", "/admin/recently_deleted_topics")
+    paths.foreach { path =>
+      aclList = zkClient.getAcl(path)
+      assertEquals(acls.size, aclList.size, s"Unexpected acl list size for $path")
+      assertTrue(aclList.contains(aclWorldRead))
+      assertTrue(aclList.contains(aclKafka))
+      assertFalse(aclList.contains(aclWorldAll))
+    }
+
+    // non-critical znodes
+    val path = "/test"
+    zkClient.createRecursive(path, data = null, throwIfPathExists = false)
+    aclList = zkClient.getAcl(path)
+    assertEquals(1, aclList.size, s"Unexpected acl list size for $path")
+    assertTrue(aclList.contains(aclWorldAll))
+    assertFalse(aclList.contains(aclWorldRead))
+    assertFalse(aclList.contains(aclKafka))
+  }
+
+  /**
+   * Tests critical znodes are set ACLs as default_acls in unsecure ZK cluster.
+   */
+  @Test
+  def testZKDefaultAclsUnsecure(): Unit = {
+    val unsecureZkClient = newKafkaZkClient(zkConnect, false)
+    assertFalse(unsecureZkClient.secure)
+
+    val criticalPaths = "/controller,/controller_epoch,/brokers,/admin"
+    val acls = Seq(aclWorldRead,  aclKafka) ++ZooDefs.Ids.CREATOR_ALL_ACL.asScala
+
+    unsecureZkClient.createRecursive(CriticalPathsZNode.path, CriticalPathsZNode.encode(criticalPaths))
+    unsecureZkClient.createRecursive(DefaultACLsZNode.path, "test".getBytes(UTF_8), false)
+
+    unsecureZkClient.setAcl(DefaultACLsZNode.path, acls)
+    var aclList = unsecureZkClient.getAcl(DefaultACLsZNode.path)
+    assertEquals(acls.size, aclList.size, s"Unexpected acl list size for ${DefaultACLsZNode.path}")
+    assertTrue(aclList.contains(aclWorldRead))
+    assertTrue(aclList.contains(aclKafka))
+
+    for (path <- ZkData.PersistentZkPaths) {
+      unsecureZkClient.makeSurePersistentPathExists(path)
+    }
+
+    val paths = Seq("/brokers/ids", "/brokers/topics", "/admin/recently_deleted_topics")
+    paths.foreach { path =>
+      aclList = zkClient.getAcl(path)
+      assertEquals(1, aclList.size, s"Unexpected acl list size for $path")
+      assertTrue(aclList.contains(aclWorldAll))
+      assertFalse(aclList.contains(aclWorldRead))
+      assertFalse(aclList.contains(aclKafka))
+    }
+
+    // non-critical znodes
+    val path = "/test"
+    unsecureZkClient.createRecursive(path, data = null, throwIfPathExists = false)
+    aclList = unsecureZkClient.getAcl(path)
+    assertEquals(1, aclList.size, s"Unexpected acl list size for $path")
+    assertTrue(aclList.contains(aclWorldAll))
+    assertFalse(aclList.contains(aclWorldRead))
+    assertFalse(aclList.contains(aclKafka))
+
+    if (unsecureZkClient != null)
+      unsecureZkClient.close()
+  }
+
+  /**
    * Exercises the migration tool. It is used in these test cases:
    * testZkMigration, testZkAntiMigration, testChroot.
    */
@@ -253,19 +341,14 @@ class ZkAuthorizationTest extends QuorumTestHarness with Logging {
     // Check consumers path.
     val consumersAcl = firstZk.getAcl(ConsumerPathZNode.path)
     assertTrue(isAclCorrect(consumersAcl, secure = false, sensitive = false), ConsumerPathZNode.path)
-    assertTrue(isAclCorrect(firstZk.getAcl("/kafka-acl-extended"), secondZk.secure,
-      ZkData.sensitivePath(ExtendedAclZNode.path)), "/kafka-acl-extended")
-    assertTrue(isAclCorrect(firstZk.getAcl("/feature"), secondZk.secure,
-      ZkData.sensitivePath(FeatureZNode.path)), "ACL mismatch for /feature path")
   }
 
   /**
-   * Verifies that the path has the appropriate secure ACL.
+   * Verifies that the path has world accessible ACL.
    */
-  private def verify(path: String): Unit = {
-    val sensitive = ZkData.sensitivePath(path)
-    val list = zkClient.getAcl(path)
-    assertTrue(list.forall(TestUtils.isAclSecure(_, sensitive)))
+  private def verifyWorldAcl(path: String): Unit = {
+    val aclList = zkClient.getAcl(path)
+    assertTrue(aclList.contains(aclWorldAll))
   }
 
   /**

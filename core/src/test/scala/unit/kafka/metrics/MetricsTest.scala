@@ -277,6 +277,8 @@ class MetricsTest extends KafkaServerTestHarness with Logging {
       count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperExpiresPerSec"))
     assertEquals(expectedNumMetrics, metrics.keySet.asScala.
       count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperDisconnectsPerSec"))
+    assertEquals(expectedNumMetrics, metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperAuthFailuresPerSec"))
+    assertEquals(expectedNumMetrics, metrics.keySet.asScala.count(_.getMBeanName == "kafka.server:type=SessionExpireListener,name=ZooKeeperSaslAuthenticationsPerSec"))
   }
 
   private def topicMetrics(topic: Option[String]): Set[String] = {

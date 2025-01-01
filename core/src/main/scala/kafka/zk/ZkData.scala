@@ -556,6 +556,20 @@ object RecentlyDeletedTopicsTopicZNode {
   }
 }
 
+object CriticalPathsZNode {
+  def path = "/critical_paths"
+
+  // Comma separated prefixes
+  // For example, "/controller,/controller_epoch,/brokers/admin"
+  def encode(paths: String): Array[Byte] = paths.getBytes(UTF_8)
+  def decode(bytes: Array[Byte]): String = new String(bytes, UTF_8)
+}
+
+
+object DefaultACLsZNode {
+  def path = "/default_acls"
+}
+
 /**
  * The znode for initiating a partition reassignment.
  * @deprecated Since 2.4, use the PartitionReassignment Kafka API instead.
@@ -1141,20 +1155,7 @@ object MigrationZNode {
 object ZkData {
 
   // Important: it is necessary to add any new top level Zookeeper path to the Seq
-  val SecureRootPaths: Seq[String] = Seq(AdminZNode.path,
-    BrokersZNode.path,
-    ClusterZNode.path,
-    ConfigZNode.path,
-    ControllerZNode.path,
-    ControllerEpochZNode.path,
-    IsrChangeNotificationZNode.path,
-    ProducerIdBlockZNode.path,
-    LogDirEventNotificationZNode.path,
-    DelegationTokenAuthZNode.path,
-    ExtendedAclZNode.path,
-    MigrationZNode.path,
-    FeatureZNode.path,
-    IsrBlackListZNode.path) ++ ZkAclStore.securePaths
+  val SecureRootPaths = Seq.empty[String]
 
   // These are persistent ZK paths that should exist on kafka broker startup.
   val PersistentZkPaths: Seq[String] = Seq(
@@ -1167,14 +1168,11 @@ object ZkData {
     IsrChangeNotificationZNode.path,
     ProducerIdBlockZNode.path,
     LogDirEventNotificationZNode.path,
-    IsrBlackListZNode.path
+    IsrBlackListZNode.path,
+    RecentlyDeletedTopicsZNode.path,
   ) ++ ConfigType.ALL.asScala.map(ConfigEntityTypeZNode.path)
 
-  val SensitiveRootPaths: Seq[String] = Seq(
-    ConfigEntityTypeZNode.path(ConfigType.USER),
-    ConfigEntityTypeZNode.path(ConfigType.BROKER),
-    DelegationTokensZNode.path
-  )
+  val SensitiveRootPaths = Seq.empty[String]
 
   def sensitivePath(path: String): Boolean = {
     path != null && SensitiveRootPaths.exists(path.startsWith)
