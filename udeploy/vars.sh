@@ -51,6 +51,7 @@ export HEAP_OPTS_JDK8=" -XX:+PrintGCDetails \
     -Xloggc:${LOG_HOME}/gc-kafka.log"
 
 export HEAP_OPTS_JDK11=" -Xlog:gc*:${LOG_HOME}/gc-kafka.log:time,uptime,level,tags:filecount=10,filesize=100M"
+export HEAP_OPTS_JDK17=" -Xlog:gc*:${LOG_HOME}/gc-kafka.log:time,uptime,level,tags:filecount=10,filesize=100M"
 
 export KAFKA_HEAP_OPTS=${KAFKA_HEAP_OPTS:-${DEFAULT_KAFKA_HEAP_OPTS}}
 

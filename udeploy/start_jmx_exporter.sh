@@ -72,4 +72,4 @@ JMX_PORT=${JMX_PORT:-29010}
 echo "replace the JMX_PORT the environment variable from odin-kafka-worker container"
 sed -i -E "s#JMX_PORT#$JMX_PORT#g" ${APP_HOME}/udeploy/config/jmx_limited.yaml
 
-exec /usr/lib/jvm/java-11-openjdk/bin/java -Xms${JVM_HEAP_MEM_MIN} -Xmx${JVM_HEAP_MEM_MAX} -XX:+UseG1GC -XX:MaxGCPauseMillis=2 -jar /usr/share/jmx_exporter/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar ${JMX_EXPORTER_PORT} ${APP_HOME}/udeploy/config/jmx_limited.yaml
+exec /usr/lib/jvm/java-17-openjdk/bin/java -Xms${JVM_HEAP_MEM_MIN} -Xmx${JVM_HEAP_MEM_MAX} -XX:+UseG1GC -XX:MaxGCPauseMillis=2 -jar /usr/share/jmx_exporter/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar ${JMX_EXPORTER_PORT} ${APP_HOME}/udeploy/config/jmx_limited.yaml

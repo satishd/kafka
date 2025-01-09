@@ -27,8 +27,8 @@ java_standard:
   - 'RUN mkdir -p /etc/kafka /usr/share/kafka/lib /var/kafka-spool /usr/lib/kafka/intel_zlib /var/log/kafka /usr/local/bin /usr/share/man/man1'
   - 'RUN chmod 777 /etc/kafka'
   - 'RUN apt-get update'
-  - 'RUN apt-get install openjdk-11-jre-headless=11.0.25+9-1~deb11u1 -y'
-  - 'RUN ARCH=$(dpkg --print-architecture) && ln -s /usr/lib/jvm/java-11-openjdk-$ARCH /usr/lib/jvm/java-8-openjdk-amd64 && ln -s /usr/lib/jvm/java-11-openjdk-$ARCH /usr/lib/jvm/java-11-openjdk'
+  - 'RUN apt-get install openjdk-17-jre-headless -y'
+  - 'RUN ARCH=$(dpkg --print-architecture) && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-8-openjdk-amd64 && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-17-openjdk'
   - 'RUN apt-get install fabric -y'
   - 'RUN apt-get install gettext -y'
   - 'RUN apt-get install muttley-config -y'
@@ -40,7 +40,7 @@ java_standard:
   - 'RUN pip3 install PyYAML'
   - 'RUN pip3 install m3'
   #  Before changing the kafka-tools-odin version, read this document: https://docs.google.com/document/d/1Gv9K2tlsxwtWq1DCSJO8dLMuQEdmihRb_kn237CnGTo/edit?usp=sharing
-  - 'RUN apt-get install kafka-tools-odin=2.0.1~9328.gbp201013 -y'
+  - 'RUN apt-get install kafka-tools-odin=2.0.1~9911.gbp0c225b -y'
   # Kerberos client libs are required to connect to
   #   1. secured HDFS cluster when remote storage option is enabled
   #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
