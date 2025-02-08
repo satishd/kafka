@@ -53,9 +53,11 @@ public class DumpHDFSRemoteLogSegment {
      * To compile it:
      *      [udocker@/home/udocker/odin-kafka/external/hdfs/libs #]javac -d . -cp .:*:../../../libs/* DumpHDFSRemoteLogSegment.java
      * To run the tool:
-     *      [udocker@/home/udocker/odin-kafka/external/hdfs/libs #]java -Xmx512M -Dlog4j.configuration=file:/home/udocker/odin-kafka/config/tools-log4j.properties
+     *      [udocker@/home/udocker/odin-kafka/external/hdfs/libs #]java -Xmx512M --add-exports java.security.jgss/sun.security.krb5=ALL-UNNAMED
+     *      -Dlog4j.configuration=file:/home/udocker/odin-kafka/config/tools-log4j.properties
      *      -Djava.security.krb5.conf=/etc/kafka/krb5.conf -cp .:/opt/hdfs/conf:/home/udocker/odin-kafka/libs/*:/home/udocker/odin-kafka/external/hdfs/libs/*
-     *      org.apache.kafka.rsm.hdfs.tools.DumpHDFSRemoteLogSegment /etc/kafka/server.properties hp-motion-driver_app 0 B0phu66QT9qgJGaQ5nAFxw 15 3edfRvq4QhmBYx8hWTdPbQ /tmp/
+     *      org.apache.kafka.rsm.hdfs.tools.DumpHDFSRemoteLogSegment --config /etc/kafka/server.properties --topic hp-motion-driver_app --partition 0
+     *      --topic-uuid B0phu66QT9qgJGaQ5nAFxw --base-offset 15 --segment-uuid 3edfRvq4QhmBYx8hWTdPbQ --output-dir /tmp/hp-motion-driver-app-0/
      *
      * @param args                      The arguments to the tool
      * @throws IOException              If there is an error reading or writing the files
@@ -70,11 +72,12 @@ public class DumpHDFSRemoteLogSegment {
         long baseOffset = namespace.getLong("base_offset");
         Uuid segmentUuid = Uuid.fromString(namespace.getString("segment_uuid"));
         String outputDir = namespace.get("output_dir").toString();
+        long endOffset = baseOffset + 1; // dummy field, required only to skip the validation (endOffset > baseOffset)
 
         TopicIdPartition topicIdPartition = new TopicIdPartition(topicUuid, partition, topic);
         RemoteLogSegmentId segmentId = new RemoteLogSegmentId(topicIdPartition, segmentUuid);
         RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, baseOffset,
-                -1, -1, -1, -1, -1, Collections.singletonMap(0, 0L));
+                endOffset, -1, -1, -1, -1, Collections.singletonMap(0, 0L));
         String filename = LogFileUtils.filenamePrefixFromOffset(baseOffset);
 
         Map<String, String> configs = Utils.propsToStringMap(Utils.loadProps(serverPropsFilename));
