@@ -16,7 +16,7 @@
 */
 package kafka.zk
 
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collections, Optional, Properties, Map => JMap}
 import kafka.admin.RackAwareMode
 import kafka.common.TopicAlreadyMarkedForDeletionException
 import kafka.controller.ReplicaAssignment
@@ -497,8 +497,8 @@ class AdminZkClient(zkClient: KafkaZkClient,
     Topic.validate(topic)
     if (!zkClient.topicExists(topic))
       throw new UnknownTopicOrPartitionException(s"Topic '$topic' does not exist.")
-    // remove the topic overrides
-    LogConfig.validate(Collections.emptyMap(), configs,
+    val existingConfigs: JMap[String, String] = fetchEntityConfig(ConfigType.TOPIC, topic).asScala.map { case(k, v) => k -> v }.asJava
+    LogConfig.validate(existingConfigs, configs,
       kafkaConfig.map(_.extractLogConfigMap).getOrElse(Collections.emptyMap()),
       kafkaConfig.exists(_.remoteLogManagerConfig.isRemoteStorageSystemEnabled()), true)
   }

@@ -157,7 +157,7 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
   }
 
   // `remote.log.delete.on.disable` and `remote.log.copy.disable` only works in KRaft mode.
-  // DKAFC-5111: Support disabling the remote storage in ZK mode
+  // We have extended the support to disable the remote storage in ZK mode as well. See DKAFC-5111 ticket.
   @ParameterizedTest
   @CsvSource(Array("kraft,true,true", "kraft,true,false", "kraft,false,true", "kraft,false,false" ,
     "zk,true,true", "zk,true,false", "zk,false,true", "zk,false,false"))
@@ -171,6 +171,7 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
   }
 
   // `remote.log.delete.on.disable` only works in KRaft mode.
+  // We have extended the support to disable the remote storage in ZK mode as well. See DKAFC-5111 ticket.
   @ParameterizedTest
   @ValueSource(strings = Array("zk", "kraft"))
   def testCreateTopicRetentionMsValidationWithRemoteCopyDisabled(quorum: String): Unit = {
@@ -427,8 +428,9 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
   }
 
   // The remote storage config validation on controller level only works in KRaft
+  // We have extended the support to disable the remote storage in ZK mode as well. See DKAFC-5111 ticket.
   @ParameterizedTest
-  @ValueSource(strings = Array("kraft"))
+  @ValueSource(strings = Array("zk", "kraft"))
   def testUpdateTopicConfigWithDisablingRemoteStorage(quorum: String): Unit = {
     val admin = createAdminClient()
     val topicConfig = new Properties
