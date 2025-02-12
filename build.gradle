@@ -2147,10 +2147,15 @@ project(':remote-storage-managers:hdfs') {
     implementation(libs.metrics) {
       exclude group: 'org.slf4j', module: 'sl4j-api'
     }
+    implementation libs.nettyBuffer
+    implementation libs.nettyCommon
 
-    testImplementation libs.hadoopMiniCluster
+    testImplementation (libs.hadoopMiniCluster) {
+      exclude group: 'io.netty', module: 'netty-all'
+    }
     testImplementation libs.argparse4j
     testImplementation libs.junitJupiter
+    testImplementation libs.nettyTransport
     testImplementation project(':storage')
     testImplementation project(':clients').sourceSets.test.output
   }

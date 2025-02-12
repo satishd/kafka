@@ -63,6 +63,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 
+import io.netty.buffer.ByteBuf;
+
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.ALLOCATOR_CHUNK_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManager.ALLOCATOR_USED_HEAP_MEMORY;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,6 +76,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HDFSRemoteStorageManagerTest {
 
+    private static final int ONE_MB = 1024 * 1024;
     private final String baseDir = "/kafka-remote-logs";
     private final TopicIdPartition tp = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("test", 1));
 
@@ -206,7 +211,7 @@ public class HDFSRemoteStorageManagerTest {
         // fetch exceeds the segment size
         verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 990, 1050, 10);
     }
-    
+
     @Test
     public void testRepeatedFetchReadsFromCacheOnFullSegmentFetch() throws Exception {
         LRUCacheWithContext cache = new LRUCacheWithContext(10 * 1048576L);
@@ -392,6 +397,82 @@ public class HDFSRemoteStorageManagerTest {
             Optional<Metric> thrashRequestsPerSec = findKafkaMetric("HDFSCacheThrashRequestPerSec");
             assertTrue(thrashRequestsPerSec.isPresent());
             assertEquals(0, ((Meter) thrashRequestsPerSec.get()).count());
+        }
+    }
+
+    @Test
+    public void testNoByteBufResourceLeaksCacheInlineSizeMatchesChunkSize() throws Exception {
+        int cacheSize = 2 * ONE_MB;
+        // Cache inline size is 1 MB, number of cache entries = 2
+        int cacheInlineSize = ONE_MB;
+        int segSize = 10 * ONE_MB;
+        // Chunk size = pageSize << maxOrder (1 MB here)
+        int pageSize = 8192;
+        int maxOrder = 7;
+        // Expected used memory = 2 MB, each of the 2 cache entries will reserve 1 MB
+        int expectedUsedMemory = 2097152;
+        testNoByteBufResourceLeak(cacheSize, cacheInlineSize, segSize, pageSize, maxOrder, expectedUsedMemory);
+    }
+
+    @Test
+    public void testNoByteBufResourceLeaksCacheInlineSizeExceedsChunkSize() throws Exception {
+        int cacheSize = 6 * ONE_MB;
+        // Cache inline size is 1.5 MB, number of cache entries = 4
+        int cacheInlineSize = (int) (1.5 * ONE_MB);
+        int segSize = 10 * ONE_MB;
+        // Chunk size = pageSize << maxOrder (1 MB here)
+        int pageSize = 8192;
+        int maxOrder = 7;
+        // Expected used memory = 4 * 1.5 MB = 6 MB (same as cache size here)
+        int expectedUsedMemory = 6 * ONE_MB;
+        testNoByteBufResourceLeak(cacheSize, cacheInlineSize, segSize, pageSize, maxOrder, expectedUsedMemory);
+    }
+
+    @Test
+    public void testNoByteBufResourceLeaksChunkSizeExceedsCacheInlineSize() throws Exception {
+        int cacheSize = 6 * ONE_MB;
+        // Cache inline size is 1.5 MB, number of cache entries = 4
+        int cacheInlineSize = (int) (1.5 * ONE_MB);
+        int segSize = 10 * ONE_MB;
+        // Chunk size = pageSize << maxOrder (2 MB here)
+        int pageSize = 8192;
+        int maxOrder = 8;
+        // Expected used memory = 8 MB, each of the 4 cache entries will reserve 2 MB, causing memory wastage
+        int expectedUsedMemory = 8 * ONE_MB;
+        testNoByteBufResourceLeak(cacheSize, cacheInlineSize, segSize, pageSize, maxOrder, expectedUsedMemory);
+    }
+
+    private void testNoByteBufResourceLeak(int cacheSize, int cacheInlineSize, int segSize, int pageSize, int maxOrder, long expectedUsedMemory) throws Exception {
+        LRUCacheWithContext cache = new LRUCacheWithContext(cacheSize);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, String.valueOf(cacheInlineSize));
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_PAGE_SIZE_PROP, String.valueOf(pageSize));
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_MAX_ORDER_PROP, String.valueOf(maxOrder));
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+            rsm.setLRUCache(cache);
+            // Clear previously registered metrics during object creation
+            clearKafkaMetrics();
+            rsm.registerMetrics(cache);
+            rsm.registerPooledByteBufAllocatorMetrics();
+
+            Optional<Metric> chunkSize = findKafkaMetric(ALLOCATOR_CHUNK_SIZE);
+            assertTrue(chunkSize.isPresent());
+            // Verify the chunk size
+            assertEquals(pageSize << maxOrder, ((Gauge<?>) chunkSize.get()).value());
+
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(tp, Uuid.randomUuid()),
+                    0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+
+            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
+
+            Optional<Metric> usedHeapMemory = findKafkaMetric(ALLOCATOR_USED_HEAP_MEMORY);
+            assertTrue(usedHeapMemory.isPresent());
+            // Verify the size of used heap memory by the PooledByteBufAllocator
+            // Only those ByteBufs that are currently in the cache should be alive. Everything else should be reclaimed.
+            assertEquals(expectedUsedMemory, ((Gauge<?>) usedHeapMemory.get()).value());
         }
     }
 
@@ -622,8 +703,8 @@ public class HDFSRemoteStorageManagerTest {
             super(maxBytes);
         }
 
-        synchronized byte[] get(String path, long offset) {
-            byte[] result = super.get(path, offset);
+        synchronized ByteBuf get(String path, long offset) {
+            ByteBuf result = super.get(path, offset);
             if (result != null) {
                 cacheHit++;
             }
