@@ -93,6 +93,9 @@ if [ ! -f "$(echo ${KAFKA_LOG4J_OPTS} | cut -d: -f2)" ]; then
   export KAFKA_LOG4J_OPTS="${DEFAULT_KAFKA_LOG4J_OPTS}"
 fi
 
+# This method has to always be the last call that this script makes and please ensure that this call happens in the foreground.
+# This ensures that PID 1 control is handed over to the kafka process.
+# More details - https://docs.google.com/document/d/195VSlMBTL2unH091mcR_wAKj_NnPp-5Y7pTRXChhslM/edit?tab=t.0
 function start_kafka() {
     # Workaround for https://issues.apache.org/jira/browse/KAFKA-7235
     echo "Sleeping for ${SERVER_STARTUP_WAIT_SEC} seconds before starting the server..."
@@ -153,10 +156,9 @@ then
     then 
         echo "kick off the clean up after rsync and delta catch-up" 
         echo "start kafka process"
-        start_kafka >>/tmp/rebuild.log 2>&1 &
-        sleep 10 
-        unset JMX_PORT; unset KAFKA_JMX_OPTS; ${OFFLINE_REBUILD_COMMAND_CLEANUP} >>/tmp/rebuild.log 2>&1 & 
-        wait
+        # Running the cleanup in background and handing over the control to start_kafka
+        { unset JMX_PORT; unset KAFKA_JMX_OPTS; sleep 10; ${OFFLINE_REBUILD_COMMAND_CLEANUP} >>/tmp/rebuild.log 2>&1; } &
+        start_kafka >>/tmp/rebuild.log 2>&1
     fi 
 else 
     echo "start kafka process as normal"
