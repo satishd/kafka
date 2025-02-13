@@ -265,10 +265,19 @@ public class RemoteIndexCache implements Closeable {
         }
 
         // Delete any .deleted or .tmp files remained from the earlier run of the broker.
+        // DKAFC-5686: File name convention is different between 2.9 and 3.9 build. The cached files that are deleted
+        // gets retrieved from remote. To ensure compatibility with 2.9 build, delete the cached files that contains
+        // "_.[index|timeindex|txnindex]" in its name. Once all the brokers are upgraded to 3.9, then this code can be
+        // removed. There can be false-positive deletion when the UUID ends with an underscore, but the frequency of
+        // happening is low and the deleted index can be re-fetched from remote.
         try (Stream<Path> paths = Files.list(cacheDir.toPath())) {
             paths.forEach(path -> {
-                if (path.endsWith(LogFileUtils.DELETED_FILE_SUFFIX) ||
-                        path.endsWith(TMP_FILE_SUFFIX)) {
+                String filename = path.getFileName().toString();
+                if (filename.endsWith(LogFileUtils.DELETED_FILE_SUFFIX) ||
+                        filename.endsWith(TMP_FILE_SUFFIX) ||
+                        filename.endsWith("_" + INDEX_FILE_SUFFIX) ||
+                        filename.endsWith("_" + TIME_INDEX_FILE_SUFFIX) ||
+                        filename.endsWith("_" + TXN_INDEX_FILE_SUFFIX)) {
                     try {
                         if (Files.deleteIfExists(path)) {
                             log.debug("Deleted file path {} on cache initialization", path);
