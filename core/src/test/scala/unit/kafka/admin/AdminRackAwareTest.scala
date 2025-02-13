@@ -248,4 +248,88 @@ class AdminRackAwareTest extends RackAwareTest with Logging {
     assertThrows(classOf[AdminOperationException],
       () => AdminUtils.assignReplicasToBrokers(brokerMetadatas, 10, brokerMetadatas.size(), -1, -1))
   }
+
+  @Test
+  def testCreateTopicCanaryAssignmentIneligibleTopic(): Unit = {
+    val rackMap = Map(0 -> "rack1", 1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2", 5 -> "rack3")
+    val podMap = Map(0 -> "canary-broker", 1 -> "canary-broker", 2 -> "canary-broker", 3 -> "broker", 4 -> "broker", 5 -> "broker")
+    val brokerMetadatas = toBrokerMetadata(rackMap, podMap)
+    val canaryBrokers = Set(0, 1, 2)
+
+    val actualAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, 8, 3))
+
+    // topics with less than 32 partitions should not have canary partitions
+    (0 to 7).foreach { otherPartition =>
+      assertTrue(actualAssignment(otherPartition).toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
+
+  @Test
+  def testCreateTopicCanaryAssignmentEligibleTopic(): Unit = {
+    val rackMap = Map(0 -> "rack1", 1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2", 5 -> "rack3")
+    val podMap = Map(0 -> "canary-broker", 1 -> "canary-broker", 2 -> "canary-broker", 3 -> "broker", 4 -> "broker", 5 -> "broker")
+    val brokerMetadatas = toBrokerMetadata(rackMap, podMap)
+    val canaryBrokers = Set(0, 1, 2)
+
+    val actualAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, 32, 3))
+
+    // canary partition 31 should be assigned to canary brokers only
+    assertEquals(canaryBrokers, actualAssignment(31).toSet)
+
+    // other partitions should not be assigned to canary brokers
+    (0 to 30).foreach { otherPartition =>
+      assertTrue(actualAssignment(otherPartition).toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
+
+  @Test
+  def testAddPartitionCanaryAssignmentIneligibleTopic(): Unit = {
+    val rackMap = Map(0 -> "rack1", 1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2", 5 -> "rack3")
+    val podMap = Map(0 -> "canary-broker", 1 -> "canary-broker", 2 -> "canary-broker", 3 -> "broker", 4 -> "broker", 5 -> "broker")
+    val brokerMetadatas = toBrokerMetadata(rackMap, podMap)
+    val canaryBrokers = Set(0, 1, 2)
+
+    // bump a topic from 4 to 8 partitions
+    val actualAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, 4, 3, 0, 4))
+
+    // topics with less than 32 partitions should not have canary partitions
+    (4 to 7).foreach { otherPartition =>
+      assertTrue(actualAssignment(otherPartition).toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
+
+  @Test
+  def testAddPartitionCanaryAssignmentEligibleTopic(): Unit = {
+    val rackMap = Map(0 -> "rack1", 1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2", 5 -> "rack3")
+    val podMap = Map(0 -> "canary-broker", 1 -> "canary-broker", 2 -> "canary-broker", 3 -> "broker", 4 -> "broker", 5 -> "broker")
+    val brokerMetadatas = toBrokerMetadata(rackMap, podMap)
+    val canaryBrokers = Set(0, 1, 2)
+
+    // bump a topic from 16 to 32 partitions
+    val actualAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, 16, 3, 0, 16))
+
+    // canary partition 31 should be assigned to canary brokers only
+    assertEquals(canaryBrokers, actualAssignment(31).toSet)
+
+    // other new partitions should not be assigned to canary brokers
+    (16 to 30).foreach { otherPartition =>
+      assertTrue(actualAssignment(otherPartition).toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
+
+  @Test
+  def testAddPartitionCanaryAssignmentIneligibleBrokers(): Unit = {
+    val rackMap = Map(1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2", 5 -> "rack3")
+    val podMap = Map(1 -> "canary-broker", 2 -> "canary-broker", 3 -> "broker", 4 -> "broker", 5 -> "broker")
+    val brokerMetadatas = toBrokerMetadata(rackMap, podMap)
+    val canaryBrokers = Set(1, 2)
+
+    // bump a topic with 3 replicas from 16 to 32 partitions
+    val actualAssignment = CoreUtils.replicaToBrokerAssignmentAsScala(AdminUtils.assignReplicasToBrokers(brokerMetadatas, 16, 3, 0, 16))
+
+    // all new partitions should not be assigned to canary brokers due to insufficient canary brokers
+    (16 to 31).foreach { otherPartition =>
+      assertTrue(actualAssignment(otherPartition).toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
 }

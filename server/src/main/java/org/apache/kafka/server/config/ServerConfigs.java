@@ -95,7 +95,6 @@ public class ServerConfigs {
 
     /** ********* Pod Configuration ***********/
     public static final String BROKER_POD_CONFIG = "broker.pod";
-    public static final String BROKER_POD_DEFAULT = "default";
     public static final String BROKER_POD_DOC = "The pod for the server, if unset, default pod id will be used";
 
     /***************** rack configuration *************/
@@ -154,12 +153,12 @@ public class ServerConfigs {
             .define(REQUEST_TIMEOUT_MS_CONFIG, INT, REQUEST_TIMEOUT_MS_DEFAULT, HIGH, REQUEST_TIMEOUT_MS_DOC)
             .define(SOCKET_CONNECTION_SETUP_TIMEOUT_MS_CONFIG, LONG, DEFAULT_SOCKET_CONNECTION_SETUP_TIMEOUT_MS, MEDIUM, SOCKET_CONNECTION_SETUP_TIMEOUT_MS_DOC)
             .define(SOCKET_CONNECTION_SETUP_TIMEOUT_MAX_MS_CONFIG, LONG, SOCKET_CONNECTION_SETUP_TIMEOUT_MAX_MS, MEDIUM, SOCKET_CONNECTION_SETUP_TIMEOUT_MAX_MS_DOC)
-            .define(BROKER_POD_CONFIG, STRING, BROKER_POD_DEFAULT, MEDIUM, BROKER_POD_DOC)
             /************* Authorizer Configuration ***********/
             .define(AUTHORIZER_CLASS_NAME_CONFIG, STRING, AUTHORIZER_CLASS_NAME_DEFAULT, new ConfigDef.NonNullValidator(), LOW, AUTHORIZER_CLASS_NAME_DOC)
             .define(EARLY_START_LISTENERS_CONFIG, STRING, null,  HIGH, EARLY_START_LISTENERS_DOC)
             /************ Rack Configuration ******************/
             .define(BROKER_RACK_CONFIG, STRING, null, MEDIUM, BROKER_RACK_DOC)
+            .define(BROKER_POD_CONFIG, STRING, null, MEDIUM, BROKER_POD_DOC)
             /** ********* Controlled shutdown configuration ***********/
             .define(CONTROLLED_SHUTDOWN_MAX_RETRIES_CONFIG, INT, CONTROLLED_SHUTDOWN_MAX_RETRIES_DEFAULT, MEDIUM, CONTROLLED_SHUTDOWN_MAX_RETRIES_DOC)
             .define(CONTROLLED_SHUTDOWN_RETRY_BACKOFF_MS_CONFIG, LONG, CONTROLLED_SHUTDOWN_RETRY_BACKOFF_MS_DEFAULT, MEDIUM, CONTROLLED_SHUTDOWN_RETRY_BACKOFF_MS_DOC)

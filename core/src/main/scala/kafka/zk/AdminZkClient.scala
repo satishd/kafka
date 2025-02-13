@@ -283,6 +283,10 @@ class AdminZkClient(zkClient: KafkaZkClient,
         startIndex, existingAssignment.size))
     }
 
+    debug(s"[debug-duplicate] proposedAssignmentForNewPartitions ${proposedAssignmentForNewPartitions}")
+    validateReplicaAssignment(proposedAssignmentForNewPartitions, existingAssignmentPartition0.size,
+      allBrokers.map(_.id).toSet)
+
     proposedAssignmentForNewPartitions.map { case (tp, replicas) =>
       tp -> ReplicaAssignment(replicas, List(), List())
     }

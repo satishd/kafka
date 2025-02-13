@@ -163,6 +163,43 @@ public class AdminUtils {
                                                                                 Collection<BrokerMetadata> brokerMetadatas,
                                                                                 int fixedStartIndex,
                                                                                 int startPartitionId) {
+        Set<Integer> assignedPartitions = new HashSet<>();
+        Map<Integer, List<Integer>> finalAssignments = new HashMap<>();
+        Map<String, List<BrokerMetadata>> brokerMetadatasByPod = brokerMetadatas.stream()
+                .collect(Collectors.groupingBy(broker -> PodType.fromPodName(broker.pod.orElse("")).getPodName()));
+        for (Map.Entry<String, List<BrokerMetadata>> entry : brokerMetadatasByPod.entrySet()) {
+            String podName = entry.getKey();
+            List<BrokerMetadata> podBrokerMetadatas = entry.getValue();
+            if (!podName.equals(Default.POD_NAME) && podBrokerMetadatas.size() >= replicationFactor) {
+                Set<Integer> podPartitions = PodType.fromPodName(podName).getPodPartitions(nPartitions, startPartitionId);
+                Set<Integer> overlappingPartitions = new HashSet<>(assignedPartitions);
+                overlappingPartitions.retainAll(podPartitions);
+                if (!overlappingPartitions.isEmpty()) {
+                    throw new AdminOperationException("Partitions already assigned: " + overlappingPartitions);
+                }
+                assignedPartitions.addAll(podPartitions);
+                finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor, podBrokerMetadatas, fixedStartIndex, startPartitionId, podPartitions));
+            }
+        }
+
+        Set<Integer> unassignedPartitions = new HashSet<>(new Default().getPodPartitions(nPartitions, startPartitionId));
+        unassignedPartitions.removeAll(assignedPartitions);
+        finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor, brokerMetadatasByPod.get(new Default().getPodName()), fixedStartIndex, startPartitionId, unassignedPartitions));
+
+        finalAssignments.replaceAll((key, value) -> new ArrayList<>(value));
+        return finalAssignments;
+    }
+
+    /**
+     * Assigns replicas into brokers with pod isolation. Eligible partitions are assigned to certain pod only.
+     */
+    private static Map<Integer, List<Integer>> assignReplicasToBrokersRackAndPodAware(int nPartitions,
+                                                                                      int replicationFactor,
+                                                                                      Collection<BrokerMetadata> brokerMetadatas,
+                                                                                      int fixedStartIndex,
+                                                                                      int startPartitionId,
+                                                                                      Set<Integer> partitionsToAssign) {
+
         Map<Integer, String> brokerRackMap = new HashMap<>();
         brokerMetadatas.forEach(m -> brokerRackMap.put(m.id, m.rack.orElseThrow(() -> new AdminOperationException("Not all brokers have rack information for replica rack aware assignment."))));
         int numRacks = new HashSet<>(brokerRackMap.values()).size();
@@ -173,37 +210,39 @@ public class AdminUtils {
         int currentPartitionId = Math.max(0, startPartitionId);
         int nextReplicaShift = fixedStartIndex >= 0 ? fixedStartIndex : RAND.nextInt(arrangedBrokerList.size());
         for (int i = 0; i < nPartitions; i++) {
-            if (currentPartitionId > 0 && (currentPartitionId % arrangedBrokerList.size() == 0))
-                nextReplicaShift += 1;
-            int firstReplicaIndex = (currentPartitionId + startIndex) % arrangedBrokerList.size();
-            int leader = arrangedBrokerList.get(firstReplicaIndex);
-            List<Integer> replicaBuffer = new ArrayList<>();
-            replicaBuffer.add(leader);
-            Set<String> racksWithReplicas = new HashSet<>();
-            racksWithReplicas.add(brokerRackMap.get(leader));
-            Set<Integer> brokersWithReplicas = new HashSet<>();
-            brokersWithReplicas.add(leader);
-            int k = 0;
-            for (int j = 0; j < replicationFactor - 1; j++) {
-                boolean done = false;
-                while (!done) {
-                    Integer broker = arrangedBrokerList.get(replicaIndex(firstReplicaIndex, nextReplicaShift * numRacks, k, arrangedBrokerList.size()));
-                    String rack = brokerRackMap.get(broker);
-                    // Skip this broker if
-                    // 1. there is already a broker in the same rack that has assigned a replica AND there is one or more racks
-                    //    that do not have any replica, or
-                    // 2. the broker has already assigned a replica AND there is one or more brokers that do not have replica assigned
-                    if ((!racksWithReplicas.contains(rack) || racksWithReplicas.size() == numRacks)
-                        && (!brokersWithReplicas.contains(broker) || brokersWithReplicas.size() == numBrokers)) {
-                        replicaBuffer.add(broker);
-                        racksWithReplicas.add(rack);
-                        brokersWithReplicas.add(broker);
-                        done = true;
+            if (partitionsToAssign.contains(currentPartitionId)) {
+                if (currentPartitionId > 0 && (currentPartitionId % arrangedBrokerList.size() == 0))
+                    nextReplicaShift += 1;
+                int firstReplicaIndex = (currentPartitionId + startIndex) % arrangedBrokerList.size();
+                int leader = arrangedBrokerList.get(firstReplicaIndex);
+                List<Integer> replicaBuffer = new ArrayList<>();
+                replicaBuffer.add(leader);
+                Set<String> racksWithReplicas = new HashSet<>();
+                racksWithReplicas.add(brokerRackMap.get(leader));
+                Set<Integer> brokersWithReplicas = new HashSet<>();
+                brokersWithReplicas.add(leader);
+                int k = 0;
+                for (int j = 0; j < replicationFactor - 1; j++) {
+                    boolean done = false;
+                    while (!done) {
+                        Integer broker = arrangedBrokerList.get(replicaIndex(firstReplicaIndex, nextReplicaShift * numRacks, k, arrangedBrokerList.size()));
+                        String rack = brokerRackMap.get(broker);
+                        // Skip this broker if
+                        // 1. there is already a broker in the same rack that has assigned a replica AND there is one or more racks
+                        //    that do not have any replica, or
+                        // 2. the broker has already assigned a replica AND there is one or more brokers that do not have replica assigned
+                        if ((!racksWithReplicas.contains(rack) || racksWithReplicas.size() == numRacks)
+                                && (!brokersWithReplicas.contains(broker) || brokersWithReplicas.size() == numBrokers)) {
+                            replicaBuffer.add(broker);
+                            racksWithReplicas.add(rack);
+                            brokersWithReplicas.add(broker);
+                            done = true;
+                        }
+                        k += 1;
                     }
-                    k += 1;
                 }
+                ret.put(currentPartitionId, replicaBuffer);
             }
-            ret.put(currentPartitionId, replicaBuffer);
             currentPartitionId += 1;
         }
         return ret;

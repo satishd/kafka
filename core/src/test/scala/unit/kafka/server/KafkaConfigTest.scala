@@ -2084,7 +2084,7 @@ class KafkaConfigTest {
     props.put(ServerConfigs.BROKER_POD_CONFIG, "pod-1")
     assertTrue(isValidKafkaConfig(props))
     val config = KafkaConfig.fromProps(props)
-    assertEquals("rack-1", config.rack.orNull)
-    assertEquals("pod-1", config.brokerPod.orNull)
+    assertEquals(Some("rack-1"), config.rack)
+    assertEquals(Some("pod-1"), config.brokerPod)
   }
 }

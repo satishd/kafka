@@ -310,7 +310,7 @@ object BrokerIdZNode {
         val pod = brokerInfo.get(PodKey).flatMap(_.to[Option[String]])
         val features = featuresAsJavaMap(brokerInfo)
         BrokerInfo(
-          Broker(id, endpoints, Option(rack.orNull), Option(pod.orNull), fromSupportedFeaturesMap(features)), version, jmxPort)
+          Broker(id, endpoints, rack, pod, fromSupportedFeaturesMap(features)), version, jmxPort)
       case Left(e) =>
         throw new KafkaException(s"Failed to parse ZooKeeper registration for broker $id: " +
           s"${new String(jsonBytes, UTF_8)}", e)

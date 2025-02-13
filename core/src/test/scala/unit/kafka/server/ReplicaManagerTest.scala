@@ -1607,8 +1607,8 @@ class ReplicaManagerTest {
     try {
       val leaderBrokerId = 0
       val followerBrokerId = 1
-      val leaderNode = new Node(leaderBrokerId, "host1", 0, "rack-a", "pod-a")
-      val followerNode = new Node(followerBrokerId, "host2", 1, "rack-b", "pod-b")
+      val leaderNode = new Node(leaderBrokerId, "host1", 0, "rack-a")
+      val followerNode = new Node(followerBrokerId, "host2", 1, "rack-b")
       val brokerList = Seq[Integer](leaderBrokerId, followerBrokerId).asJava
       val topicId = Uuid.randomUuid()
       val tp0 = new TopicPartition(topic, 0)
@@ -1745,8 +1745,8 @@ class ReplicaManagerTest {
         tp0,
         new ListenerName("default")
       )).thenReturn(Map(
-        leaderBrokerId -> new Node(leaderBrokerId, "host1", 9092, "rack-a", "pod-a"),
-        followerBrokerId -> new Node(followerBrokerId, "host2", 9092, "rack-b", "pod-b")
+        leaderBrokerId -> new Node(leaderBrokerId, "host1", 9092, "rack-a"),
+        followerBrokerId -> new Node(followerBrokerId, "host2", 9092, "rack-b")
       ).toMap)
 
       // Make this replica the leader
@@ -2986,8 +2986,8 @@ class ReplicaManagerTest {
     mockGetAliveBrokerFunctions(metadataCache, aliveBrokers)
     when(metadataCache.getPartitionReplicaEndpoints(
       any[TopicPartition], any[ListenerName])).
-        thenReturn(Map(leaderBrokerId -> new Node(leaderBrokerId, "host1", 9092, "rack-a", "pod-a"),
-          followerBrokerId -> new Node(followerBrokerId, "host2", 9092, "rack-b", "pod-b")).toMap)
+        thenReturn(Map(leaderBrokerId -> new Node(leaderBrokerId, "host1", 9092, "rack-a"),
+          followerBrokerId -> new Node(followerBrokerId, "host2", 9092, "rack-b")).toMap)
     when(metadataCache.metadataVersion()).thenReturn(config.interBrokerProtocolVersion)
     val mockProducePurgatory = new DelayedOperationPurgatory[DelayedProduce](
       purgatoryName = "Produce", timer, reaperEnabled = false)

@@ -70,7 +70,7 @@ class BrokerApiVersionsCommandTest extends KafkaServerTestHarness {
     val content = new String(byteArrayOutputStream.toByteArray, StandardCharsets.UTF_8)
     val lineIter = content.split("\n").iterator
     assertTrue(lineIter.hasNext)
-    assertEquals(s"${bootstrapServers()} (id: 0 rack: null pod: default) -> (", lineIter.next())
+    assertEquals(s"${bootstrapServers()} (id: 0 rack: null pod: null) -> (", lineIter.next())
     val listenerType = if (isKRaftTest()) {
       ApiMessageType.ListenerType.BROKER
     } else {

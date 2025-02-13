@@ -87,6 +87,31 @@ class AdminZkClientTest extends QuorumTestHarness with Logging with RackAwareTes
     assertEquals(assignment.map { case (k, v) => k -> ReplicaAssignment(v, List(), List()) }, found("test"))
   }
 
+  /**
+   * This test asserts that when the canary partitions couldn't be placed onto canary-brokers due to the
+   * constraint TOPIC_RF > number_of_canary_brokers, then it should fallback and create those partitions on the
+   * regular brokers.
+   *
+   * Inputs:
+   *  1. There are two canary-brokers: broker-3 and broker-4
+   *  2. Non-canary partitions: 0 to 30, Canary partition: 31
+   *  3. Expectation: Non-canary partitions (0 to 30) should not be placed on canary brokers and canary-partition (31)
+   *     should be placed on the regular brokers due to the breach in constraint.
+   */
+  @Test
+  def testCanaryPartitionReplicaPlacementFallbacksToDefault(): Unit = {
+    val rackInfo = Map(0 -> "rack1", 1 -> "rack2", 2 -> "rack3", 3 -> "rack1", 4 -> "rack2")
+    val podInfo = Map(0 -> "broker", 1 -> "broker", 2 -> "broker", 3 -> "canary-broker", 4 -> "canary-broker")
+    val canaryBrokers = Set(3, 4)
+    val brokerMetadatas = toBrokerMetadata(rackInfo, podInfo)
+
+    val initialAssignment = Map(0 -> ReplicaAssignment(Seq(0, 1, 2), List(), List()))
+    val replicaAssignment = adminZkClient.createNewPartitionsAssignment("test", initialAssignment, brokerMetadatas.asScala.toSeq, 32)
+    (1 to 31).foreach { partition =>
+      assertTrue(replicaAssignment(partition).replicas.toSet.intersect(canaryBrokers).isEmpty)
+    }
+  }
+
   @Test
   def testTopicCreationInZK(): Unit = {
     val expectedReplicaAssignment = Map(

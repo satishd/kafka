@@ -381,12 +381,12 @@ public class ReassignPartitionsUnitTest {
     public void testGenerateAssignmentWithInconsistentRacks() throws Exception {
         try (MockAdminClient adminClient = new MockAdminClient.Builder().
             brokers(asList(
-                new Node(0, "localhost", 9092, "rack0", "pod0"),
-                new Node(1, "localhost", 9093, "rack0", "pod0"),
-                new Node(2, "localhost", 9094, null, null),
-                new Node(3, "localhost", 9095, "rack1", "pod1"),
-                new Node(4, "localhost", 9096, "rack1", "pod1"),
-                new Node(5, "localhost", 9097, "rack2", "pod2"))).
+                new Node(0, "localhost", 9092, "rack0"),
+                new Node(1, "localhost", 9093, "rack0"),
+                new Node(2, "localhost", 9094, null),
+                new Node(3, "localhost", 9095, "rack1"),
+                new Node(4, "localhost", 9096, "rack1"),
+                new Node(5, "localhost", 9097, "rack2"))).
             build()) {
 
             addTopics(adminClient);
