@@ -30,6 +30,7 @@ public class Node {
     private final String host;
     private final int port;
     private final String rack;
+    private final String pod;
 
     // Cache hashCode as it is called in performance sensitive parts of the code (e.g. RecordAccumulator.ready)
     private Integer hash;
@@ -39,11 +40,16 @@ public class Node {
     }
 
     public Node(int id, String host, int port, String rack) {
+        this(id, host, port, rack, null);
+    }
+
+    public Node(int id, String host, int port, String rack, String pod) {
         this.id = id;
         this.idString = Integer.toString(id);
         this.host = host;
         this.port = port;
         this.rack = rack;
+        this.pod = pod;
     }
 
     public static Node noNode() {
@@ -102,6 +108,20 @@ public class Node {
         return rack;
     }
 
+    /**
+     * True if this node has a defined pod
+     */
+    public boolean hasPod() {
+        return pod != null;
+    }
+
+    /**
+     * @return the pod of the node
+     */
+    public String pod() {
+        return pod;
+    }
+
     @Override
     public int hashCode() {
         Integer h = this.hash;
@@ -110,6 +130,7 @@ public class Node {
             result = 31 * result + id;
             result = 31 * result + port;
             result = 31 * result + ((rack == null) ? 0 : rack.hashCode());
+            result = 31 * result + ((pod == null) ? 0 : pod.hashCode());
             this.hash = result;
             return result;
         } else {
@@ -127,12 +148,13 @@ public class Node {
         return id == other.id &&
             port == other.port &&
             Objects.equals(host, other.host) &&
-            Objects.equals(rack, other.rack);
+            Objects.equals(rack, other.rack) &&
+            Objects.equals(pod, other.pod);
     }
 
     @Override
     public String toString() {
-        return host + ":" + port + " (id: " + idString + " rack: " + rack + ")";
+        return host + ":" + port + " (id: " + idString + " rack: " + rack + " pod: " + pod + ")";
     }
 
 }

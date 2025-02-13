@@ -179,6 +179,7 @@ class MetadataCacheTest {
         .setId(brokerId)
         .setEndpoints(endpoints(brokerId).asJava)
         .setRack("rack1")
+        .setUPod("pod")
     }
 
     val partitionStates = Seq(
@@ -443,6 +444,7 @@ class MetadataCacheTest {
     val brokers = Seq(new UpdateMetadataBroker()
       .setId(0)
       .setRack("rack1")
+      .setUPod("pod")
       .setEndpoints(Seq(new UpdateMetadataEndpoint()
         .setHost("foo")
         .setPort(9092)
@@ -600,6 +602,7 @@ class MetadataCacheTest {
       new UpdateMetadataBroker()
         .setId(0)
         .setRack("r")
+        .setUPod("p")
         .setEndpoints(Seq(new UpdateMetadataEndpoint()
           .setHost("foo")
           .setPort(9092)
@@ -630,7 +633,7 @@ class MetadataCacheTest {
       brokers.asJava, Collections.emptyMap()).build()
     MetadataCacheTest.updateCache(cache, updateMetadataRequest)
 
-    val expectedNode0 = new Node(0, "foo", 9092, "r")
+    val expectedNode0 = new Node(0, "foo", 9092, "r", "p")
     val expectedNode1 = new Node(1, "", -1)
 
     val cluster = cache.getClusterMetadata("clusterId", listenerName)
@@ -941,6 +944,7 @@ class MetadataCacheTest {
     val brokers = Seq(new UpdateMetadataBroker()
       .setId(0)
       .setRack("rack1")
+      .setUPod("pod")
       .setEndpoints(Seq(new UpdateMetadataEndpoint()
         .setHost("foo")
         .setPort(9092)
@@ -1498,6 +1502,32 @@ class MetadataCacheTest {
       barTopicId -> Seq(oldBarPart0, oldBarPart1),
     ))
   }
+
+  @ParameterizedTest
+  @MethodSource(Array("cacheProvider"))
+  def testGetClusterMetadataWithPod(cache: MetadataCache): Unit = {
+    val securityProtocol = SecurityProtocol.PLAINTEXT
+    val listenerName = ListenerName.forSecurityProtocol(securityProtocol)
+    val brokers = Seq(
+      new UpdateMetadataBroker()
+        .setId(0)
+        .setRack("rack1")
+        .setUPod("pod")
+        .setEndpoints(Seq(new UpdateMetadataEndpoint()
+          .setHost("foo")
+          .setPort(9092)
+          .setSecurityProtocol(securityProtocol.id)
+          .setListener(listenerName.value)).asJava),
+    )
+    val version = ApiKeys.UPDATE_METADATA.latestVersion
+    val controllerEpoch = 1
+    val updateMetadataRequest = new UpdateMetadataRequest.Builder(version, 2, controllerEpoch, brokerEpoch, Seq.empty.asJava,
+      brokers.asJava, Collections.emptyMap()).build()
+    MetadataCacheTest.updateCache(cache, updateMetadataRequest)
+    val aliveBrokers = cache.getAliveBrokers().asJava.iterator().next()
+    assertEquals("rack1", aliveBrokers.rack.get())
+  }
+
 
   def createFullUMR(
     topicStates: Seq[UpdateMetadataTopicState]

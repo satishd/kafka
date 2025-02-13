@@ -165,7 +165,7 @@ public class BrokerRegistrationTest {
             REGISTRATIONS.get(0).node("INTERNAL"));
         assertEquals(Optional.of(new Node(1, "localhost", 9091, null)),
             REGISTRATIONS.get(1).node("INTERNAL"));
-        assertEquals(Optional.of(new Node(2, "localhost", 9092, "myrack")),
+        assertEquals(Optional.of(new Node(2, "localhost", 9092, "myrack", "pod")),
             REGISTRATIONS.get(2).node("INTERNAL"));
         assertEquals(Optional.of(new Node(3, "localhost", 9093, null)),
             REGISTRATIONS.get(3).node("INTERNAL"));

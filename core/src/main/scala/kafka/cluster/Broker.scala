@@ -101,7 +101,7 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String], pod: 
     }
 
   def getNode(listenerName: ListenerName): Option[Node] =
-    endPointsMap.get(listenerName).map(endpoint => new Node(id, endpoint.host, endpoint.port, rack.orNull))
+    endPointsMap.get(listenerName).map(endpoint => new Node(id, endpoint.host, endpoint.port, rack.orNull, pod.orNull))
 
   def brokerEndPoint(listenerName: ListenerName): BrokerEndPoint = {
     val endpoint = endPoint(listenerName)

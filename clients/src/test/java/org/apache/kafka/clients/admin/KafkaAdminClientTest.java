@@ -2870,7 +2870,8 @@ public class KafkaAdminClientTest {
                 .setHost(broker.host())
                 .setPort(broker.port())
                 .setBrokerId(broker.id())
-                .setRack(broker.rack())));
+                .setRack(broker.rack())
+                .setUPod(broker.pod())));
 
         return new DescribeClusterResponse(data);
     }
@@ -7455,6 +7456,7 @@ public class KafkaAdminClientTest {
                     .setNodeId(node.id())
                     .setPort(node.port())
                     .setRack(node.rack())
+                    .setUPod(node.pod())
                 )
             );
 

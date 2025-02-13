@@ -671,7 +671,7 @@ public class ReassignPartitionsCommand {
         List<BrokerMetadata> results = adminClient.describeCluster().nodes().get().stream()
             .filter(node -> brokerSet.contains(node.id()))
             .map(node -> (enableRackAwareness && node.rack() != null)
-                ? new BrokerMetadata(node.id(), Optional.of(node.rack()), Optional.empty())
+                ? new BrokerMetadata(node.id(), Optional.of(node.rack()), Optional.of(node.pod()))
                 : new BrokerMetadata(node.id(), Optional.empty(), Optional.empty())
             ).collect(Collectors.toList());
 

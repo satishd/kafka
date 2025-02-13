@@ -916,7 +916,8 @@ public class MetadataTest {
                     .setNodeId(node.id())
                     .setHost(node.host())
                     .setPort(node.port())
-                    .setRack(node.rack());
+                    .setRack(node.rack())
+                    .setUPod(node.pod());
             brokers.add(broker);
         }
         return brokers;

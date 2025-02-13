@@ -4165,6 +4165,7 @@ class KafkaApisTest extends Logging {
     val broker = new UpdateMetadataBroker()
       .setId(0)
       .setRack("rack")
+      .setUPod("pod")
       .setEndpoints(Seq(
         new UpdateMetadataEndpoint()
           .setHost("broker0")
@@ -6105,6 +6106,7 @@ class KafkaApisTest extends Logging {
       new UpdateMetadataBroker()
         .setId(0)
         .setRack("rack")
+        .setUPod("pod")
         .setEndpoints(Seq(
           new UpdateMetadataEndpoint()
             .setHost("broker0")
@@ -6115,6 +6117,7 @@ class KafkaApisTest extends Logging {
       new UpdateMetadataBroker()
         .setId(1)
         .setRack("rack")
+        .setUPod("pod")
         .setEndpoints(Seq(
           new UpdateMetadataEndpoint()
             .setHost("broker1")
@@ -6152,6 +6155,7 @@ class KafkaApisTest extends Logging {
       new UpdateMetadataBroker()
         .setId(0)
         .setRack("rack")
+        .setUPod("pod")
         .setEndpoints(Seq(
           new UpdateMetadataEndpoint()
             .setHost("broker0")
@@ -6167,6 +6171,7 @@ class KafkaApisTest extends Logging {
       new UpdateMetadataBroker()
         .setId(1)
         .setRack("rack")
+        .setUPod("pod")
         .setEndpoints(Seq(
           new UpdateMetadataEndpoint()
             .setHost("broker1")
@@ -6404,6 +6409,7 @@ class KafkaApisTest extends Logging {
     new UpdateMetadataBroker()
       .setId(brokerId)
       .setRack("rack")
+      .setUPod("pod")
       .setEndpoints(Seq(new UpdateMetadataEndpoint()
         .setHost("broker" + brokerId)
         .setPort(9092)

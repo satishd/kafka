@@ -433,7 +433,7 @@ public class MetadataResponse extends AbstractResponse {
         }
 
         private Map<Integer, Node> createBrokers(MetadataResponseData data) {
-            return data.brokers().valuesList().stream().map(b -> new Node(b.nodeId(), b.host(), b.port(), b.rack()))
+            return data.brokers().valuesList().stream().map(b -> new Node(b.nodeId(), b.host(), b.port(), b.rack(), b.uPod()))
                     .collect(Collectors.toMap(Node::id, Function.identity()));
         }
 
@@ -494,7 +494,8 @@ public class MetadataResponse extends AbstractResponse {
                 .setNodeId(broker.id())
                 .setHost(broker.host())
                 .setPort(broker.port())
-                .setRack(broker.rack()))
+                .setRack(broker.rack())
+                .setUPod(broker.pod()))
         );
 
         responseData.setClusterId(clusterId);

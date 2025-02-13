@@ -199,6 +199,34 @@ class BrokerEndPointTest {
       broker.features)
   }
 
+  @Test
+  def testFromJsonV6(): Unit = {
+    val json = """{
+      "version":6,
+      "host":"localhost",
+      "port":9092,
+      "jmx_port":9999,
+      "timestamp":"2233345666",
+      "endpoints":["CLIENT://host1:9092", "REPLICATION://host1:9093"],
+      "listener_security_protocol_map":{"CLIENT":"SSL", "REPLICATION":"PLAINTEXT"},
+      "rack":"dc1",
+      "pod":"zoo",
+      "features": {"feature1": {"min_version": 1, "max_version": 2}, "feature2": {"min_version": 2, "max_version": 4}}
+    }"""
+    val broker = parseBrokerJson(1, json)
+    assertEquals(1, broker.id)
+    val brokerEndPoint = broker.brokerEndPoint(new ListenerName("CLIENT"))
+    assertEquals("host1", brokerEndPoint.host)
+    assertEquals(9092, brokerEndPoint.port)
+    assertEquals(Some("dc1"), broker.rack)
+    assertEquals(Some("zoo"), broker.pod)
+    assertEquals(Features.supportedFeatures(
+      Map[String, SupportedVersionRange](
+        "feature1" -> new SupportedVersionRange(1, 2),
+        "feature2" -> new SupportedVersionRange(2, 4)).asJava),
+      broker.features)
+  }
+
   private def parseBrokerJson(id: Int, jsonString: String): Broker =
     BrokerIdZNode.decode(id, jsonString.getBytes(StandardCharsets.UTF_8)).broker
 }

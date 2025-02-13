@@ -3657,7 +3657,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             setBrokerId(node.id).
             setHost(node.host).
             setPort(node.port).
-            setRack(node.rack))
+            setRack(node.rack).
+            setUPod(node.pod()))
         }
         brokers
       },

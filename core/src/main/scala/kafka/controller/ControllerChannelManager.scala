@@ -613,6 +613,7 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
         .setId(broker.id)
         .setEndpoints(endpoints.asJava)
         .setRack(broker.rack.orNull)
+        .setUPod(broker.pod.orNull)
     }.toBuffer
 
     updateMetadataRequestBrokerSet.intersect(metadataInstance.liveOrShuttingDownBrokerIds).foreach { broker =>

@@ -419,6 +419,32 @@ class ControllerChannelManagerTest {
   }
 
   @Test
+  def testUpdateMetadataRequestWithPodAndRack(): Unit = {
+    val topicIds = Map("foo" -> Uuid.randomUuid(), "bar" -> Uuid.randomUuid())
+    val context = initContext(Seq(1, 2, 3), 2, 3, topicIds)
+    val batch = new MockControllerBrokerRequestBatch(context)
+
+    val partitions = Map(
+      new TopicPartition("foo", 0) -> LeaderAndIsr(1, List(1, 2)),
+      new TopicPartition("foo", 1) -> LeaderAndIsr(2, List(2, 3)),
+      new TopicPartition("bar", 1) -> LeaderAndIsr(3, List(1, 3))
+    )
+
+    partitions.foreach { case (partition, leaderAndIsr) =>
+      context.putPartitionLeadershipInfo(partition, LeaderIsrAndControllerEpoch(leaderAndIsr, controllerEpoch))
+    }
+
+    batch.newBatch()
+    batch.addUpdateMetadataRequestForBrokers(Seq(2), partitions.keySet)
+    batch.sendRequestsToBrokers(controllerEpoch)
+
+    val updateMetadataRequests = batch.collectUpdateMetadataRequestsFor(2)
+    assertEquals(1, updateMetadataRequests.size)
+    assertEquals("rack-1", updateMetadataRequests.head.liveBrokers().get(0).rack())
+    assertEquals("pod-1", updateMetadataRequests.head.liveBrokers().get(0).uPod())
+  }
+
+  @Test
   def testStopReplicaRequestSent(): Unit = {
     val context = initContext(Seq(1, 2, 3), 2, 3, Set("foo", "bar"))
     val batch = new MockControllerBrokerRequestBatch(context)
