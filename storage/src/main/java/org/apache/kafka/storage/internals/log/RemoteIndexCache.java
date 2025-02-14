@@ -54,6 +54,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static org.apache.kafka.storage.internals.log.LogFileUtils.INDEX_FILE_SUFFIX;
@@ -117,6 +118,11 @@ public class RemoteIndexCache implements Closeable {
      * We use {@link Caffeine} cache instead of implementing a thread safe LRU cache on our own.
      */
     private final Cache<Uuid, Entry> internalCache;
+
+    // DKAFC-5686: File name convention is different between 2.9 and 3.9 build. The cached files that are deleted
+    // gets retrieved from remote. To ensure compatibility with 2.9 build, delete the cached files that are invalid.
+    // Once all the brokers are upgraded to 3.9, then this code can be removed.
+    private static final Pattern FILENAME_PATTERN = Pattern.compile("(\\d+)_([a-zA-Z0-9_-]{22})(\\.[a-z]+)");
 
     /**
      * Creates RemoteIndexCache with the given configs.
@@ -265,19 +271,12 @@ public class RemoteIndexCache implements Closeable {
         }
 
         // Delete any .deleted or .tmp files remained from the earlier run of the broker.
-        // DKAFC-5686: File name convention is different between 2.9 and 3.9 build. The cached files that are deleted
-        // gets retrieved from remote. To ensure compatibility with 2.9 build, delete the cached files that contains
-        // "_.[index|timeindex|txnindex]" in its name. Once all the brokers are upgraded to 3.9, then this code can be
-        // removed. There can be false-positive deletion when the UUID ends with an underscore, but the frequency of
-        // happening is low and the deleted index can be re-fetched from remote.
         try (Stream<Path> paths = Files.list(cacheDir.toPath())) {
             paths.forEach(path -> {
                 String filename = path.getFileName().toString();
                 if (filename.endsWith(LogFileUtils.DELETED_FILE_SUFFIX) ||
                         filename.endsWith(TMP_FILE_SUFFIX) ||
-                        filename.endsWith("_" + INDEX_FILE_SUFFIX) ||
-                        filename.endsWith("_" + TIME_INDEX_FILE_SUFFIX) ||
-                        filename.endsWith("_" + TXN_INDEX_FILE_SUFFIX)) {
+                        !isValidFile(filename)) {
                     try {
                         if (Files.deleteIfExists(path)) {
                             log.debug("Deleted file path {} on cache initialization", path);
@@ -742,4 +741,7 @@ public class RemoteIndexCache implements Closeable {
         return generateFileNamePrefixForIndex(remoteLogSegmentMetadata) + LogFileUtils.DELETED_FILE_SUFFIX;
     }
 
+    public static boolean isValidFile(String filename) {
+        return FILENAME_PATTERN.matcher(filename).matches();
+    }
 }

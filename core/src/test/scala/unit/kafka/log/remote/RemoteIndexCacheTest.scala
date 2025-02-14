@@ -29,7 +29,7 @@ import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.{CsvSource, EnumSource}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito._
@@ -949,6 +949,19 @@ class RemoteIndexCacheTest {
     assertFalse(invalidTimeIndexFile.exists())
     assertTrue(validOffsetIdx.file().exists())
     assertTrue(validTimeIdx.file().exists())
+  }
+
+  @ParameterizedTest
+  @CsvSource(Array(
+    "121200_pTrh3D14TyasaTFF9zfFCA.index, true",
+    "121200_pTrh3D14TyasaTFF9zfFCA_.index, false",
+    "1759436737_DpR6qeAvQ-Gf4dGsOTM06A.timeindex, true",
+    "1759436737_DpR6qeAvQ-Gf4dGsOTM06A_.timeindex, false",
+    "1759436737_DpR6qeAvQ-Gf4dGsOTM06__.index, false",
+    "1759436737_DpR6qeAvQ-Gf4dGsOTM06_.index, true",
+  ))
+  def testIsValidFile(filename: String, expectedResult: Boolean): Unit = {
+    assertEquals(expectedResult, RemoteIndexCache.isValidFile(filename))
   }
 
   private def generateSpyCacheEntry(remoteLogSegmentId: RemoteLogSegmentId
