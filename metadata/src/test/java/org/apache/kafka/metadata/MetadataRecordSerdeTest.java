@@ -217,6 +217,39 @@ class MetadataRecordSerdeTest {
                         () -> serde.read(new ByteBufferAccessor(buffer), size + 1)).getMessage());
     }
 
+    @Test
+    public void testDeserializeWithSupportedFrameVersion() {
+        TopicRecord topicRecord = new TopicRecord()
+                .setName("foo")
+                .setTopicId(Uuid.randomUuid());
+        MetadataRecordSerde serde = new MetadataRecordSerde();
+        for (short version = TopicRecord.LOWEST_SUPPORTED_VERSION; version <= TopicRecord.HIGHEST_SUPPORTED_VERSION; version++) {
+            ApiMessageAndVersion messageAndVersion = new ApiMessageAndVersion(topicRecord, version);
+
+            ObjectSerializationCache cache = new ObjectSerializationCache();
+            int size = serde.recordSize(messageAndVersion, cache);
+
+            ByteBuffer buffer = ByteBuffer.allocate(size);
+            ByteBufferAccessor bufferAccessor = new ByteBufferAccessor(buffer);
+
+            serde.write(messageAndVersion, cache, bufferAccessor);
+            buffer.flip();
+            assertEquals(1, bufferAccessor.readUnsignedVarint()); // ignore/discard the frame version
+
+            ByteBuffer modifiedBuffer = ByteBuffer.allocate(size);
+            ByteBufferAccessor modifiedBufferAccessor = new ByteBufferAccessor(modifiedBuffer);
+            // write a different frame version (0) to the modified-buffer
+            ByteUtils.writeUnsignedVarint(0, modifiedBuffer);
+            // copy the rest of the source-buffer to modifier-buffer
+            modifiedBuffer.put(buffer);
+            modifiedBuffer.flip();
+
+            assertEquals(size, modifiedBuffer.remaining());
+            ApiMessageAndVersion readMessageAndVersion = serde.read(modifiedBufferAccessor, size);
+            assertEquals(messageAndVersion, readMessageAndVersion);
+        }
+    }
+
     private static void assertStartsWith(String prefix, String str) {
         assertTrue(str.startsWith(prefix),
                 "Expected string '" + str + "' to start with '" + prefix + "'");

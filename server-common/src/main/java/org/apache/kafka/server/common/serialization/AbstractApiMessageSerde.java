@@ -82,10 +82,15 @@ public abstract class AbstractApiMessageSerde implements RecordSerde<ApiMessageA
                                      int size) {
         short frameVersion = unsignedIntToShort(input, "frame version");
 
-        if (frameVersion == 0) {
-            throw new MetadataParseException("Could not deserialize metadata record with frame version 0. " +
-                "Note that upgrades from the preview release of KRaft in 2.8 to newer versions are not supported.");
-        } else if (frameVersion != DEFAULT_FRAME_VERSION) {
+//        if (frameVersion == 0) {
+//            throw new MetadataParseException("Could not deserialize metadata record with frame version 0. " +
+//                "Note that upgrades from the preview release of KRaft in 2.8 to newer versions are not supported.");
+//        }
+        // Due to incompatible change made in https://github.com/apache/kafka/pull/11010, this change is required to
+        // support remote-log-metadata events from 2.9 build;
+        // NOTE: THIS IS A TEMPORARY FIX and will be removed in the next release once all the events written to
+        // __remote_log_metadata topic are updated with the new frame version.
+        if (frameVersion > DEFAULT_FRAME_VERSION) {
             throw new MetadataParseException("Could not deserialize metadata record due to unknown frame version "
                     + frameVersion + "(only frame version " + DEFAULT_FRAME_VERSION + " is supported)");
         }
