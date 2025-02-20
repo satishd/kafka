@@ -76,7 +76,9 @@
             "about": "The security protocol type." }
         ]},
         { "name": "Rack", "type": "string", "versions": "2+", "nullableVersions": "0+", "ignorable": true,
-          "about": "The rack which this broker belongs to." }
+          "about": "The rack which this broker belongs to." },
+        { "name": "UPod", "type": "string", "versions": "7+", "nullableVersions": "7+", "ignorable": true, "default": "null",
+          "about": "The pod which this broker belongs to.", "taggedVersions": "7+", "tag": 10000 }
     ]}
   ],
   "commonStructs": [

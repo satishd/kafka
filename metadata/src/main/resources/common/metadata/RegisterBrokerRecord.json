@@ -58,6 +58,8 @@
     { "name": "InControlledShutdown", "type": "bool", "versions": "1+", "default": "false",
       "about": "True if the broker is in controlled shutdown." },
     { "name": "LogDirs", "type":  "[]uuid", "versions":  "3+", "taggedVersions": "3+", "tag": "0",
-      "about": "Log directories configured in this broker which are available." }
+      "about": "Log directories configured in this broker which are available." },
+    { "name": "UPod", "type": "string", "versions": "0+", "nullableVersions": "0+", "default": "null",
+      "taggedVersions": "0+", "tag": 10000, "about": "The broker pod." }
   ]
 }

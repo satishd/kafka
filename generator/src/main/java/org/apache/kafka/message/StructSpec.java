@@ -64,13 +64,22 @@ public final class StructSpec {
                 }
                 newFields.add(field);
             }
-            // Tag IDs should be contiguous and start at 0.  This optimizes space on the wire,
+            // Apache Tag IDs should be contiguous and start at 0.  This optimizes space on the wire,
             // since larger numbers take more space.
-            for (int i = 0; i < tags.size(); i++) {
+            int i = 0;
+            for (; i < tags.size(); i++) {
                 if (!tags.contains(i)) {
+                    break;
+                }
+            }
+            // Uber defined tagged fields starts from tagId: 10000 and should be contiguous.
+            int nextUnusedTagId = i;
+            int uberBaseTagId = 10000;
+            for (int j = 0; i < tags.size(); i++, j++) {
+                if (!tags.contains(uberBaseTagId + j)) {
                     throw new RuntimeException("In " + name + ", the tag IDs are not " +
-                        "contiguous.  Make use of tag " + i + " before using any " +
-                        "higher tag IDs.");
+                        "contiguous.  Make use of tag " + nextUnusedTagId + " or " + (uberBaseTagId + j) +
+                        " before using any higher tag IDs.");
                 }
             }
         }
