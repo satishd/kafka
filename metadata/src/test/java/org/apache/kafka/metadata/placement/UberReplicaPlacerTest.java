@@ -67,7 +67,7 @@ public class UberReplicaPlacerTest {
     @Test
     public void testPlacementWithExcludedBroker() {
         List<UsableBroker> brokers = IntStream.range(0, 3)
-            .mapToObj(id -> new UsableBroker(id, Optional.empty(), false))
+            .mapToObj(id -> new UsableBroker(id, Optional.empty(), Optional.empty(), false))
             .collect(Collectors.toList());
 
         ReplicaPlacer stripedReplicaPlacer = new StripedReplicaPlacer(new Random());
@@ -93,7 +93,7 @@ public class UberReplicaPlacerTest {
     @Test
     public void testPlacementWithMultipleExcludedBrokers() {
         List<UsableBroker> brokers = IntStream.range(0, 5)
-            .mapToObj(id -> new UsableBroker(id, Optional.empty(), false))
+            .mapToObj(id -> new UsableBroker(id, Optional.empty(), Optional.empty(), false))
             .collect(Collectors.toList());
 
         ReplicaPlacer stripedReplicaPlacer = new StripedReplicaPlacer(new Random());
@@ -120,7 +120,7 @@ public class UberReplicaPlacerTest {
     public void testPlacementWithInsufficientNonExcludedBrokers() {
         // Setup: 3 brokers, exclude 2, try to place 2 replicas
         List<UsableBroker> brokers = IntStream.range(0, 3)
-            .mapToObj(id -> new UsableBroker(id, Optional.empty(), false))
+            .mapToObj(id -> new UsableBroker(id, Optional.empty(), Optional.empty(), false))
             .collect(Collectors.toList());
 
         ReplicaPlacer stripedReplicaPlacer = new StripedReplicaPlacer(new Random());

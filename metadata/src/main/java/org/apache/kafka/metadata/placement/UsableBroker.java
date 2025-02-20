@@ -32,11 +32,14 @@ public class UsableBroker {
 
     private final Optional<String> rack;
 
+    private final Optional<String> pod;
+
     private final boolean fenced;
 
-    public UsableBroker(int id, Optional<String> rack, boolean fenced) {
+    public UsableBroker(int id, Optional<String> rack, Optional<String> pod, boolean fenced) {
         this.id = id;
         this.rack = rack;
+        this.pod = pod;
         this.fenced = fenced;
     }
 
@@ -48,6 +51,10 @@ public class UsableBroker {
         return rack;
     }
 
+    public Optional<String> pod() {
+        return pod;
+    }
+
     public boolean fenced() {
         return fenced;
     }
@@ -56,13 +63,17 @@ public class UsableBroker {
     public boolean equals(Object o) {
         if (!(o instanceof UsableBroker)) return false;
         UsableBroker other = (UsableBroker) o;
-        return other.id == id && other.rack.equals(rack) && other.fenced == fenced;
+        return other.id == id &&
+                other.rack.equals(rack) &&
+                other.pod.equals(pod) &&
+                other.fenced == fenced;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(id,
             rack,
+            pod,
             fenced);
     }
 
@@ -71,6 +82,7 @@ public class UsableBroker {
         return "UsableBroker" +
             "(id=" + id +
             ", rack=" + rack +
+            ", pod=" + pod +
             ", fenced=" + fenced +
             ")";
     }

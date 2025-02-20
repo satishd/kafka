@@ -714,7 +714,8 @@ public class ClusterControlManager {
             throw new RuntimeException("ClusterControlManager is not active.");
         }
         return heartbeatManager.usableBrokers(
-            id -> brokerRegistrations.get(id).rack());
+            id -> brokerRegistrations.get(id).rack(),
+                id -> brokerRegistrations.get(id).pod());
     }
 
     /**
