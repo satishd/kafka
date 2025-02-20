@@ -59,7 +59,7 @@ object Broker {
       registration.id(),
       registration.listeners().values().asScala.map(EndPoint.fromJava).toSeq,
       registration.rack().asScala,
-      null,
+      registration.pod().asScala,
       Features.supportedFeatures(supportedFeatures(registration.supportedFeatures()))
     )
   }

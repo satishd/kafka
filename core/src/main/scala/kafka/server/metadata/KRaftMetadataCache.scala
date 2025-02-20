@@ -38,7 +38,7 @@ import org.apache.kafka.server.common.{FinalizedFeatures, KRaftVersion, Metadata
 import java.util
 import java.util.concurrent.ThreadLocalRandom
 import java.util.function.Supplier
-import java.util.{Collections, Optional, Properties}
+import java.util.{Collections, Properties}
 import scala.collection.mutable.ListBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.compat.java8.OptionConverters._
@@ -368,7 +368,7 @@ class KRaftMetadataCache(
 
   private def getAliveBrokers(image: MetadataImage): Iterable[BrokerMetadata] = {
     image.cluster().brokers().values().asScala.filterNot(_.fenced()).
-      map(b => new BrokerMetadata(b.id, b.rack, Optional.empty()))
+      map(b => new BrokerMetadata(b.id, b.rack, b.pod()))
   }
 
   override def getAliveBrokerNode(brokerId: Int, listenerName: ListenerName): Option[Node] = {

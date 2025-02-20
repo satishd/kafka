@@ -424,6 +424,7 @@ public class ClusterControlManager {
             setIsMigratingZkBroker(request.isMigratingZkBroker()).
             setIncarnationId(request.incarnationId()).
             setRack(request.rack()).
+            setUPod(request.uPod()).
             setEndPoints(listenerInfo.toBrokerRegistrationRecord());
 
         // Track which finalized features we have not yet verified are supported by the broker.
@@ -567,6 +568,7 @@ public class ClusterControlManager {
                 setListeners(listenerInfo.listeners()).
                 setSupportedFeatures(features).
                 setRack(Optional.ofNullable(record.rack())).
+                setPod(Optional.ofNullable(record.uPod())).
                 setFenced(record.fenced()).
                 setInControlledShutdown(record.inControlledShutdown()).
                 setIsMigratingZkBroker(record.isMigratingZkBroker()).
