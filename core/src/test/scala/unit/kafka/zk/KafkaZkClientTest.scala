@@ -806,13 +806,14 @@ class KafkaZkClientTest extends QuorumTestHarness {
   }
 
   private def createBrokerInfo(id: Int, host: String, port: Int, securityProtocol: SecurityProtocol,
-                               rack: Option[String] = None,
+                               rack: Option[String] = None, pod: Option[String] = None,
                                features: Features[SupportedVersionRange] = emptySupportedFeatures): BrokerInfo =
     BrokerInfo(
       Broker(
         id,
         Seq(new EndPoint(host, port, ListenerName.forSecurityProtocol(securityProtocol), securityProtocol)),
         rack = rack,
+        pod = pod,
         features = features),
       MetadataVersion.latestTesting, jmxPort = port + 10)
 

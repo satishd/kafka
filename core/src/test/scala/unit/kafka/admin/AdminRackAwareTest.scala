@@ -200,7 +200,7 @@ class AdminRackAwareTest extends RackAwareTest with Logging {
 
   @Test
   def testReplicaAssignment(): Unit = {
-    val brokerMetadatas = (0 to 4).map(new BrokerMetadata(_, Optional.empty())).asJava
+    val brokerMetadatas = (0 to 4).map(new BrokerMetadata(_, Optional.empty(), Optional.empty())).asJava
 
     // test 0 replication factor
     assertThrows(classOf[InvalidReplicationFactorException],

@@ -1001,6 +1001,7 @@ class KafkaConfigTest {
         case MetricConfigs.METRIC_REPORTER_CLASSES_CONFIG => // ignore string
         case MetricConfigs.METRIC_RECORDING_LEVEL_CONFIG => // ignore string
         case ServerConfigs.BROKER_RACK_CONFIG => // ignore string
+        case ServerConfigs.BROKER_POD_CONFIG => // ignore string
 
         case ServerConfigs.COMPRESSION_GZIP_LEVEL_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number", "0")
         case ServerConfigs.COMPRESSION_LZ4_LEVEL_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number", "0")
@@ -2070,5 +2071,20 @@ class KafkaConfigTest {
     assertThrows(classOf[ConfigException], () => KafkaConfig.fromProps(props))
     props.put(ShareGroupConfig.SHARE_GROUP_RECORD_LOCK_DURATION_MS_CONFIG, "30000")
     assertDoesNotThrow(() => KafkaConfig.fromProps(props))
+  }
+
+  @Test
+  def testPodAndRackProperties(): Unit = {
+    val props = new Properties()
+    props.put(KRaftConfigs.PROCESS_ROLES_CONFIG, "broker")
+    props.setProperty(QuorumConfig.QUORUM_VOTERS_CONFIG, "2@localhost:9093")
+    props.setProperty(KRaftConfigs.CONTROLLER_LISTENER_NAMES_CONFIG, "CONTROLLER")
+    props.put(KRaftConfigs.NODE_ID_CONFIG, "1")
+    props.put(ServerConfigs.BROKER_RACK_CONFIG, "rack-1")
+    props.put(ServerConfigs.BROKER_POD_CONFIG, "pod-1")
+    assertTrue(isValidKafkaConfig(props))
+    val config = KafkaConfig.fromProps(props)
+    assertEquals("rack-1", config.rack.orNull)
+    assertEquals("pod-1", config.brokerPod.orNull)
   }
 }

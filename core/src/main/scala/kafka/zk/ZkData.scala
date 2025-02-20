@@ -139,6 +139,7 @@ object BrokerIdZNode {
   private val VersionKey = "version"
   private val EndpointsKey = "endpoints"
   private val RackKey = "rack"
+  private val PodKey = "pod"
   private val JmxPortKey = "jmx_port"
   private val ListenerSecurityProtocolMapKey = "listener_security_protocol_map"
   private val TimestampKey = "timestamp"
@@ -152,7 +153,7 @@ object BrokerIdZNode {
    * The JSON format includes a top level host and port for compatibility with older clients.
    */
   def encode(version: Int, host: String, port: Int, advertisedEndpoints: Seq[EndPoint], jmxPort: Int,
-             rack: Option[String], features: Features[SupportedVersionRange]): Array[Byte] = {
+             rack: Option[String], pod: Option[String], features: Features[SupportedVersionRange]): Array[Byte] = {
     val jsonMap = collection.mutable.Map(VersionKey -> version,
       HostKey -> host,
       PortKey -> port,
@@ -170,6 +171,7 @@ object BrokerIdZNode {
 
     if (version >= 5) {
       jsonMap += (FeaturesKey -> features.toMap)
+      pod.foreach(pod => jsonMap += (PodKey -> pod))
     }
     Json.encodeAsBytes(jsonMap.asJava)
   }
@@ -182,7 +184,7 @@ object BrokerIdZNode {
     val plaintextEndpoint = broker.endPoints.find(_.securityProtocol == SecurityProtocol.PLAINTEXT).getOrElse(
       new EndPoint(null, -1, null, null))
     encode(brokerInfo.version, plaintextEndpoint.host, plaintextEndpoint.port, broker.endPoints, brokerInfo.jmxPort,
-      broker.rack, broker.features)
+      broker.rack, broker.pod, broker.features)
   }
 
   private def featuresAsJavaMap(brokerInfo: JsonObject): util.Map[String, util.Map[String, java.lang.Short]] = {
@@ -255,6 +257,19 @@ object BrokerIdZNode {
     *   "rack":"dc1",
     *   "features": {"feature": {"min_version":1, "first_active_version":2, "max_version":3}}
     * }
+    *
+    * We modified version-5 (current) to include "Pod" field to store the pod information of the broker.
+    * {
+    *   "version":5,
+    *   "host":"localhost",
+    *   "port":9092,
+    *   "jmx_port":9999,
+    *   "timestamp":"2233345666",
+    *   "endpoints":["CLIENT://host1:9092", "REPLICATION://host1:9093"],
+    *   "rack":"dc1",
+    *   "features": {"feature": {"min_version":1, "first_active_version":2, "max_version":3}},
+    *   "pod":"canary"
+    * }
     */
   def decode(id: Int, jsonBytes: Array[Byte]): BrokerInfo = {
     Json.tryParseBytes(jsonBytes) match {
@@ -292,9 +307,10 @@ object BrokerIdZNode {
           }
 
         val rack = brokerInfo.get(RackKey).flatMap(_.to[Option[String]])
+        val pod = brokerInfo.get(PodKey).flatMap(_.to[Option[String]])
         val features = featuresAsJavaMap(brokerInfo)
         BrokerInfo(
-          Broker(id, endpoints, rack, fromSupportedFeaturesMap(features)), version, jmxPort)
+          Broker(id, endpoints, Option(rack.orNull), Option(pod.orNull), fromSupportedFeaturesMap(features)), version, jmxPort)
       case Left(e) =>
         throw new KafkaException(s"Failed to parse ZooKeeper registration for broker $id: " +
           s"${new String(jsonBytes, UTF_8)}", e)

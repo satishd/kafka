@@ -26,15 +26,18 @@ public class BrokerMetadata {
     public final int id;
 
     public final Optional<String> rack;
+    public final Optional<String> pod;
+
 
     /**
      * @param id an integer that uniquely identifies this broker
      * @param rack the rack of the broker, which is used to in rack aware partition assignment for fault tolerance.
      *             Examples: "RACK1", "us-east-1d"
      */
-    public BrokerMetadata(int id, Optional<String> rack) {
+    public BrokerMetadata(int id, Optional<String> rack, Optional<String> pod) {
         this.id = id;
         this.rack = rack;
+        this.pod = pod;
     }
 
     @Override
@@ -42,11 +45,11 @@ public class BrokerMetadata {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         BrokerMetadata that = (BrokerMetadata) o;
-        return id == that.id && Objects.equals(rack, that.rack);
+        return id == that.id && Objects.equals(rack, that.rack) && Objects.equals(pod, that.pod);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, rack);
+        return Objects.hash(id, rack, pod);
     }
 }

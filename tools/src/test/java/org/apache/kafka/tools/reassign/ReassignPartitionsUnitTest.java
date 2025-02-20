@@ -317,19 +317,19 @@ public class ReassignPartitionsUnitTest {
             build()) {
 
             assertEquals(asList(
-                new BrokerMetadata(0, Optional.of("rack0")),
-                new BrokerMetadata(1, Optional.of("rack1"))
+                new BrokerMetadata(0, Optional.of("rack0"), Optional.empty()),
+                new BrokerMetadata(1, Optional.of("rack1"), Optional.empty())
             ), getBrokerMetadata(adminClient, asList(0, 1), true));
             assertEquals(asList(
-                new BrokerMetadata(0, Optional.empty()),
-                new BrokerMetadata(1, Optional.empty())
+                new BrokerMetadata(0, Optional.empty(), Optional.empty()),
+                new BrokerMetadata(1, Optional.empty(), Optional.empty())
             ), getBrokerMetadata(adminClient, asList(0, 1), false));
             assertStartsWith("Not all brokers have rack information",
                 assertThrows(AdminOperationException.class,
                     () -> getBrokerMetadata(adminClient, asList(1, 2), true)).getMessage());
             assertEquals(asList(
-                new BrokerMetadata(1, Optional.empty()),
-                new BrokerMetadata(2, Optional.empty())
+                new BrokerMetadata(1, Optional.empty(), Optional.empty()),
+                new BrokerMetadata(2, Optional.empty(), Optional.empty())
             ), getBrokerMetadata(adminClient, asList(1, 2), false));
         }
     }

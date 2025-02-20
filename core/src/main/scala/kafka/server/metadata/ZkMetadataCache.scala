@@ -342,7 +342,7 @@ class ZkMetadataCache(
   override def hasAliveBroker(brokerId: Int): Boolean = metadataSnapshot.aliveBrokers.contains(brokerId)
 
   override def getAliveBrokers(): Iterable[BrokerMetadata] = {
-    metadataSnapshot.aliveBrokers.values.map(b => new BrokerMetadata(b.id, Optional.ofNullable(b.rack.orNull)))
+    metadataSnapshot.aliveBrokers.values.map(b => new BrokerMetadata(b.id, Optional.ofNullable(b.rack.orNull), Optional.ofNullable(b.pod.orNull)))
   }
 
   override def getAliveBrokerNode(brokerId: Int, listenerName: ListenerName): Option[Node] = {
@@ -536,7 +536,7 @@ class ZkMetadataCache(
           endPoints += new EndPoint(ep.host, ep.port, listenerName, SecurityProtocol.forId(ep.securityProtocol))
           nodes.put(listenerName, new Node(broker.id, ep.host, ep.port, broker.rack()))
         }
-        aliveBrokers(broker.id) = Broker(broker.id, endPoints, Option(broker.rack))
+        aliveBrokers(broker.id) = Broker(broker.id, endPoints, Option(broker.rack), Option(broker.uPod()))
         aliveNodes(broker.id) = nodes.asScala
       }
       aliveNodes.get(brokerId).foreach { listenerMap =>

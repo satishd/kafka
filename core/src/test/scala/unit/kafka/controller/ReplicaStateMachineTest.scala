@@ -66,7 +66,7 @@ class ReplicaStateMachineTest {
   def testStartupOnlinePartition(): Unit = {
     val endpoint1 = new EndPoint("localhost", 9997, new ListenerName("blah"),
       SecurityProtocol.PLAINTEXT)
-    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None) -> 1L)
+    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None, pod = None) -> 1L)
     controllerContext.setLiveBrokers(liveBrokerEpochs)
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(brokerId)))
     assertEquals(None, controllerContext.replicaStates.get(replica))
@@ -88,7 +88,7 @@ class ReplicaStateMachineTest {
     val offlineReplica = PartitionAndReplica(partition, shutdownBrokerId)
     val endpoint1 = new EndPoint("localhost", 9997, new ListenerName("blah"),
       SecurityProtocol.PLAINTEXT)
-    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None) -> 1L)
+    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None, pod = None) -> 1L)
     controllerContext.setLiveBrokers(liveBrokerEpochs)
     controllerContext.updatePartitionFullReplicaAssignment(partition, ReplicaAssignment(Seq(shutdownBrokerId)))
     assertEquals(None, controllerContext.replicaStates.get(offlineReplica))
@@ -149,7 +149,7 @@ class ReplicaStateMachineTest {
   def testNewReplicaToOfflineReplicaTransition(): Unit = {
     val endpoint1 = new EndPoint("localhost", 9997, new ListenerName("blah"),
       SecurityProtocol.PLAINTEXT)
-    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None) -> 1L)
+    val liveBrokerEpochs = Map(Broker(brokerId, Seq(endpoint1), rack = None, pod = None) -> 1L)
     controllerContext.setLiveBrokers(liveBrokerEpochs)
     controllerContext.putReplicaState(replica, NewReplica)
 

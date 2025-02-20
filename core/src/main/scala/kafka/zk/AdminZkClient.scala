@@ -83,10 +83,10 @@ class AdminZkClient(zkClient: KafkaZkClient,
         " to make replica assignment without rack information.")
     }
     val brokerMetadatas = rackAwareMode match {
-      case RackAwareMode.Disabled => brokers.map(broker => new BrokerMetadata(broker.id, Optional.empty()))
+      case RackAwareMode.Disabled => brokers.map(broker => new BrokerMetadata(broker.id, Optional.empty(), Optional.empty()))
       case RackAwareMode.Safe if brokersWithRack.size < brokers.size =>
-        brokers.map(broker => new BrokerMetadata(broker.id, Optional.empty()))
-      case _ => brokers.map(broker => new BrokerMetadata(broker.id, Optional.ofNullable(broker.rack.orNull)))
+        brokers.map(broker => new BrokerMetadata(broker.id, Optional.empty(), Optional.empty()))
+      case _ => brokers.map(broker => new BrokerMetadata(broker.id, Optional.ofNullable(broker.rack.orNull), Optional.ofNullable(broker.pod.orNull)))
     }
     brokerMetadatas.sortBy(_.id)
   }

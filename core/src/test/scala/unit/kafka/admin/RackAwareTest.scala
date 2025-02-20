@@ -79,11 +79,11 @@ trait RackAwareTest {
     ReplicaDistributions(partitionRackMap, leaderCount, partitionCount)
   }
 
-  def toBrokerMetadata(rackMap: Map[Int, String], brokersWithoutRack: Seq[Int] = Seq.empty): util.Collection[BrokerMetadata] = {
+  def toBrokerMetadata(rackMap: Map[Int, String], podMap: Map[Int, String] = Map.empty, brokersWithoutRack: Seq[Int] = Seq.empty): util.Collection[BrokerMetadata] = {
     val res = rackMap.toSeq.map { case (brokerId, rack) =>
-      new BrokerMetadata(brokerId, Optional.ofNullable(rack))
+      new BrokerMetadata(brokerId, Optional.ofNullable(rack), Optional.ofNullable(podMap.getOrElse(brokerId, null)))
     } ++ brokersWithoutRack.map { brokerId =>
-      new BrokerMetadata(brokerId, Optional.empty())
+      new BrokerMetadata(brokerId, Optional.empty(), Optional.empty())
     }.sortBy(_.id)
 
     res.asJavaCollection

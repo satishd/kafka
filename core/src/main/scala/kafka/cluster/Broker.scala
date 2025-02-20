@@ -39,12 +39,12 @@ object Broker {
                                          interBrokerEndpoint: Endpoint,
                                          earlyStartListeners: util.Set[String]) extends AuthorizerServerInfo
 
-  def apply(id: Int, endPoints: Seq[EndPoint], rack: Option[String]): Broker = {
-    new Broker(id, endPoints, rack, emptySupportedFeatures)
+  def apply(id: Int, endPoints: Seq[EndPoint], rack: Option[String], pod: Option[String]): Broker = {
+    new Broker(id, endPoints, rack, pod, emptySupportedFeatures)
   }
 
-  def apply(id: Int, endPoint: EndPoint, rack: Option[String]): Broker = {
-    new Broker(id, Seq(endPoint), rack, emptySupportedFeatures)
+  def apply(id: Int, endPoint: EndPoint, rack: Option[String], pod: Option[String]): Broker = {
+    new Broker(id, Seq(endPoint), rack, pod, emptySupportedFeatures)
   }
 
   private def supportedFeatures(features: java.util.Map[String, VersionRange]): java.util
@@ -59,6 +59,7 @@ object Broker {
       registration.id(),
       registration.listeners().values().asScala.map(EndPoint.fromJava).toSeq,
       registration.rack().asScala,
+      null,
       Features.supportedFeatures(supportedFeatures(registration.supportedFeatures()))
     )
   }
@@ -70,9 +71,10 @@ object Broker {
  * @param id          a broker id
  * @param endPoints   a collection of EndPoint. Each end-point is (host, port, listener name, security protocol).
  * @param rack        an optional rack
+ * @param pod         an optional pod
  * @param features    supported features
  */
-case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String], features: Features[SupportedVersionRange]) {
+case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String], pod: Option[String], features: Features[SupportedVersionRange]) {
 
   private val endPointsMap = endPoints.map { endPoint =>
     endPoint.listenerName -> endPoint
@@ -82,10 +84,10 @@ case class Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String], featu
     throw new IllegalArgumentException(s"There is more than one end point with the same listener name: ${endPoints.mkString(",")}")
 
   override def toString: String =
-    s"$id : ${endPointsMap.values.mkString("(",",",")")} : ${rack.orNull} : $features"
+    s"$id : ${endPointsMap.values.mkString("(",",",")")} : ${rack.orNull} : ${pod.orNull} : $features"
 
   def this(id: Int, host: String, port: Int, listenerName: ListenerName, protocol: SecurityProtocol) = {
-    this(id, Seq(EndPoint(host, port, listenerName, protocol)), None, emptySupportedFeatures)
+    this(id, Seq(EndPoint(host, port, listenerName, protocol)), None, None, emptySupportedFeatures)
   }
 
   def this(bep: BrokerEndPoint, listenerName: ListenerName, protocol: SecurityProtocol) = {

@@ -429,16 +429,16 @@ class AdminZkClientTest extends QuorumTestHarness with Logging with RackAwareTes
   }
 
   private def createBrokersInZk(zkClient: KafkaZkClient, ids: Seq[Int]): Seq[Broker] =
-    createBrokersInZk(ids.map(new BrokerMetadata(_, Optional.empty())), zkClient)
+    createBrokersInZk(ids.map(new BrokerMetadata(_, Optional.empty(), Optional.empty())), zkClient)
 
   private def createBrokersInZk(brokerMetadatas: Seq[BrokerMetadata], zkClient: KafkaZkClient): Seq[Broker] = {
     zkClient.makeSurePersistentPathExists(BrokerIdsZNode.path)
     val brokers = brokerMetadatas.map { b =>
       val protocol = SecurityProtocol.PLAINTEXT
       val listenerName = ListenerName.forSecurityProtocol(protocol)
-      Broker(b.id, Seq(EndPoint("localhost", 6667, listenerName, protocol)), if (b.rack.isPresent) Some(b.rack.get()) else None)
+      Broker(b.id, Seq(EndPoint("localhost", 6667, listenerName, protocol)), if (b.rack.isPresent) Some(b.rack.get()) else None, if (b.pod.isPresent) Some(b.pod.get()) else None)
     }
-    brokers.foreach(b => zkClient.registerBroker(BrokerInfo(Broker(b.id, b.endPoints, rack = b.rack),
+    brokers.foreach(b => zkClient.registerBroker(BrokerInfo(Broker(b.id, b.endPoints, rack = b.rack, pod = b.pod),
       MetadataVersion.latestTesting, jmxPort = -1)))
     brokers
   }

@@ -787,7 +787,7 @@ class KafkaServer(
     val jmxPort = System.getProperty("com.sun.management.jmxremote.port", "-1").toInt
 
     BrokerInfo(
-      Broker(config.brokerId, updatedEndpoints, config.rack, brokerFeatures.supportedFeatures),
+      Broker(config.brokerId, updatedEndpoints, config.rack, config.brokerPod, brokerFeatures.supportedFeatures),
       config.interBrokerProtocolVersion,
       jmxPort)
   }
