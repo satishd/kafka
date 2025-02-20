@@ -1528,6 +1528,33 @@ class MetadataCacheTest {
     assertEquals("rack1", aliveBrokers.rack.get())
   }
 
+  @ParameterizedTest
+  @MethodSource(Array("zkCacheProvider"))
+  def testGetClusterMetadataWithInvalidRack(cache: ZkMetadataCache): Unit = {
+    val brokerId = 0
+    val securityProtocol = SecurityProtocol.PLAINTEXT
+    val listenerName = ListenerName.forSecurityProtocol(securityProtocol)
+    val brokers = Seq(
+      new UpdateMetadataBroker()
+        .setId(brokerId)
+        .setRack("pod1::rack1")
+        .setUPod("pod50")
+        .setEndpoints(Seq(new UpdateMetadataEndpoint()
+          .setHost("foo")
+          .setPort(9092)
+          .setSecurityProtocol(securityProtocol.id)
+          .setListener(listenerName.value)).asJava),
+    )
+    val version = ApiKeys.UPDATE_METADATA.latestVersion
+    val controllerEpoch = 1
+    val updateMetadataRequest = new UpdateMetadataRequest.Builder(version, 2, controllerEpoch, brokerEpoch, Seq.empty.asJava,
+      brokers.asJava, Collections.emptyMap()).build()
+    cache.updateMetadata(15, updateMetadataRequest)
+    val node = cache.getAliveBrokerNode(brokerId, listenerName)
+    assertTrue(node.isDefined)
+    assertEquals("pod50", node.get.pod())
+    assertEquals("rack1", node.get.rack())
+  }
 
   def createFullUMR(
     topicStates: Seq[UpdateMetadataTopicState]

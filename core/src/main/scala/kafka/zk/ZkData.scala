@@ -37,7 +37,7 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.resource.{PatternType, ResourcePattern, ResourceType}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.token.delegation.TokenInformation
-import org.apache.kafka.common.utils.{SecurityUtils, Time}
+import org.apache.kafka.common.utils.{PodUtils, SecurityUtils, Time}
 import org.apache.kafka.common.{KafkaException, RecentlyDeletedTopicMetadata, TopicPartition, Uuid}
 import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.metadata.migration.ZkMigrationLeadershipState
@@ -47,6 +47,7 @@ import org.apache.kafka.server.common.{MetadataVersion, ProducerIdsBlock}
 import org.apache.kafka.server.common.MetadataVersion.{IBP_0_10_0_IV1, IBP_2_7_IV0}
 import org.apache.zookeeper.ZooDefs
 import org.apache.zookeeper.data.{ACL, Stat}
+
 import scala.beans.BeanProperty
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, immutable, mutable}
@@ -305,8 +306,10 @@ object BrokerIdZNode {
             SocketServerConfigs.listenerListToEndPoints(listenersString, securityProtocolMap).
               asScala.map(EndPoint.fromJava(_))
           }
-
-        val rack = brokerInfo.get(RackKey).flatMap(_.to[Option[String]])
+        // DKAFC-5699: To handle incompatible changes with the previous build (2.9.60-ts), we need to extract the
+        // realRack value from the `rack` field. When the controller node gets upgraded to `3.9` and few nodes are
+        // left in the cluster with `2.9` build, then the controller should be able to extract the `realRack` information.
+        val rack = brokerInfo.get(RackKey).flatMap(_.to[Option[String]]).flatMap(r => Option(PodUtils.rackOf(r)))
         val pod = brokerInfo.get(PodKey).flatMap(_.to[Option[String]])
         val features = featuresAsJavaMap(brokerInfo)
         BrokerInfo(

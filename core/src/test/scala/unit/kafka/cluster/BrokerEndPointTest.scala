@@ -24,8 +24,10 @@ import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.feature.Features._
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
-import org.junit.jupiter.api.Assertions.{assertEquals, assertNotEquals}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertNotEquals, assertTrue}
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 
 import scala.jdk.CollectionConverters._
 
@@ -225,6 +227,58 @@ class BrokerEndPointTest {
         "feature1" -> new SupportedVersionRange(1, 2),
         "feature2" -> new SupportedVersionRange(2, 4)).asJava),
       broker.features)
+  }
+
+  @ParameterizedTest
+  @CsvSource(Array(
+    "myPod::myRack, myRack",
+    "myRack, myRack",
+    "::myRack, myRack",
+    ", null"
+  ))
+  def testGetRackFromBrokerInfo(rack: String, expectedRack: String): Unit = {
+    val json = """{
+      "version":5,
+      "host":"localhost",
+      "port":9092,
+      "jmx_port":9999,
+      "timestamp":"2233345666",
+      "endpoints":["CLIENT://host1:9092", "REPLICATION://host1:9093"],
+      "listener_security_protocol_map":{"CLIENT":"SSL", "REPLICATION":"PLAINTEXT"},
+      "rack":"%s",
+      "pod":"xyzPod",
+      "features": {"feature1": {"min_version": 1, "max_version": 2}, "feature2": {"min_version": 2, "max_version": 4}}
+    }""".format(rack)
+
+    val broker = parseBrokerJson(1, json)
+    assertEquals(Some("xyzPod"), broker.pod)
+    assertEquals(Some(expectedRack), broker.rack)
+  }
+
+  @ParameterizedTest
+  @CsvSource(Array(
+    "myPod::myRack, <none>",
+    "myRack, <none>",
+    "::myRack, <none>",
+    ", <none>"
+  ))
+  def testPodIsNotExtractedFromRackInBrokerInfo(rack: String, expectedPod: String): Unit = {
+    val json = """{
+      "version":5,
+      "host":"localhost",
+      "port":9092,
+      "jmx_port":9999,
+      "timestamp":"2233345666",
+      "endpoints":["CLIENT://host1:9092", "REPLICATION://host1:9093"],
+      "listener_security_protocol_map":{"CLIENT":"SSL", "REPLICATION":"PLAINTEXT"},
+      "rack":"%s",
+      "features": {"feature1": {"min_version": 1, "max_version": 2}, "feature2": {"min_version": 2, "max_version": 4}}
+    }""".format(rack)
+    val broker = parseBrokerJson(1, json)
+    if (expectedPod.equals("<none>"))
+      assertTrue(broker.pod.isEmpty)
+    else
+      assertEquals(Some(expectedPod), broker.pod)
   }
 
   private def parseBrokerJson(id: Int, jsonString: String): Broker =

@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-
 package org.apache.kafka.message;
 
 import org.junit.jupiter.api.Test;

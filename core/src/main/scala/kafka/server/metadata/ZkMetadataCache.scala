@@ -40,6 +40,7 @@ import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{AbstractControlRequest, ApiVersionsResponse, MetadataResponse, UpdateMetadataRequest}
 import org.apache.kafka.common.security.auth.SecurityProtocol
+import org.apache.kafka.common.utils.PodUtils
 import org.apache.kafka.server.common.{FinalizedFeatures, MetadataVersion}
 
 import java.util.concurrent.{ThreadLocalRandom, TimeUnit}
@@ -536,7 +537,11 @@ class ZkMetadataCache(
           endPoints += new EndPoint(ep.host, ep.port, listenerName, SecurityProtocol.forId(ep.securityProtocol))
           nodes.put(listenerName, new Node(broker.id, ep.host, ep.port, broker.rack(), broker.uPod()))
         }
-        aliveBrokers(broker.id) = Broker(broker.id, endPoints, Option(broker.rack), Option(broker.uPod()))
+        // DKAFC-5699: To handle incompatible changes with old 2.9 build, we have to extract the correct `rack` value
+        // If controller is in v2.9 and some of the brokers in the cluster gets upgraded to v3.9, then the upgraded
+        // brokers interpret wrong `pod::rack` rack value. With this patch, the upgraded brokers extract the real rack
+        // value using PodUtils. The `pod` value gets correctly propagated from 2.9 controller to 3.9 brokers.
+        aliveBrokers(broker.id) = Broker(broker.id, endPoints, Option(PodUtils.rackOf(broker.rack)), Option(broker.uPod()))
         aliveNodes(broker.id) = nodes.asScala
       }
       aliveNodes.get(brokerId).foreach { listenerMap =>

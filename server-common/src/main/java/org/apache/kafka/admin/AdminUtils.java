@@ -178,15 +178,14 @@ public class AdminUtils {
                     throw new AdminOperationException("Partitions already assigned: " + overlappingPartitions);
                 }
                 assignedPartitions.addAll(podPartitions);
-                finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor, podBrokerMetadatas, fixedStartIndex, startPartitionId, podPartitions));
+                finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor,
+                        podBrokerMetadatas, fixedStartIndex, startPartitionId, podPartitions));
             }
         }
-
         Set<Integer> unassignedPartitions = new HashSet<>(new Default().getPodPartitions(nPartitions, startPartitionId));
         unassignedPartitions.removeAll(assignedPartitions);
-        finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor, brokerMetadatasByPod.get(new Default().getPodName()), fixedStartIndex, startPartitionId, unassignedPartitions));
-
-        finalAssignments.replaceAll((key, value) -> new ArrayList<>(value));
+        finalAssignments.putAll(assignReplicasToBrokersRackAndPodAware(nPartitions, replicationFactor,
+                brokerMetadatasByPod.get(new Default().getPodName()), fixedStartIndex, startPartitionId, unassignedPartitions));
         return finalAssignments;
     }
 
