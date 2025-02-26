@@ -4371,7 +4371,7 @@ public class KafkaRaftClientTest {
         return ReplicaKey.of(id, directoryId);
     }
 
-    private static int randomReplicaId() {
+    public static int randomReplicaId() {
         return ThreadLocalRandom.current().nextInt(1025);
     }
 }
