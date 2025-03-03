@@ -164,8 +164,8 @@ versions += [
   // Also make sure the compression levels in org.apache.kafka.common.record.CompressionType are still valid
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
-  // TODO: Update the version to current production version when required (JIRA: DKAFC-5307)
-  kafkasecurity: "0.0.4",
+  // TODO: Update the version to latest production version after its release (JIRA: DKAFC-5718)
+  kafkasecurity: "0.0.2-cs",
   hadoop: '2.8.2.18b2c1e428284d81'
 ]
 
