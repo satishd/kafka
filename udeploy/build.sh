@@ -34,7 +34,7 @@ fi
 
 sed -i 's/^version=.*$/version='"$VERSION"'/' gradle.properties
 
-./gradlew releaseTarGz --stacktrace
+./gradlew releaseTarGz --stacktrace  --no-daemon
 
 cp core/build/distributions/!(*docs*) /tmp
 
