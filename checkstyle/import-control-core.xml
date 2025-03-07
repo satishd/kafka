@@ -67,6 +67,7 @@
     <allow pkg="org.apache.kafka.clients.consumer" />
     <allow pkg="org.apache.kafka.server.util" />
     <allow pkg="joptsimple" />
+    <allow pkg="net.sourceforge.argparse4j" />
   </subpackage>
 
   <subpackage name="coordinator">
