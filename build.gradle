@@ -255,6 +255,7 @@ if (repo != null) {
         'udeploy/**',
         '.buildkite/udj/sonarw-commit-job.yaml',
         '.jenkins/**',
+        '**/*.properties',
     ])
   }
 } else {
@@ -985,6 +986,7 @@ project(':core') {
       exclude group: 'org.checkerframework', module: 'checker-qual'
     }
     implementation libs.kafkasecurity
+    implementation group: 'cruise-control-metrics-reporter', name: 'cruise-control-metrics-reporter', version: '2.5.84.2'
 
     testImplementation project(':clients').sourceSets.test.output
     testImplementation project(':group-coordinator').sourceSets.test.output

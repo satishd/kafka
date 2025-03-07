@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG jdk_version=openjdk:8
+ARG jdk_version=openjdk:11
 FROM $jdk_version AS build-native-image
 
 WORKDIR /build
@@ -129,6 +129,10 @@ RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.5.2-test.jar" -o /opt/kafka-3.5.2/lib
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.6.2-test.jar" -o /opt/kafka-3.6.2/libs/kafka-streams-3.6.2-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.7.1-test.jar" -o /opt/kafka-3.7.1/libs/kafka-streams-3.7.1-test.jar
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.8.0-test.jar" -o /opt/kafka-3.8.0/libs/kafka-streams-3.8.0-test.jar
+
+# Install Cruise Control binary dependencies
+ARG CRUISE_CONTROL_VERSION=0.4
+RUN mkdir -p "/opt/cruise-control" && chmod a+rw /opt/cruise-control && curl -s "http://artifactory.uber.internal:4587/artifactory/libs-release-local-dca1/com/uber/data/kafka/cruisecontrol/cruise-control/$CRUISE_CONTROL_VERSION/cruise-control-$CRUISE_CONTROL_VERSION.jar" -o "/opt/cruise-control/cruise-control.jar"
 
 # The version of Kibosh to use for testing.
 # If you update this, also update vagrant/base.sh
