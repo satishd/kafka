@@ -150,12 +150,14 @@ import static org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig.
 import static org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX;
 import static org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig.DEFAULT_REMOTE_STORAGE_MANAGER_CONFIG_PREFIX;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_STORAGE_THREAD_POOL_METRICS;
 import static org.apache.kafka.test.TestUtils.tempFile;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -1831,9 +1833,12 @@ public class RemoteLogManagerTest {
             Set<String> remoteStorageThreadPoolMetricNames = REMOTE_STORAGE_THREAD_POOL_METRICS;
 
             verify(mockRlmMetricsGroup, times(1)).newGauge(any(MetricName.class), any());
+            verify(mockRlmMetricsGroup, times(1)).newGauge(anyString(), any());
             verify(mockRlmMetricsGroup, times(1)).newTimer(any(MetricName.class), any(), any());
             // Verify that the RemoteLogManager metrics are removed
             remoteLogManagerMetricNames.forEach(metricName -> verify(mockRlmMetricsGroup).removeMetric(metricName));
+            verify(mockRlmMetricsGroup).removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
+
 
             verify(mockThreadPoolMetricsGroup, times(remoteStorageThreadPoolMetricNames.size())).newGauge(anyString(), any());
             // Verify that the RemoteStorageThreadPool metrics are removed
@@ -3724,6 +3729,37 @@ public class RemoteLogManagerTest {
         verifyNoMoreInteractions(remoteLogMetadataManager);
         verify(remoteStorageManager).configure(anyMap());
         verifyNoMoreInteractions(remoteStorageManager);
+    }
+
+    @Test
+    public void testRlmTaskCountMatchesWithAssignedPartitions() {
+        String topic = "sample";
+        Uuid topicId = Uuid.randomUuid();
+        Map<String, Uuid> topicIds = new HashMap<>();
+        topicIds.put(topic, topicId);
+
+        TopicPartition sample0 = new TopicPartition(topic, 0);
+        TopicIdPartition tpId0 = new TopicIdPartition(topicId, sample0);
+        Partition mockLeaderPartition = mockPartition(tpId0);
+
+        TopicPartition sample1 = new TopicPartition(topic, 1);
+        TopicIdPartition tpId1 = new TopicIdPartition(topicId, sample1);
+        Partition mockFollowerPartition = mockPartition(tpId1);
+        remoteLogManager.startup();
+        assertEquals(0, remoteLogManager.isRLMTaskCountMatchWithAssignedPartitions());
+
+        remoteLogManager.onLeadershipChange(Collections.singleton(mockLeaderPartition), Collections.singleton(mockFollowerPartition), topicIds);
+        assertEquals(0, remoteLogManager.isRLMTaskCountMatchWithAssignedPartitions());
+        Set<StopPartition> stopPartitions = Collections.singleton(new StopPartition(sample0, true, true, true));
+        remoteLogManager.stopPartitions(stopPartitions, (ignored1, ignored2) -> { });
+        assertEquals(0, remoteLogManager.isRLMTaskCountMatchWithAssignedPartitions());
+
+        // NOTE: When the partition is stopped and the local log is not deleted, then the topic-identifier won't be removed
+        // from the cache but the RLM tasks will be stopped. This case can only happen while shutting down the broker.
+        stopPartitions = Collections.singleton(new StopPartition(sample1, false, false, false));
+        remoteLogManager.stopPartitions(stopPartitions, (ignored1, ignored2) -> { });
+        assertNotEquals(0, remoteLogManager.isRLMTaskCountMatchWithAssignedPartitions());
+        remoteLogManager.close();
     }
 
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {

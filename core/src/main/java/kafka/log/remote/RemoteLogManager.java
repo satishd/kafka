@@ -148,6 +148,7 @@ import static kafka.log.remote.quota.RLMQuotaManagerConfig.INACTIVE_SENSOR_EXPIR
 import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_COMMON_CLIENT_PREFIX;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
 
 /**
@@ -263,6 +264,7 @@ public class RemoteLogManager implements Closeable {
             "RLMFollowerScheduledThreadPool", "kafka-rlm-follower-thread-pool-%d");
 
         metricsGroup.newGauge(REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC, rlmCopyThreadPool::getIdlePercent);
+        metricsGroup.newGauge(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC, this::isRLMTaskCountMatchWithAssignedPartitions);
         remoteReadTimer = metricsGroup.newTimer(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC,
                 TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
 
@@ -276,6 +278,34 @@ public class RemoteLogManager implements Closeable {
                 rlmConfig.remoteLogOffsetReaderThreads(),
                 rlmConfig.remoteLogOffsetReaderMaxPendingTasks()
         );
+    }
+
+    /**
+     * The entries in the `topicIdByPartitionMap` map gets filled on handling the LeaderAndIsr request for the partitions
+     * where remote storage is enabled.
+     * 1) When the remote storage is disabled for a topic/partition, then the entry gets removed from the map.
+     * 2) When the topic is deleted, then the entry gets removed from the map.
+     * 3) When the partitions gets reassigned to a different broker, then the entry gets removed from the map.
+     * 4) When handling the STOP_REPLICA request, then the entry would NOT removed from the map but it will be removed
+     * eventually when closing the RemoteLogManager since STOP_REPLICA will usually come together with broker shutdown.
+     * At any point of time, the `leaderCopyRLMTasks` and `followerRLMTasks` should be running for all the entries in the `topicPartitionIds` map.
+     * @return 0 if the `leaderCopyRLMTasks` and `followerRLMTasks` size is equal to the `topicPartitionIds` size. Otherwise, it returns -1/1
+     */
+    Integer isRLMTaskCountMatchWithAssignedPartitions() {
+        int result = Integer.compare(topicIdByPartitionMap.size(), leaderCopyRLMTasks.size() + followerRLMTasks.size());
+        if (result != 0 && LOGGER.isTraceEnabled()) {
+            List<TopicIdPartition> partitionsWithoutTask = new ArrayList<>();
+            topicIdByPartitionMap.forEach((tp, topicId) -> {
+                TopicIdPartition tpId = new TopicIdPartition(topicId, tp);
+                if (!followerRLMTasks.containsKey(tpId) || !leaderCopyRLMTasks.containsKey(tpId)) {
+                    partitionsWithoutTask.add(tpId);
+                }
+            });
+            LOGGER.trace("RLM tasks are not running for partitions: {}", partitionsWithoutTask);
+            LOGGER.trace("Contents of topicPartitionIds: {}, leaderCopyRLMTasks: {} and followerRLMTasks: {}",
+                    topicIdByPartitionMap, leaderCopyRLMTasks, followerRLMTasks);
+        }
+        return result;
     }
 
     public void setDelayedOperationPurgatory(DelayedOperationPurgatory<DelayedRemoteListOffsets> delayedRemoteListOffsetsPurgatory) {
@@ -323,6 +353,7 @@ public class RemoteLogManager implements Closeable {
     private void removeMetrics() {
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
+        metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
     }

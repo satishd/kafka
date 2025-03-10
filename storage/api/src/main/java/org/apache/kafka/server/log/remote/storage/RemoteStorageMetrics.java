@@ -56,6 +56,8 @@ public class RemoteStorageMetrics {
     private static final String REMOTE_LOG_READER_FETCH_RATE_AND_TIME_MS = REMOTE_LOG_READER_METRICS_NAME_PREFIX + "FetchRateAndTimeMs";
     public static final Set<String> REMOTE_STORAGE_THREAD_POOL_METRICS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList(REMOTE_LOG_READER_TASK_QUEUE_SIZE, REMOTE_LOG_READER_AVG_IDLE_PERCENT)));
+    public static final String REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC = "RemoteLogManagerTaskCountMatch";
+
 
     public static final MetricName REMOTE_COPY_BYTES_PER_SEC_METRIC = getMetricName(
             "kafka.server", "BrokerTopicMetrics", REMOTE_COPY_BYTES_PER_SEC);
