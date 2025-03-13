@@ -56,7 +56,7 @@ java_standard:
   - 'RUN curl -L https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_httpserver/0.12.0/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar -o /usr/share/jmx_exporter/jmx_prometheus_httpserver-0.12.0-jar-with-dependencies.jar'
   # Download python2 compatible uber-streaming-tools for backward compatibility during debian migration.
   # This will be removed once all the services are migrated to debian11
-  - 'RUN curl -L http://artifactory.uber.internal:4587/artifactory/libs-release-local-sjc1/uber-streaming-tools-1.4.1.custombuild.gbpcf6e421.tar.gz -o /opt/uber-streaming-tools-1.4.1.custombuild.gbpcf6e421.tar.gz'
+  - 'RUN curl -L http://artifactory.uber.internal:4587/artifactory/libs-release-local/uber-streaming-tools/uber-streaming-tools-1.4.2.custombuild.gbp2bfd461.tar.gz -o /opt/uber-streaming-tools-1.4.2.custombuild.gbp2bfd461.tar.gz'
   - 'RUN mkdir -p /opt/python2-scripts && chown udocker:udocker /opt/python2-scripts'
 applications:
   - app_type: command_line
