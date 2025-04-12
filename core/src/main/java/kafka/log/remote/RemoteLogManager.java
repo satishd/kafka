@@ -341,13 +341,23 @@ public class RemoteLogManager implements Closeable {
     public void resizeReaderThreadPool(int newSize) {
         int currentSize = remoteStorageReaderThreadPool.getCorePoolSize();
         LOGGER.info("Updating remote reader thread pool size from {} to {}", currentSize, newSize);
-        remoteStorageReaderThreadPool.setCorePoolSize(newSize);
+        remoteStorageReaderThreadPool.resizePool(newSize);
+    }
+
+    // VisibleForTesting
+    int getRemoteStorageReaderThreadPoolSize() {
+        return remoteStorageReaderThreadPool.getCorePoolSize();
     }
 
     public void resizeOffsetReaderThreadPool(int newSize) {
         int currentSize = remoteStorageOffsetReaderThreadPool.getCorePoolSize();
         LOGGER.info("Updating remote offset reader thread pool size from {} to {}", currentSize, newSize);
-        remoteStorageOffsetReaderThreadPool.setCorePoolSize(newSize);
+        remoteStorageOffsetReaderThreadPool.resizePool(newSize);
+    }
+
+    // VisibleForTesting
+    int getRemoteStorageOffsetReaderThreadPoolSize() {
+        return remoteStorageOffsetReaderThreadPool.getCorePoolSize();
     }
 
     private void removeMetrics() {

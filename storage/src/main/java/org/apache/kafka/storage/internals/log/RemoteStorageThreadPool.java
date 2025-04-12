@@ -66,6 +66,21 @@ public final class RemoteStorageThreadPool extends ThreadPoolExecutor {
         }
     }
 
+    /**
+     * Resize the thread pool to the new size.
+     * @param newSize the new size of the thread pool
+     */
+    public void resizePool(int newSize) {
+        int currentSize = getCorePoolSize();
+        if (newSize > currentSize) {
+            setMaximumPoolSize(newSize);
+            setCorePoolSize(newSize);
+        } else if (newSize < currentSize) {
+            setCorePoolSize(newSize);
+            setMaximumPoolSize(newSize);
+        }
+    }
+
     public void removeMetrics() {
         REMOTE_STORAGE_THREAD_POOL_METRICS.forEach(metricsGroup::removeMetric);
     }

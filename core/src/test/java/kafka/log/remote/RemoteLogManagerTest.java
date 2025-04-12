@@ -1024,6 +1024,26 @@ public class RemoteLogManagerTest {
     }
 
     @Test
+    void testUpdateRemoteStorageReaderThreads() {
+        remoteLogManager.startup();
+        assertEquals(10, remoteLogManager.getRemoteStorageReaderThreadPoolSize());
+        remoteLogManager.resizeReaderThreadPool(6);
+        assertEquals(6, remoteLogManager.getRemoteStorageReaderThreadPoolSize());
+        remoteLogManager.resizeReaderThreadPool(12);
+        assertEquals(12, remoteLogManager.getRemoteStorageReaderThreadPoolSize());
+    }
+
+    @Test
+    void testUpdateRemoteStorageOffsetReaderThreads() {
+        remoteLogManager.startup();
+        assertEquals(5, remoteLogManager.getRemoteStorageOffsetReaderThreadPoolSize());
+        remoteLogManager.resizeOffsetReaderThreadPool(4);
+        assertEquals(4, remoteLogManager.getRemoteStorageOffsetReaderThreadPoolSize());
+        remoteLogManager.resizeOffsetReaderThreadPool(8);
+        assertEquals(8, remoteLogManager.getRemoteStorageOffsetReaderThreadPoolSize());
+    }
+
+    @Test
     void testRemoteLogManagerRemoteMetrics() throws Exception {
         remoteLogManager.startup();
         long oldestSegmentStartOffset = 0L;
