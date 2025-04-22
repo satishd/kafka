@@ -707,6 +707,25 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 // 3. There can be few false-positive cache thrash hits, this happens only for the first FETCH request
                 //    from the consumer where the `fetchOffset` does not match with the actual-position.
                 //    This small error rate should be OK.
+                //
+                // Note that the lookup happens for the previous entry in the cache due to the below reason:
+                // 1. offset-index is used to find the file-position for a given offset. Assume that the offset-index
+                //    is in the format of (offset, position): {{0, 0}, {5, 50}, {10, 1000}, {30, 4000}, {60, 8000}}
+                // 2. offset-index is a sparse-index and does not have entries for all the offsets. It returns the
+                //    file-position of the previous entry. (eg)
+                //      a) Assume that the consumer read the data from offset 0-39 and it's corresponding file-position
+                //         is 0-5000 in the first FETCH request.
+                //      b) In the subsequent/next FETCH request, when the consumer asks for data from fetch-offset: 40.
+                //      c) The offset index might return file-position: 4000 for offset: 40, the data from
+                //         file-position: 4000-5000 was already read/processed by the consumer in the previous FETCH request.
+                //      d) To serve the data from file-position: 4000, we do two fetches:
+                //          a) 1st fetch: 0-5000 (already cached but got thrashed, so re-fetch from HDFS)
+                //          b) 2nd fetch: 5000-10000 (not cached, so fetch from HDFS)
+                //      e) This is aggravated by the fact that the consumer rotates the partition in the FETCH request,
+                //         so if the consumer is reading for 50 partitions, and few partition leaders are co-located
+                //         in the same broker. Assume 4/50 partition leaders are co-located in the same broker then the
+                //         next FETCH for the same partition will happen in the 5th FETCH request. By that time, the
+                //         previous entry stored in the cache might get evicted.
                 cacheThrashMeter.mark();
             }
 
