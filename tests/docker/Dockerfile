@@ -131,7 +131,7 @@ RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.7.1-test.jar" -o /opt/kafka-3.7.1/lib
 RUN curl -s "$KAFKA_MIRROR/kafka-streams-3.8.0-test.jar" -o /opt/kafka-3.8.0/libs/kafka-streams-3.8.0-test.jar
 
 # Install Cruise Control binary dependencies
-ARG CRUISE_CONTROL_VERSION=0.4
+ARG CRUISE_CONTROL_VERSION=0.6
 RUN mkdir -p "/opt/cruise-control" && chmod a+rw /opt/cruise-control && curl -s "http://artifactory.uber.internal:4587/artifactory/libs-release-local-dca1/com/uber/data/kafka/cruisecontrol/cruise-control/$CRUISE_CONTROL_VERSION/cruise-control-$CRUISE_CONTROL_VERSION.jar" -o "/opt/cruise-control/cruise-control.jar"
 
 # The version of Kibosh to use for testing.

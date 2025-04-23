@@ -37,5 +37,5 @@ class RackAwareDistributionGoalViolationTest(CruiseControlTest):
         self._start_cruise_control_and_wait_until_ready()
         with self.cruise_control.nodes[0].account.monitor_log(self.cruise_control.LOG_FILE) as monitor:
             self._reassign_partition(self.topic_name, self.partition, [1, 2, 4])
-            # Verify alert is reported within 1 min
-            self.cruise_control.wait_till_goal_violation_alerts(monitor, "RackAwareDistributionGoal", timeout_sec=60)
+            # Verify alert is reported within 1 min. Since the alert detection interval is 60 seconds, adding 10 seconds buffer for detection logic to complete.
+            self.cruise_control.wait_till_goal_violation_alerts(monitor, "RackAwareDistributionGoal", timeout_sec=70)

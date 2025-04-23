@@ -34,5 +34,5 @@ class DiskFailuresTest(CruiseControlTest, unittest.TestCase):
             cmd = "chmod a-w %s -R" % KafkaService.DATA_LOG_DIR_1
             broker_node.account.ssh(cmd, allow_fail=False)
 
-            # Verify alert is reported within 1 min of disk failure
-            self.cruise_control.wait_till_disk_failure_alerts(monitor, timeout_sec=60)
+            # Verify alert is reported within 1 min of disk failure. Since the alert detection interval is 60 seconds, adding 10 seconds buffer for detection logic to complete.
+            self.cruise_control.wait_till_disk_failure_alerts(monitor, timeout_sec=70)
