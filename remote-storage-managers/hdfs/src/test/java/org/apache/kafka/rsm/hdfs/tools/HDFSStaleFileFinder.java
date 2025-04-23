@@ -31,13 +31,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class HDFSStaleFileFinder {
 
@@ -56,8 +56,8 @@ public class HDFSStaleFileFinder {
     private void listPathStatus(FileSystem fs,
                                 Path path,
                                 Duration maxRetentionTime,
-                                AtomicInteger emptyDirectoriesCount,
-                                AtomicInteger staleEmptyDirectoriesCount,
+                                List<Path> emptyDirectories,
+                                List<Path> staleEmptyDirectories,
                                 int level,
                                 Map<Uuid, StaleTopic> staleTopicsMap) throws IOException {
         LOGGER.trace("Auditing Level: {}, Path: {}", level, path);
@@ -75,9 +75,9 @@ public class HDFSStaleFileFinder {
             if (status.isDirectory()) {
                 DirContentSummary contentSummary = dirContentSummary(fs, status.getPath());
                 if (contentSummary.fileCount == 0) {
-                    emptyDirectoriesCount.incrementAndGet();
+                    emptyDirectories.add(status.getPath());
                     if (isStale) {
-                        staleEmptyDirectoriesCount.incrementAndGet();
+                        staleEmptyDirectories.add(status.getPath());
                     }
                 } else {
                     if (isStale) {
@@ -87,8 +87,8 @@ public class HDFSStaleFileFinder {
                                 contentSummary.fileCount,
                                 humanReadableByteCountBin(contentSummary.length));
                     }
-                    listPathStatus(fs, status.getPath(), maxRetentionTime, emptyDirectoriesCount,
-                            staleEmptyDirectoriesCount, level + 1, staleTopicsMap);
+                    listPathStatus(fs, status.getPath(), maxRetentionTime, emptyDirectories,
+                            staleEmptyDirectories, level + 1, staleTopicsMap);
                 }
             } else {
                 // one segment file
@@ -103,9 +103,9 @@ public class HDFSStaleFileFinder {
                     TopicIdPartition tpId = remoteLogSegmentId.topicIdPartition();
 
                     StaleTopic staleTopic = staleTopicsMap.computeIfAbsent(tpId.topicId(),
-                            k -> new StaleTopic(tpId.topic(), tpId.topicId()));
+                        k -> new StaleTopic(tpId.topic(), tpId.topicId()));
                     staleTopic.segmentsByPartition.computeIfAbsent(tpId.partition(), k -> new HashSet<>())
-                            .add(new UuidAndLen(remoteLogSegmentId.id(), status.getLen()));
+                        .add(new UuidAndLen(remoteLogSegmentId.id(), status.getLen(), status.getModificationTime()));
                     if (timeElapsedSinceUpdate.toMillis() > staleTopic.maxTimeElapsedSinceUpdate) {
                         staleTopic.maxTimeElapsedSinceUpdate = timeElapsedSinceUpdate.toMillis();
                     }
@@ -134,10 +134,10 @@ public class HDFSStaleFileFinder {
             // Path to the directory in HDFS
             long startTimeMs = System.currentTimeMillis();
             Path path = new Path(filePath);
-            AtomicInteger emptyDirectoriesCount = new AtomicInteger();
-            AtomicInteger staleEmptyDirectoriesCount = new AtomicInteger();
+            List<Path> emptyDirectories = new ArrayList<>();
+            List<Path> emptyStaleDirectories = new ArrayList<>();
             Map<Uuid, StaleTopic> staleTopicsMap = new HashMap<>();
-            listPathStatus(fs, path, maxRetentionTime, emptyDirectoriesCount, staleEmptyDirectoriesCount, 0, staleTopicsMap);
+            listPathStatus(fs, path, maxRetentionTime, emptyDirectories, emptyStaleDirectories, 0, staleTopicsMap);
 
             LOGGER.info("====== SUMMARY ======");
             for (StaleTopic staleTopic : staleTopicsMap.values()) {
@@ -145,20 +145,42 @@ public class HDFSStaleFileFinder {
                         staleTopic.topic,
                         formatDuration(Duration.ofMillis(staleTopic.maxTimeElapsedSinceUpdate)),
                         staleTopic.segmentsByPartition.entrySet()
-                                .stream()
-                                .reduce(0, (acc, entry) -> acc + entry.getValue().size(), Integer::sum),
+                            .stream()
+                            .reduce(0, (acc, entry) -> acc + entry.getValue().size(), Integer::sum),
                         staleTopic.segmentsByPartition.size(),
                         staleTopic.topicId,
                         humanReadableByteCountBin(staleTopic.segmentsByPartition.values()
-                                .stream()
-                                .flatMap(Set::stream)
-                                .mapToLong(segment -> segment.length)
-                                .sum()));
+                            .stream()
+                            .flatMap(Set::stream)
+                            .mapToLong(segment -> segment.length)
+                            .sum()));
+
+                // Delete the stale segments
+                for (Map.Entry<Integer, Set<UuidAndLen>> entry : staleTopic.segmentsByPartition.entrySet()) {
+                    int partition = entry.getKey();
+                    Set<UuidAndLen> segments = entry.getValue();
+                    for (UuidAndLen segment : segments) {
+                        String subPath = String.format("%s-%d-%s/%s", staleTopic.topic, partition, staleTopic.topicId, segment.uuid);
+                        Path segmentPath = new Path(path, subPath);
+                        Duration timeElapsedSinceUpdate = Duration.ofMillis(System.currentTimeMillis() - segment.modificationTime);
+                        LOGGER.info("Deleting stale segment: {}, last-modified: {}", segmentPath, formatDuration(timeElapsedSinceUpdate));
+                        // fs.delete(segmentPath, false);
+                    }
+                }
             }
             LOGGER.info("Total number of empty directories: {}, stale: {}. Time taken: {} ms",
-                    emptyDirectoriesCount.get(),
-                    staleEmptyDirectoriesCount.get(),
+                    emptyDirectories.size(),
+                    emptyStaleDirectories.size(),
                     System.currentTimeMillis() - startTimeMs);
+
+            // Delete the empty stale dirs
+            for (Path emptyStaleDir : emptyStaleDirectories) {
+                Duration timeElapsedSinceUpdate = Duration.ofMillis(System.currentTimeMillis() - fs.getFileStatus(emptyStaleDir).getModificationTime());
+                LOGGER.info("Deleting stale empty directory: {}, last-modified: {}", emptyStaleDir, formatDuration(timeElapsedSinceUpdate));
+                // Deletes the dir only if it is empty
+                // fs.delete(emptyStaleDir, false);
+            }
+            LOGGER.info("Completed audit for path: {}. Time taken: {} ms", path, System.currentTimeMillis() - startTimeMs);
         }
     }
 
@@ -179,7 +201,8 @@ public class HDFSStaleFileFinder {
      *     kloak/kafka-staging1-dca.kafka-staging1-dca-bufif-labul.dca11-z59.prod.uber.internal \
      *     hdfs://ns-neon-prod-dca1 \
      *     hdfs://ns-neon-prod-dca1/user/kloak/kafka-remote-storage/kafka-d-dca PT50H > /tmp/d-dca.log
-     *  4. java -cp  .:*:../external/hdfs/libs/*:/opt/hdfs/conf -Djava.security.krb5.conf=/etc/kafka/krb5.conf \
+     *  4. java -cp  .:*:../external/hdfs/libs/*:/opt/hdfs/conf --add-exports java.security.jgss/sun.security.krb5=ALL-UNNAMED
+     *     -Djava.security.krb5.conf=/etc/kafka/krb5.conf \
      *     -Dlog4j.configuration=file:/home/udocker/odin-kafka/config/tools-log4j.properties \
      *     org/apache/kafka/rsm/hdfs/tools/HDFSStaleFileFinder d > /tmp/d-dca.log
      *  }
@@ -225,10 +248,7 @@ public class HDFSStaleFileFinder {
         if (cluster.equals("arm")) {
             return Duration.ofHours(5);
         }
-        if (cluster.equals("dbevents1")) {
-            return Duration.ofDays(8);
-        }
-        return Duration.ofDays(3);
+        return Duration.ofDays(31);
     }
 
     private static String getRootFolderName(String cluster, String uberRegion, String defaultFsUri) {
@@ -323,13 +343,16 @@ public class HDFSStaleFileFinder {
         }
     }
 
+    @SuppressWarnings("unused")
     private static class UuidAndLen {
         Uuid uuid;
         long length;
+        long modificationTime;
 
-        private UuidAndLen(Uuid uuid, long length) {
+        private UuidAndLen(Uuid uuid, long length, long modificationTime) {
             this.uuid = uuid;
             this.length = length;
+            this.modificationTime = modificationTime;
         }
     }
 }
