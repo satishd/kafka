@@ -23,6 +23,7 @@ import org.apache.kafka.common.utils.ByteBufferOutputStream;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -622,8 +623,8 @@ public class HDFSRemoteStorageManagerTest {
             super(maxBytes);
         }
 
-        synchronized byte[] get(String path, long offset) {
-            byte[] result = super.get(path, offset);
+        synchronized ByteBufferWrapper get(String path, long offset) {
+            ByteBufferWrapper result = super.get(path, offset);
             if (result != null) {
                 cacheHit++;
             }

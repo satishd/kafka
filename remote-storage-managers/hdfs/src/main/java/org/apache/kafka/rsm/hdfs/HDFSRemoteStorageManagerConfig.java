@@ -54,6 +54,10 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_DEFAULT_FS_URI_PROP = "hdfs.default.file.system.uri";
     public static final String HDFS_DEFAULT_FS_URI_DOC = "The default File system URI for the HDFS cluster.";
 
+    public static final String HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP = "hdfs.remote.read.cache.buffer.pool.max.size";
+    public static final String HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC = "Maximum capacity of the buffer pool that manages ByteBuffer instances for remote data caching. Controls memory usage and buffer reuse efficiency.";
+    public static final int DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE = 256;
+
     private static final ConfigDef CONFIG;
 
     static {
@@ -63,7 +67,8 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_KEYTAB_PATH_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_KEYTAB_PATH_DOC)
             .define(HDFS_REMOTE_READ_BYTES_PROP, INT, DEFAULT_HDFS_REMOTE_READ_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_BYTES_DOC)
             .define(HDFS_REMOTE_READ_CACHE_BYTES_PROP, LONG, DEFAULT_HDFS_REMOTE_READ_CACHE_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_CACHE_BYTES_DOC)
-            .define(HDFS_DEFAULT_FS_URI_PROP, STRING, null, HIGH, HDFS_DEFAULT_FS_URI_DOC);
+            .define(HDFS_DEFAULT_FS_URI_PROP, STRING, null, HIGH, HDFS_DEFAULT_FS_URI_DOC)
+            .define(HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE, atLeast(128), MEDIUM, HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC);
     }
 
     HDFSRemoteStorageManagerConfig(Map<?, ?> props, boolean doLog) {
