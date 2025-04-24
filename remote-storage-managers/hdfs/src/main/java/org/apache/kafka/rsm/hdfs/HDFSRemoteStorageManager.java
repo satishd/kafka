@@ -57,19 +57,12 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Function;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.util.ResourceLeakDetector;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BYTES_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_MAX_ORDER_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_PAGE_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.OFFSET_INDEX;
@@ -81,21 +74,12 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    static final String ALLOCATOR_NUM_HEAP_ARENAS = "allocator-num-heap-arenas";
-    static final String ALLOCATOR_NUM_DIRECT_ARENAS = "allocator-num-direct-arenas";
-    static final String ALLOCATOR_SMALL_CACHE_SIZE = "allocator-small-cache-size";
-    static final String ALLOCATOR_NORMAL_CACHE_SIZE = "allocator-normal-cache-size";
-    static final String ALLOCATOR_CHUNK_SIZE = "allocator-chunk-size";
-    static final String ALLOCATOR_USED_HEAP_MEMORY = "allocator-used-heap-memory";
-    static final String ALLOCATOR_USED_DIRECT_MEMORY = "allocator-used-direct-memory";
-
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private final AtomicInteger segmentFileReadOpenCounter = new AtomicInteger(0);
     private String baseDir;
     private Configuration hadoopConf;
     private int cacheLineSize;
     private LRUCache readCache;
-    private PooledByteBufAllocator pooledByteBufAllocator;
     private final ThreadLocal<FileSystem> fs = new ThreadLocal<>();
     private final Time time = Time.SYSTEM;
     private final Cache<RemoteLogSegmentId, SegmentHeaderHolder> segmentHeaderHolderCache =
@@ -126,12 +110,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
         readCache = new LRUCache(cacheSize);
 
-        // Configure the PooledByteBufAllocator
-        int allocatorPageSize = conf.getInt(HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_PAGE_SIZE_PROP);
-        int allocatorMaxOrder = conf.getInt(HDFS_REMOTE_READ_CACHE_POOLED_BYTE_BUF_ALLOCATOR_MAX_ORDER_PROP);
-        pooledByteBufAllocator = new PooledByteBufAllocator(Runtime.getRuntime().availableProcessors(), 0, allocatorPageSize, allocatorMaxOrder);
-        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.SIMPLE);
-
         if (hadoopConf == null) {
             // Loads configuration from hadoop configuration files in class path
             hadoopConf = new Configuration();
@@ -151,54 +129,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             }
         }
         registerMetrics(readCache);
-        registerPooledByteBufAllocatorMetrics();
         LOGGER.info("HDFSRemoteStorageManager is configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, " +
-                "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
-    }
-
-    void registerPooledByteBufAllocatorMetrics() {
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_NUM_HEAP_ARENAS), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return pooledByteBufAllocator.metric().numHeapArenas();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_NUM_DIRECT_ARENAS), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return pooledByteBufAllocator.metric().numDirectArenas();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_SMALL_CACHE_SIZE), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return pooledByteBufAllocator.metric().smallCacheSize();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_NORMAL_CACHE_SIZE), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return pooledByteBufAllocator.metric().normalCacheSize();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_CHUNK_SIZE), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return pooledByteBufAllocator.metric().chunkSize();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_USED_HEAP_MEMORY), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return pooledByteBufAllocator.metric().usedHeapMemory();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(ALLOCATOR_USED_DIRECT_MEMORY), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return pooledByteBufAllocator.metric().usedDirectMemory();
-            }
-        });
+                        "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
     }
 
     @VisibleForTesting
@@ -405,7 +337,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                             final boolean closeStream) throws IOException {
         if (localSrc != null) {
             final int bufferSize = hadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
-                    CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
+                                                     CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
 
             final byte[] buf = new byte[bufferSize];
             try (final ByteBufferInputStream byteBufferInputStream = new ByteBufferInputStream(localSrc)) {
@@ -623,54 +555,32 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             return new SegmentHeaderHolder(header, actualFileLength);
         }
 
-        private <T> T getCachedDataAndApply(long position, Function<ByteBuf, T> func) throws IOException {
-            ByteBuf byteBuf = null;
-            try {
-                byteBuf = getCachedData(position);
-                return func.apply(byteBuf);
-            } finally {
-                if (byteBuf != null) {
-                    byteBuf.release();
-                    if (LOGGER.isTraceEnabled()) {
-                        LOGGER.trace("Released ByteBuf for {} at position {}", getString(segmentId), position);
-                    }
-                }
-            }
-        }
-
         @Override
         public int read() throws IOException {
             if (currentPos >= readableSegmentLen)
                 return -1;
-
-            return getCachedDataAndApply(currentPos,
-                    byteBuf -> byteBuf.getByte((int) ((currentPos++) % cacheLineSize)) & 0xFF);
+            byte[] data = getCachedData(currentPos);
+            return data[(int) ((currentPos++) % cacheLineSize)] & 0xFF;
         }
 
         @Override
         public int read(byte[] buf, int off, int len) throws IOException {
-            AtomicInteger pos = new AtomicInteger();
+            int pos = 0;
             if (len > readableSegmentLen - currentPos)
                 len = (int) (readableSegmentLen - currentPos);
 
             if (len <= 0)
                 return -1;
 
-            int finalLen = len;
-            while (pos.get() < len) {
-                getCachedDataAndApply(currentPos + pos.get(), byteBuf -> {
-                    int srcPos = (int) ((currentPos + pos.get()) % cacheLineSize);
-                    int length = Math.min(finalLen - pos.get(), byteBuf.readableBytes() - srcPos);
-
-                    // Read the bytes into the destination buffer.
-                    byteBuf.getBytes(srcPos, buf, pos.get() + off, length);
-
-                    pos.addAndGet(length);
-                    return null;
-                });
+            while (pos < len) {
+                byte[] data = getCachedData(currentPos + pos);
+                int srcPos = (int) ((currentPos + pos) % cacheLineSize);
+                int length = Math.min(len - pos, data.length - srcPos);
+                System.arraycopy(data, srcPos, buf, pos + off, length);
+                pos += length;
             }
-            currentPos += pos.get();
-            return pos.get();
+            currentPos += pos;
+            return pos;
         }
 
         @Override
@@ -682,12 +592,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             return (int) available;
         }
 
-        /**
-         * Fetches the data from the cache or reads from the remote storage and caches the data.
-         * Callers must release the returned ByteBuf after using it or else it will lead to memory leaks.
-         * They can also instead use getCachedDataAndApply() which automatically releases the ByteBuf.
-         */
-        private ByteBuf getCachedData(long position) throws IOException {
+        private byte[] getCachedData(long position) throws IOException {
             // Discarding the bytes before the `dataPosition.getPos` to maintain better cache hit ratio.
             // Each file comprised of offset-index, time-index, leader-epoch-checkpoint, producer-snapshot, and
             // transaction-index. Discarding the bytes before the `dataPosition.getPos` will help to cache only
@@ -695,9 +600,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // config.
             long actualPosition = ((position / cacheLineSize) * cacheLineSize) + dataPosition.getPos();
 
-            ByteBuf byteBuf = readCache.get(dataPath.toString(), actualPosition);
-            if (byteBuf != null) {
-                return byteBuf;
+            byte[] data = readCache.get(dataPath.toString(), actualPosition);
+            if (data != null) {
+                return data;
             } else if (position + dataPosition.getPos() != actualPosition) {
                 // When the data is not present in the cache:
                 // 1. If the requested position doesn't match with actual-position, then the previously fetched data
@@ -735,20 +640,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
             long currentTimeMs = time.milliseconds();
             long dataLength = Math.min(cacheLineSize, realFileLen - actualPosition);
-
-            // Borrow a buffer from the pooled allocator of cacheLineSize although the actual data length may be lesser
-            // in some cases - e.g. when we are reading the end of the segment file
-            byteBuf = pooledByteBufAllocator.heapBuffer(cacheLineSize, cacheLineSize);
-            inputStream.readFully(actualPosition, byteBuf.array(), byteBuf.arrayOffset(), (int) dataLength);
-            // We have to explicitly set the writerIndex to the dataLength as the buffer is borrowed from the pool. The
-            // readFully operation will not set it since it has no knowledge of the buffer, it is just using the
-            // supplied byte array.
-            byteBuf.writerIndex((int) dataLength);
-
+            data = new byte[(int) dataLength];
+            inputStream.readFully(actualPosition, data);
             LOGGER.trace("Time taken to fetch {} bytes from {} segment in {} ms",
                     dataLength, getString(segmentId), time.milliseconds() - currentTimeMs);
-            readCache.put(dataPath.toString(), actualPosition, byteBuf.duplicate());
-            return byteBuf;
+            readCache.put(dataPath.toString(), actualPosition, data);
+            return data;
         }
 
         @Override

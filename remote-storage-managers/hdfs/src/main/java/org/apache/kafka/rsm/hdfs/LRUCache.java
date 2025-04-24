@@ -20,8 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import io.netty.buffer.ByteBuf;
-
 /**
  * A simple LRU cache of remote data.
  *
@@ -33,7 +31,7 @@ import io.netty.buffer.ByteBuf;
  */
 class LRUCache {
     private long totalBytes;
-    private LinkedHashMap<String, ByteBuf> cache;
+    private LinkedHashMap<String, byte[]> cache;
     private final AtomicLong hitCount = new AtomicLong(0);
     private final AtomicLong missCount = new AtomicLong(0);
     private final AtomicLong loadCount = new AtomicLong(0);
@@ -44,13 +42,12 @@ class LRUCache {
      * @param maxBytes The maximum bytes can be stored in this cache.
      */
     LRUCache(long maxBytes) {
-        cache = new LinkedHashMap<String, ByteBuf>(1000, 0.75f, true) {
+        cache = new LinkedHashMap<String, byte[]>(1000, 0.75f, true) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, ByteBuf> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<String, byte[]> eldest) {
                 if (totalBytes >= maxBytes) {
-                    totalBytes -= eldest.getValue().capacity();
+                    totalBytes -= eldest.getValue().length;
                     evictionCount.incrementAndGet();
-                    eldest.getValue().release();
                     return true;
                 }
                 return false;
@@ -61,15 +58,10 @@ class LRUCache {
     /**
      * Adding a new entry into the cache, and replace the LRU entry if the cache is full.
      */
-    synchronized void put(String path, long offset, ByteBuf data) {
+    synchronized void put(String path, long offset, byte[] data) {
         String key = path + ":" + offset;
-        // Add the new entry to the cache. If an existing entry is replaced, release the previous entry.
-        ByteBuf prev = cache.put(key, data.retain());
-        if (prev != null) {
-            totalBytes -= prev.capacity();
-            prev.release();
-        }
-        totalBytes += data.capacity();
+        cache.put(key, data);
+        totalBytes += data.length;
         loadCount.incrementAndGet();
     }
 
@@ -77,16 +69,15 @@ class LRUCache {
      * Retrieve the cached data with the specified (path, offset) pair.
      * Returns null if the required cache entry does not exist.
      */
-    synchronized ByteBuf get(String path, long offset) {
+    synchronized byte[] get(String path, long offset) {
         String key = path + ":" + offset;
-        ByteBuf val = cache.get(key);
+        byte[] val = cache.get(key);
         if (val == null) {
             missCount.incrementAndGet();
-            return null;
         } else {
             hitCount.incrementAndGet();
-            return val.duplicate().retain();
         }
+        return val;
     }
 
     public CacheStats stats() {
