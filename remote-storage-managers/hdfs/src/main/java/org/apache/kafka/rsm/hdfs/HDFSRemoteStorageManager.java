@@ -39,6 +39,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -76,7 +77,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
-    private final AtomicInteger segmentFileReadOpenCounter = new AtomicInteger(0);
     private String baseDir;
     private Configuration hadoopConf;
     private int cacheLineSize;
@@ -146,6 +146,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     void registerBufferPoolMetrics() {
         metrics.registerBufferPoolMetrics(byteBufferPool);
+    }
+
+    void registerHDFSReadMetrics() {
+        metrics.registerHDFSReadMetrics();
     }
 
     @Override
@@ -344,7 +348,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @VisibleForTesting
     long segmentFileReadOpenCounter() {
-        return segmentFileReadOpenCounter.get();
+        return metrics.getFileSystemOpenCount();
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
@@ -493,8 +497,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         private void openFileStream() throws IOException {
             long currentTimeMs = time.milliseconds();
-            inputStream = getFS().open(dataPath);
-            segmentFileReadOpenCounter.incrementAndGet();
+            FileSystem fileSystem = getFS();
+            metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
         }
 
@@ -502,9 +506,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // Sends a remote fetch to read the file header.
             long currentTimeMs = time.milliseconds();
             byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            inputStream.readFully(0, buffer);
+            metrics.timeSegmentHeaderRead(() -> inputStream.readFully(0, buffer));
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
-            long actualFileLength = getFS().getFileStatus(dataPath).getLen();
+
+            FileSystem fileSystem = getFS();
+            FileStatus[] fileStatusHolder = new FileStatus[1];
+            metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
+            long actualFileLength = fileStatusHolder[0].getLen();
             LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
             return new SegmentHeaderHolder(header, actualFileLength);
         }
@@ -628,7 +636,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             wrapper = byteBufferPool.acquire().retain();
 
             ByteBuffer byteBuffer = wrapper.getByteBuffer();
-            inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
+            metrics.timeSegmentRead(() -> inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength));
             // Explicitly set the position to 0 since we wrote to the buffer from the beginning.
             byteBuffer.position(0);
             // We have to explicitly set the limit to the dataLength as the buffer is borrowed from the pool. The

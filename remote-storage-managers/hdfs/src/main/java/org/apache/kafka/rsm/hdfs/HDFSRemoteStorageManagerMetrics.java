@@ -22,10 +22,13 @@ import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.Timer;
+import com.yammer.metrics.core.TimerContext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 public class HDFSRemoteStorageManagerMetrics {
@@ -39,7 +42,17 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String BUFFER_POOL_DISCARD_COUNT = "buffer-pool-discard-count";
     static final String BUFFER_POOL_SIZE = "buffer-pool-size";
 
+    // HDFS read metrics
+    static final String FS_OPEN_RATE_AND_TIME_MS = "fs-open-rate-and-time-ms";
+    static final String FS_STATUS_RATE_AND_TIME_MS = "fs-status-rate-and-time-ms";
+    static final String SEGMENT_READ_RATE_AND_TIME_MS = "segment-read-rate-and-time-ms";
+    static final String SEGMENT_HEADER_READ_RATE_AND_TIME_MS = "segment-header-read-rate-and-time-ms";
+
     private Meter cacheThrashMeter;
+    private Timer fileSystemOpenTimer;
+    private Timer fileSystemStatusTimer;
+    private Timer segmentReadTimer;
+    private Timer segmentHeaderReadTimer;
 
     private MetricName metricName(String name) {
         Class<? extends HDFSRemoteStorageManager> klass = HDFSRemoteStorageManager.class;
@@ -140,7 +153,54 @@ public class HDFSRemoteStorageManagerMetrics {
         });
     }
 
+    void registerHDFSReadMetrics() {
+        fileSystemOpenTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
+                metricName(FS_OPEN_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        fileSystemStatusTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
+                metricName(FS_STATUS_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        segmentReadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
+                metricName(SEGMENT_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        segmentHeaderReadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
+                metricName(SEGMENT_HEADER_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+    }
+
     void markCacheThrashing() {
-        cacheThrashMeter.mark();
+        if (cacheThrashMeter != null) {
+            cacheThrashMeter.mark();
+        }
+    }
+
+    long getFileSystemOpenCount() {
+        return fileSystemOpenTimer == null ? 0 : fileSystemOpenTimer.count();
+    }
+
+    void timeFileSystemOpen(ThrowingRunnable<IOException> operation) throws IOException {
+        time(fileSystemOpenTimer, operation);
+    }
+
+    void timeFileSystemStatus(ThrowingRunnable<IOException> operation) throws IOException {
+        time(fileSystemStatusTimer, operation);
+    }
+
+    void timeSegmentRead(ThrowingRunnable<IOException> operation) throws IOException {
+        time(segmentReadTimer, operation);
+    }
+
+    void timeSegmentHeaderRead(ThrowingRunnable<IOException> operation) throws IOException {
+        time(segmentHeaderReadTimer, operation);
+    }
+
+    private <E extends Exception> void time(Timer timer, ThrowingRunnable<E> operation) throws E {
+        if (timer == null) {
+            operation.run();
+            return;
+        }
+
+        TimerContext context = timer.time();
+        try {
+            operation.run();
+        } finally {
+            context.stop();
+        }
     }
 }

@@ -36,6 +36,7 @@ import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
+import com.yammer.metrics.core.Timer;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -63,7 +64,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,7 +77,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HDFSRemoteStorageManagerTest {
-
+    private static final int ONE_MB = 1024 * 1024;
     private final String baseDir = "/kafka-remote-logs";
     private final TopicIdPartition tp = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("test", 1));
 
@@ -117,6 +122,7 @@ public class HDFSRemoteStorageManagerTest {
         hdfsCluster.shutdown();
         Utils.delete(logDir);
         Utils.delete(remoteDir);
+        clearKafkaMetrics();
     }
 
     @Test
@@ -279,6 +285,7 @@ public class HDFSRemoteStorageManagerTest {
             // Clear previously registered metrics during object creation
             clearKafkaMetrics();
             rsm.registerMetrics(cache);
+            rsm.registerHDFSReadMetrics();
 
             RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(tp, Uuid.randomUuid()),
                     0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
@@ -346,6 +353,7 @@ public class HDFSRemoteStorageManagerTest {
             // Clear previously registered metrics during object creation
             clearKafkaMetrics();
             rsm.registerMetrics(cache);
+            rsm.registerHDFSReadMetrics();
 
             RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(new RemoteLogSegmentId(tp, Uuid.randomUuid()),
                     0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
@@ -396,6 +404,61 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
+    @Test
+    public void testHDFSCallMetrics() throws Exception {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+            clearKafkaMetrics();
+            rsm.registerHDFSReadMetrics();
+
+            // Call once to initialize the default filesystem
+            rsm.getFS();
+
+            // Verify initial values
+            verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 0L);
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 0L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0L);
+            verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+
+            // Copy one segment and fetch it via Remote Storage Manager
+            Uuid uuid = Uuid.randomUuid();
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
+                    0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
+
+            // Verify the metrics
+            verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 1L);
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 1L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 1L);
+            verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+        }
+    }
+
+    private void verifyTimerCount(String name, long expectedValue) {
+        Timer timer = findKafkaMetric(name)
+                .map(metric -> (Timer) metric)
+                .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
+
+        assertEquals(expectedValue, timer.count(), "Timer count check failed for " + name);
+    }
+
+    private void verifyTimerQuantile(String name, double quantile, Predicate<Double> assertion) {
+        Timer timer = findKafkaMetric(name)
+            .map(metric -> (Timer) metric)
+            .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
+
+        double value = timer.getSnapshot().getValue(quantile);
+        assertTrue(assertion.test(value), "Timer quantile check failed for " + name);
+    }
+
     private List<RemoteLogSegmentMetadata> listRemoteLogSegmentMetadata(int segmentCount,
                                                                         int recordsPerSegment,
                                                                         int segmentSize) {
@@ -424,6 +487,7 @@ public class HDFSRemoteStorageManagerTest {
         // Clear previously registered metrics during object creation
         clearKafkaMetrics();
         rsm.registerMetrics(cache);
+        rsm.registerHDFSReadMetrics();
 
         Uuid uuid = Uuid.randomUuid();
         RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
