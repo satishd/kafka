@@ -30,14 +30,10 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
-import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
-import com.yammer.metrics.core.Gauge;
-import com.yammer.metrics.core.Meter;
-import com.yammer.metrics.core.MetricName;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -57,7 +53,6 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -79,13 +74,6 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    // Buffer Pool metrics
-    static final String BUFFER_POOL_ALLOC_COUNT = "buffer-pool-alloc-count";
-    static final String BUFFER_POOL_RELEASE_COUNT = "buffer-pool-release-count";
-    static final String BUFFER_POOL_REUSE_COUNT = "buffer-pool-reuse-count";
-    static final String BUFFER_POOL_RECYCLE_COUNT = "buffer-pool-recycle-count";
-    static final String BUFFER_POOL_DISCARD_COUNT = "buffer-pool-discard-count";
-    static final String BUFFER_POOL_SIZE = "buffer-pool-size";
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private final AtomicInteger segmentFileReadOpenCounter = new AtomicInteger(0);
@@ -101,9 +89,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     .maximumSize(20_000)
                     .expireAfterWrite(Duration.ofMinutes(10))
                     .build();
-    private Meter cacheThrashMeter;
+    private final HDFSRemoteStorageManagerMetrics metrics;
 
     public HDFSRemoteStorageManager() {
+        this.metrics = new HDFSRemoteStorageManagerMetrics();
     }
 
     /**
@@ -152,102 +141,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @VisibleForTesting
     void registerMetrics(LRUCache cache) {
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("requestCount"), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return cache.stats().getRequestCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("hitCount"), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return cache.stats().getHitCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("hitRate"), new Gauge<Double>() {
-            @Override
-            public Double value() {
-                return cache.stats().getHitRate();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("missCount"), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return cache.stats().getMissCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("missRate"), new Gauge<Double>() {
-            @Override
-            public Double value() {
-                return cache.stats().getMissRate();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("loadCount"), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return cache.stats().getLoadCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("evictionCount"), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return cache.stats().getEvictionCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName("size"), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return cache.stats().getSize();
-            }
-        });
-        cacheThrashMeter = KafkaYammerMetrics.defaultRegistry().newMeter(
-                metricName("HDFSCacheThrashRequestPerSec"), "requests", TimeUnit.SECONDS);
+        metrics.registerCacheMetrics(cache);
     }
 
     void registerBufferPoolMetrics() {
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_ALLOC_COUNT), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return byteBufferPool.allocCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_REUSE_COUNT), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return byteBufferPool.reuseCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_RELEASE_COUNT), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return byteBufferPool.releaseCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_RECYCLE_COUNT), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return byteBufferPool.recycleCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_DISCARD_COUNT), new Gauge<Long>() {
-            @Override
-            public Long value() {
-                return byteBufferPool.discardCount();
-            }
-        });
-        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(BUFFER_POOL_SIZE), new Gauge<Integer>() {
-            @Override
-            public Integer value() {
-                return byteBufferPool.poolSize();
-            }
-        });
-    }
-
-    private MetricName metricName(String name) {
-        Class<? extends HDFSRemoteStorageManager> klass = this.getClass();
-        String group = klass.getPackage() == null ? "" : klass.getPackage().getName();
-        String typeName = klass.getSimpleName().replaceAll("\\$$", "");
-        return new MetricName(group, typeName, name, null, group + ":type=" + typeName + ",name=" + name);
+        metrics.registerBufferPoolMetrics(byteBufferPool);
     }
 
     @Override
@@ -715,7 +613,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 //         in the same broker. Assume 4/50 partition leaders are co-located in the same broker then the
                 //         next FETCH for the same partition will happen in the 5th FETCH request. By that time, the
                 //         previous entry stored in the cache might get evicted.
-                cacheThrashMeter.mark();
+                metrics.markCacheThrashing();
             }
 
             if (inputStream == null) {
