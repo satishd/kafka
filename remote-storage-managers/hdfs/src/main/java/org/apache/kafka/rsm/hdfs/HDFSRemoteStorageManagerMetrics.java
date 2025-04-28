@@ -25,15 +25,11 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.core.TimerContext;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class HDFSRemoteStorageManagerMetrics {
-    private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManagerMetrics.class);
-
     // Buffer Pool metrics
     static final String BUFFER_POOL_ALLOC_COUNT = "buffer-pool-alloc-count";
     static final String BUFFER_POOL_RELEASE_COUNT = "buffer-pool-release-count";
@@ -47,6 +43,10 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String FS_STATUS_RATE_AND_TIME_MS = "fs-status-rate-and-time-ms";
     static final String SEGMENT_READ_RATE_AND_TIME_MS = "segment-read-rate-and-time-ms";
     static final String SEGMENT_HEADER_READ_RATE_AND_TIME_MS = "segment-header-read-rate-and-time-ms";
+
+    // Tracks the number of open streams
+    static final String FS_OPEN_INPUT_STREAM = "fs-open-input-stream";
+    static final String FS_OPEN_OUTPUT_STREAM = "fs-open-output-stream";
 
     private Meter cacheThrashMeter;
     private Timer fileSystemOpenTimer;
@@ -162,6 +162,24 @@ public class HDFSRemoteStorageManagerMetrics {
                 metricName(SEGMENT_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
         segmentHeaderReadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
                 metricName(SEGMENT_HEADER_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+    }
+
+    void registerStreamMetrics(final AtomicInteger openInputStreamCount,
+                               final AtomicInteger openOutputStreamCount) {
+        KafkaYammerMetrics.defaultRegistry().newGauge(
+                metricName(FS_OPEN_INPUT_STREAM), new Gauge<Integer>() {
+                    @Override
+                    public Integer value() {
+                        return openInputStreamCount.get();
+                    }
+                });
+        KafkaYammerMetrics.defaultRegistry().newGauge(
+                metricName(FS_OPEN_OUTPUT_STREAM), new Gauge<Integer>() {
+                    @Override
+                    public Integer value() {
+                        return openOutputStreamCount.get();
+                    }
+                });
     }
 
     void markCacheThrashing() {

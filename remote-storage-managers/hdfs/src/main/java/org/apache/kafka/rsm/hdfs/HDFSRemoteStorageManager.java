@@ -90,6 +90,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     .expireAfterWrite(Duration.ofMinutes(10))
                     .build();
     private final HDFSRemoteStorageManagerMetrics metrics;
+    private final AtomicInteger openInputStreamCount = new AtomicInteger();
+    private final AtomicInteger openOutputStreamCount = new AtomicInteger();
 
     public HDFSRemoteStorageManager() {
         this.metrics = new HDFSRemoteStorageManagerMetrics();
@@ -135,6 +137,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
         registerMetrics(readCache);
         registerBufferPoolMetrics();
+        registerHDFSReadMetrics();
+        registerStreamMetrics();
         LOGGER.info("HDFSRemoteStorageManager is configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, " +
                         "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
     }
@@ -152,25 +156,32 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         metrics.registerHDFSReadMetrics();
     }
 
+    @VisibleForTesting
+    void registerStreamMetrics() {
+        metrics.registerStreamMetrics(openInputStreamCount, openOutputStreamCount);
+    }
+
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
-        try {
-            final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
-            final FSDataOutputStream fsOut = getFS().create(dirPath);
-
+        final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
+        try (final FSDataOutputStream fsOut = getFS().create(dirPath)) {
+            openOutputStreamCount.incrementAndGet();
             final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
             byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
             fsOut.write(serializedHeader, 0, serializedHeader.length);
-            uploadFile(segmentData.offsetIndex(), fsOut, false);
-            uploadFile(segmentData.timeIndex(), fsOut, false);
-            uploadData(segmentData.leaderEpochIndex(), fsOut, false);
-            uploadFile(segmentData.producerSnapshotIndex(), fsOut, false);
+            uploadFile(segmentData.offsetIndex(), fsOut);
+            uploadFile(segmentData.timeIndex(), fsOut);
+            uploadData(segmentData.leaderEpochIndex(), fsOut);
+            uploadFile(segmentData.producerSnapshotIndex(), fsOut);
             if (segmentData.transactionIndex().isPresent()) {
-                uploadFile(segmentData.transactionIndex().get(), fsOut, false);
+                uploadFile(segmentData.transactionIndex().get(), fsOut);
             }
-            uploadFile(segmentData.logSegment(), fsOut, true);
+            uploadFile(segmentData.logSegment(), fsOut);
+            fsOut.flush();
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
+        } finally {
+            openOutputStreamCount.decrementAndGet();
         }
         //DKAFC-4132: Return custom metadata
         return Optional.empty();
@@ -270,8 +281,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private void uploadFile(final java.nio.file.Path localSrc,
-                            final FSDataOutputStream out,
-                            final boolean closeStream) throws IOException {
+                            final FSDataOutputStream out) throws IOException {
         if (localSrc != null && localSrc.toFile().exists()) {
             final int bufferSize = hadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                     CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
@@ -283,16 +293,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     bytesRead = fis.read(buf);
                 }
             }
-            if (closeStream && out != null) {
-                out.flush();
-                Utils.closeAll(out);
-            }
         }
     }
 
     private void uploadData(final ByteBuffer localSrc,
-                            final FSDataOutputStream out,
-                            final boolean closeStream) throws IOException {
+                            final FSDataOutputStream out) throws IOException {
         if (localSrc != null) {
             final int bufferSize = hadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                                                      CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
@@ -304,10 +309,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     out.write(buf, 0, bytesRead);
                     bytesRead = byteBufferInputStream.read(buf);
                 }
-            }
-            if (closeStream && out != null) {
-                out.flush();
-                Utils.closeAll(out);
             }
         }
     }
@@ -391,6 +392,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             long currentTimeMs = time.milliseconds();
             try {
                 inputStream = getFS().open(dataPath);
+                openInputStreamCount.incrementAndGet();
                 LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 if (headerHolder == null) {
@@ -405,7 +407,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 bufferedData = new byte[Math.min(MAX_AUX_BUFFER_SIZE, dataPosition.getLength())];
                 inputStream.seek(dataPosition.getPos());
             } catch (Exception e) {
-                Utils.closeAll(inputStream);
+                if (inputStream != null) {
+                    Utils.closeAll(inputStream);
+                    openInputStreamCount.decrementAndGet();
+                    inputStream = null;
+                }
                 throw new IOException(String.format("Failed to open file stream for %s", getString(segmentId)), e);
             }
         }
@@ -444,7 +450,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         @Override
         public void close() throws IOException {
-            Utils.closeAll(inputStream);
+            if (inputStream != null) {
+                Utils.closeAll(inputStream);
+                openInputStreamCount.decrementAndGet();
+            }
         }
     }
 
@@ -490,7 +499,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     readableSegmentLen = Math.min(endPos + 1, realFileLen - dataPosition.getPos());
                 }
             } catch (Exception e) {
-                Utils.closeAll(inputStream);
+                if (inputStream != null) {
+                    Utils.closeAll(inputStream);
+                    openInputStreamCount.decrementAndGet();
+                    inputStream = null;
+                }
                 throw new IOException(String.format("Failed to open file stream for %s", getString(segmentId)), e);
             }
         }
@@ -499,6 +512,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             long currentTimeMs = time.milliseconds();
             FileSystem fileSystem = getFS();
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
+            openInputStreamCount.incrementAndGet();
             LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
         }
 
@@ -621,6 +635,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 //         in the same broker. Assume 4/50 partition leaders are co-located in the same broker then the
                 //         next FETCH for the same partition will happen in the 5th FETCH request. By that time, the
                 //         previous entry stored in the cache might get evicted.
+                //
+                // See: https://docs.google.com/document/d/1ztTbLo0GVpOCq35oMLJQLyOHV2ZKo2Ny_vUg8EaE-6I
                 metrics.markCacheThrashing();
             }
 
@@ -652,8 +668,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         @Override
         public void close() throws IOException {
-            Utils.closeAll(inputStream);
-            inputStream = null;
+            if (inputStream != null) {
+                Utils.closeAll(inputStream);
+                openInputStreamCount.decrementAndGet();
+                inputStream = null;
+            }
         }
     }
 

@@ -66,6 +66,8 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
@@ -187,11 +189,16 @@ public class HDFSRemoteStorageManagerTest {
         Uuid uuid = Uuid.randomUuid();
         RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, false);
         try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET)) {
+            verifyGauge(FS_OPEN_INPUT_STREAM, 1);
             assertNotEquals(0, stream.available());
         }
+        verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+
         try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+            verifyGauge(FS_OPEN_INPUT_STREAM, 1);
             assertEquals(0, stream.available());
         }
+        verifyGauge(FS_OPEN_INPUT_STREAM, 0);
     }
 
     @Test
@@ -411,6 +418,7 @@ public class HDFSRemoteStorageManagerTest {
             rsm.configure(configs);
             clearKafkaMetrics();
             rsm.registerHDFSReadMetrics();
+            rsm.registerStreamMetrics();
 
             // Call once to initialize the default filesystem
             rsm.getFS();
@@ -422,6 +430,8 @@ public class HDFSRemoteStorageManagerTest {
             verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value == 0);
             verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
             verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+            verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+            verifyGauge(FS_OPEN_INPUT_STREAM, 0);
 
             // Copy one segment and fetch it via Remote Storage Manager
             Uuid uuid = Uuid.randomUuid();
@@ -439,6 +449,8 @@ public class HDFSRemoteStorageManagerTest {
             verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value > 0);
             verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
             verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+            verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+            verifyGauge(FS_OPEN_INPUT_STREAM, 0);
         }
     }
 
@@ -457,6 +469,15 @@ public class HDFSRemoteStorageManagerTest {
 
         double value = timer.getSnapshot().getValue(quantile);
         assertTrue(assertion.test(value), "Timer quantile check failed for " + name);
+    }
+
+    private <T> void verifyGauge(String name, T expectedValue) {
+        Optional<Metric> metric = findKafkaMetric(name)
+                .filter(m -> m instanceof Gauge<?>);
+
+        assertTrue(metric.isPresent(), "Metric " + name + " not found or not a Gauge");
+        Object actualValue = ((Gauge<?>) metric.get()).value();
+        assertEquals(expectedValue, actualValue, "Gauge value mismatch for " + name);
     }
 
     private List<RemoteLogSegmentMetadata> listRemoteLogSegmentMetadata(int segmentCount,
@@ -480,36 +501,37 @@ public class HDFSRemoteStorageManagerTest {
                                         int expectedCacheHit,
                                         int expectedSegmentReadFileOpenCalls) throws Exception {
         configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, cacheLineSizeInBytes);
-        HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
-        rsm.setHadoopConfiguration(hadoopConf);
-        rsm.configure(configs);
-        rsm.setLRUCache(cache);
-        // Clear previously registered metrics during object creation
-        clearKafkaMetrics();
-        rsm.registerMetrics(cache);
-        rsm.registerHDFSReadMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+            rsm.setLRUCache(cache);
+            // Clear previously registered metrics during object creation
+            clearKafkaMetrics();
+            rsm.registerMetrics(cache);
+            rsm.registerHDFSReadMetrics();
 
-        Uuid uuid = Uuid.randomUuid();
-        RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
-        RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
-                0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
-        LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
-        rsm.copyLogSegmentData(segmentMetadata, segmentData);
+            Uuid uuid = Uuid.randomUuid();
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
+                    0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
 
-        assertEquals(0, cache.getCacheHit());
-        assertEquals(0, rsm.segmentFileReadOpenCounter());
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
-        assertEquals(0, cache.getCacheHit());
+            assertEquals(0, cache.getCacheHit());
+            assertEquals(0, rsm.segmentFileReadOpenCounter());
+            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
+            assertEquals(0, cache.getCacheHit());
 
-        // read from cache
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
-        assertEquals(expectedCacheHit, cache.getCacheHit());
-        assertEquals(expectedSegmentReadFileOpenCalls, rsm.segmentFileReadOpenCounter());
+            // read from cache
+            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
+            assertEquals(expectedCacheHit, cache.getCacheHit());
+            assertEquals(expectedSegmentReadFileOpenCalls, rsm.segmentFileReadOpenCounter());
 
-        // Verify yammer metric
-        Optional<Metric> hitCount = findKafkaMetric("hitCount");
-        assertTrue(hitCount.isPresent());
-        assertEquals(expectedCacheHit, ((Long) ((Gauge<?>) hitCount.get()).value()).intValue());
+            // Verify yammer metric
+            Optional<Metric> hitCount = findKafkaMetric("hitCount");
+            assertTrue(hitCount.isPresent());
+            assertEquals(expectedCacheHit, ((Long) ((Gauge<?>) hitCount.get()).value()).intValue());
+        }
     }
 
     private void clearKafkaMetrics() {
