@@ -50,6 +50,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.io.IOException;
@@ -80,7 +82,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HDFSRemoteStorageManagerTest {
     private static final int ONE_MB = 1024 * 1024;
-    private final String baseDir = "/kafka-remote-logs";
+    private String baseDir;
     private final TopicIdPartition tp = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("test", 1));
 
     private File logDir;
@@ -91,6 +93,7 @@ public class HDFSRemoteStorageManagerTest {
     private Map<String, String> configs;
 
     private RemoteStorageManager rsm;
+    private String defaultFsUri;
     private final Time time = new MockTime();
 
     @BeforeEach
@@ -106,14 +109,18 @@ public class HDFSRemoteStorageManagerTest {
         MiniDFSCluster.Builder builder = new MiniDFSCluster.Builder(hadoopConf);
         builder.clusterId("test_mini_dfs_cluster");
         hdfsCluster = builder.build();
+        // Note that the URI can have different port allocated than the supplied nameNodePort
+        defaultFsUri = hdfsCluster.getFileSystem().getDefaultUri().toString();
 
         configs = new HashMap<>();
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, baseDir);
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
 
         rsm = new HDFSRemoteStorageManager();
         ((HDFSRemoteStorageManager) rsm).setHadoopConfiguration(hadoopConf);
         rsm.configure(configs);
         hdfs = ((HDFSRemoteStorageManager) rsm).getFS();
+        baseDir = ((HDFSRemoteStorageManager) rsm).baseDir();
     }
 
     @AfterEach
@@ -271,8 +278,7 @@ public class HDFSRemoteStorageManagerTest {
         Path path = new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp));
         assertTrue(hdfs.exists(path));
         assertEquals(segmentCount, hdfs.listStatus(path).length);
-        // remove the type-cast once the delete-partition is implemented
-        ((HDFSRemoteStorageManager) rsm).deletePartition(tp);
+        rsm.deletePartition(tp);
         assertFalse(hdfs.exists(path));
     }
 
@@ -452,6 +458,66 @@ public class HDFSRemoteStorageManagerTest {
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
             verifyGauge(FS_OPEN_INPUT_STREAM, 0);
         }
+    }
+
+    @Test
+    public void testRemoveTrailingSlashFromDefaultFsUri() {
+        String defaultFsUri = "hdfs://localhost:1234";
+        Map<String, String> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri + Path.SEPARATOR);
+        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
+        assertEquals(defaultFsUri, HDFSRemoteStorageManager.getDefaultFsUri(config));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "abc://", "invalid-uri", "/"})
+    public void shouldThrowErrorOnInvalidDefaultFsUri(String defaultFsUri) {
+        Map<String, String> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
+        assertThrows(IllegalArgumentException.class, () -> HDFSRemoteStorageManager.getDefaultFsUri(config));
+    }
+
+    @Test
+    public void testGetPartitionRemoteDir() {
+        RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
+        String partitionRemoteDir = HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, segmentId.topicIdPartition());
+        assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA", partitionRemoteDir);
+    }
+
+    @Test
+    public void testGetSegmentRemoteDir() {
+        RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
+        String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(baseDir, segmentId);
+        assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hdfs://localhost:1234", "cfs://localhost:1234", "oci://localhost:1234"})
+    public void testGetSegmentRemoteDirWithValidDefaultFsUri(String defaultFsUri) throws IOException {
+        // NOTE: The underlying code allows calling RemoteStorageManager#configure() multiple times on the same instance.
+        // However, this is not currently done. Ideally, RemoteStorageManager should provide a #reconfigure method to
+        // support repeated configuration.
+        rsm.close();
+        configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
+            String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(rsm.baseDir(), segmentId);
+            assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
+        }
+    }
+
+    private RemoteLogSegmentId generateRemoteLogSegmentId() {
+        Uuid segmentId = Uuid.fromString("pQpAc9OvTGaxywm8JnN9IQ");
+        Uuid topicId = Uuid.fromString("hHJfD_slRkGCrDPSvJsMtA");
+        TopicPartition tp = new TopicPartition("test", 0);
+        TopicIdPartition tpId = new TopicIdPartition(topicId, tp);
+        return new RemoteLogSegmentId(tpId, segmentId);
     }
 
     private void verifyTimerCount(String name, long expectedValue) {

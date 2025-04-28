@@ -51,6 +51,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -75,6 +77,8 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
+    private static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
+    private static final List<String> ALLOWED_SCHEMES = Arrays.asList("hdfs://", "oci://", "cfs://");
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
@@ -105,11 +109,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public void configure(Map<String, ?> configs) {
         HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
-
-        baseDir = conf.getString(HDFS_BASE_DIR_PROP);
         cacheLineSize = conf.getInt(HDFS_REMOTE_READ_BYTES_PROP);
         long cacheSize = conf.getLong(HDFS_REMOTE_READ_CACHE_BYTES_PROP);
-        String defaultFsUri = conf.getString(HDFS_DEFAULT_FS_URI_PROP);
         if (cacheSize < cacheLineSize) {
             throw new IllegalArgumentException(String.format("%s is larger than %s", HDFS_REMOTE_READ_BYTES_PROP, HDFS_REMOTE_READ_CACHE_BYTES_PROP));
         }
@@ -121,9 +122,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // Loads configuration from hadoop configuration files in class path
             hadoopConf = new Configuration();
         }
-        if (defaultFsUri != null && !defaultFsUri.trim().isEmpty()) {
-            hadoopConf.set(CommonConfigurationKeys.FS_DEFAULT_NAME_KEY, defaultFsUri.trim());
-        }
+        String defaultFsUri = getDefaultFsUri(conf);
+        hadoopConf.set(CommonConfigurationKeys.FS_DEFAULT_NAME_KEY, defaultFsUri);
+        baseDir = defaultFsUri + KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
+
         String authentication = hadoopConf.get(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION);
         if (authentication.equalsIgnoreCase("kerberos")) {
             String user = conf.getString(HDFS_USER_PROP);
@@ -280,6 +282,27 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         this.hadoopConf = configuration;
     }
 
+    @VisibleForTesting
+    static String getDefaultFsUri(HDFSRemoteStorageManagerConfig conf) {
+        String defaultFsUri = conf.getString(HDFS_DEFAULT_FS_URI_PROP);
+        // NOTE: If defaultFsUri is not set, then it can be taken from the `hadoopConf.get(CommonConfigurationKeys.FS_DEFAULT_NAME_KEY)`
+        // But, we want to enforce that the value should be set in the Kafka DSC config.
+        if (Utils.isBlank(defaultFsUri)) {
+            throw new IllegalArgumentException(String.format("Default file system URI is not set. " +
+                    "Please set %s in the configuration", HDFS_DEFAULT_FS_URI_PROP));
+        }
+        boolean isValidScheme = ALLOWED_SCHEMES.stream().anyMatch(defaultFsUri::startsWith);
+        if (!isValidScheme) {
+            throw new IllegalArgumentException(String.format("Invalid default file system URI: %s. It should start with %s",
+                    defaultFsUri, ALLOWED_SCHEMES));
+        }
+        defaultFsUri = defaultFsUri.trim();
+        if (defaultFsUri.endsWith(Path.SEPARATOR)) {
+            defaultFsUri = defaultFsUri.substring(0, defaultFsUri.length() - 1);
+        }
+        return defaultFsUri;
+    }
+
     private void uploadFile(final java.nio.file.Path localSrc,
                             final FSDataOutputStream out) throws IOException {
         if (localSrc != null && localSrc.toFile().exists()) {
@@ -350,6 +373,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @VisibleForTesting
     long segmentFileReadOpenCounter() {
         return metrics.getFileSystemOpenCount();
+    }
+
+    @VisibleForTesting
+    String baseDir() {
+        return baseDir;
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
