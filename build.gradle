@@ -1573,10 +1573,14 @@ project(':graphite') {
     implementation project(':core')
     implementation project(':server-common')
     compileOnly libs.reload4j
-    testRuntimeOnly libs.slf4jReload4j
-    implementation "com.yammer.metrics:metrics-graphite:2.2.0"
+    implementation libs.slf4jApi
+    implementation ("com.yammer.metrics:metrics-graphite:2.2.0") {
+      exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
     implementation "org.scala-lang:scala-library:${scalaVersion}"
     zinc 'com.typesafe.zinc:zinc:0.3.1'
+
+    testRuntimeOnly libs.slf4jReload4j
   }
 
   tasks.create(name: "copyDependantLibs", type: Copy) {
@@ -2147,7 +2151,7 @@ project(':remote-storage-managers:hdfs') {
       exclude group: 'org.checkerframework', module: 'checker-qual'
     }
     implementation(libs.metrics) {
-      exclude group: 'org.slf4j', module: 'sl4j-api'
+      exclude group: 'org.slf4j', module: 'slf4j-api'
     }
 
     testImplementation libs.hadoopMiniCluster
