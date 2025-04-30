@@ -34,7 +34,7 @@ fi
 
 sed -i 's/^version=.*$/version='"$VERSION"'/' gradle.properties
 
-./gradlew releaseTarGz --stacktrace  --no-daemon
+./gradlew releaseTarGz --stacktrace --no-daemon
 
 cp core/build/distributions/!(*docs*) /tmp
 
@@ -45,8 +45,6 @@ rm -rf !(udeploy)
 ln -s ${APP_HOME}/bin/zkcli.py /usr/local/bin/zkcli
 ln -s ${APP_HOME}/udeploy/config /etc/kafka
 rm -rf /etc/kafka/server.properties
-#ln -s ${APP_HOME}/intel_zlib/libz.so.1.2.8 /usr/lib/kafka/intel_zlib/libz.so.1
-#ln -s ${APP_HOME}/intel_zlib/libz.so.1.2.8 /usr/lib/kafka/intel_zlib/libz.so
 
 tar -C ${APP_HOME} --strip 1 -xzf /tmp/kafka_*.tgz
 
@@ -54,6 +52,6 @@ pushd ${APP_HOME}/libs
 curl -O https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/${JMX_EXPORTER_VERSION}/jmx_prometheus_javaagent-${JMX_EXPORTER_VERSION}.jar
 popd
 
-apt-get install uber-data-hdfs-conf -y
+apt-get update && apt-get install -y --reinstall uber-data-hdfs-conf
 mkdir -p ${HADOOP_CONF_DIR}
 chown -R udocker:udocker ${HADOOP_CONF_DIR}
