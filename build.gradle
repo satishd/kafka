@@ -1210,6 +1210,13 @@ project(':core') {
       exclude('error_prone_annotations*')
       exclude('kafka*')
       exclude('metrics-core*')
+
+      // Kafka depends on reload4j, so slf4j-log4j12 and log4j-1.2.x.jar should not be included in the classpath when
+      // running with JRE 17+. Therefore, the slf4j-log4j12* and log4j-* jars are excluded.
+      // Also, excluding the slf4j-api jar to load the slf4j-api, slf4j-reload, and reload4j jars from the parent classloader.
+      exclude('slf4j-log4j12*')
+      exclude('log4j-*')
+      exclude('slf4j-api*')
       into("external/hdfs/libs/")
       duplicatesStrategy 'exclude'
     }
