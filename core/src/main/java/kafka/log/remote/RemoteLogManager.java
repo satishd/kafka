@@ -150,6 +150,7 @@ import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemo
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC;
 
 /**
  * This class is responsible for
@@ -209,6 +210,7 @@ public class RemoteLogManager implements Closeable {
 
     private volatile boolean remoteLogManagerConfigured = false;
     private final Timer remoteReadTimer;
+    private final Timer remoteWriteTimer;
     private volatile DelayedOperationPurgatory<DelayedRemoteListOffsets> delayedRemoteListOffsetsPurgatory;
 
     /**
@@ -266,6 +268,8 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.newGauge(REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC, rlmCopyThreadPool::getIdlePercent);
         metricsGroup.newGauge(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC, this::isRLMTaskCountMatchWithAssignedPartitions);
         remoteReadTimer = metricsGroup.newTimer(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC,
+                TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        remoteWriteTimer = metricsGroup.newTimer(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC,
                 TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
 
         remoteStorageReaderThreadPool = new RemoteStorageThreadPool(
@@ -363,6 +367,7 @@ public class RemoteLogManager implements Closeable {
     private void removeMetrics() {
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
+        metricsGroup.removeMetric(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
@@ -1096,8 +1101,8 @@ public class RemoteLogManager implements Closeable {
             Optional<CustomMetadata> customMetadata;
             
             try {
-                customMetadata = remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData);
-            } catch (RemoteStorageException e) {
+                customMetadata = remoteWriteTimer.time(() -> remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData));
+            } catch (Exception e) {
                 logger.info("Copy failed, cleaning segment {}", copySegmentStartedRlsm.remoteLogSegmentId());
                 try {
                     deleteRemoteLogSegment(copySegmentStartedRlsm, ignored -> !isCancelled());
@@ -1105,7 +1110,7 @@ public class RemoteLogManager implements Closeable {
                 } catch (RemoteStorageException e1) {
                     LOGGER.info("Cleanup failed, will retry later with segment {}: {}", copySegmentStartedRlsm.remoteLogSegmentId(), e1.getMessage());
                 }
-                throw e;
+                throw new RemoteStorageException(e);
             }
 
             RemoteLogSegmentMetadataUpdate copySegmentFinishedRlsm = new RemoteLogSegmentMetadataUpdate(segmentId, time.milliseconds(),

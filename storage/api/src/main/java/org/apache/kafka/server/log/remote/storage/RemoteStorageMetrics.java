@@ -31,6 +31,7 @@ import java.util.Set;
  */
 public class RemoteStorageMetrics {
     private static final String REMOTE_LOG_READER_METRICS_NAME_PREFIX = "RemoteLogReader";
+    private static final String REMOTE_LOG_WRITER_METRICS_NAME_PREFIX = "RemoteLogWriter";
     private static final String REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT = "RemoteLogManagerTasksAvgIdlePercent";
     private static final String TASK_QUEUE_SIZE = "TaskQueueSize";
     private static final String AVG_IDLE_PERCENT = "AvgIdlePercent";
@@ -54,6 +55,7 @@ public class RemoteStorageMetrics {
     private static final String REMOTE_LOG_READER_TASK_QUEUE_SIZE = REMOTE_LOG_READER_METRICS_NAME_PREFIX + TASK_QUEUE_SIZE;
     private static final String REMOTE_LOG_READER_AVG_IDLE_PERCENT = REMOTE_LOG_READER_METRICS_NAME_PREFIX + AVG_IDLE_PERCENT;
     private static final String REMOTE_LOG_READER_FETCH_RATE_AND_TIME_MS = REMOTE_LOG_READER_METRICS_NAME_PREFIX + "FetchRateAndTimeMs";
+    private static final String REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_MS = REMOTE_LOG_WRITER_METRICS_NAME_PREFIX + "CopyRateAndTimeMs";
     public static final Set<String> REMOTE_STORAGE_THREAD_POOL_METRICS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList(REMOTE_LOG_READER_TASK_QUEUE_SIZE, REMOTE_LOG_READER_AVG_IDLE_PERCENT)));
     public static final String REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC = "RemoteLogManagerTaskCountMatch";
@@ -101,6 +103,8 @@ public class RemoteStorageMetrics {
             "org.apache.kafka.storage.internals.log", "RemoteStorageThreadPool", REMOTE_LOG_READER_AVG_IDLE_PERCENT);
     public static final MetricName REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC = getMetricName(
             "kafka.log.remote", "RemoteLogManager", REMOTE_LOG_READER_FETCH_RATE_AND_TIME_MS);
+    public static final MetricName REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC = getMetricName(
+            "kafka.log.remote", "RemoteLogManager", REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_MS);
 
     // DKAFC-5442: Separate thread-pool to handle remote LIST_OFFSETS requests.
     private static final String REMOTE_LOG_OFFSET_READER_METRICS_NAME_PREFIX = "RemoteLogOffsetReader";

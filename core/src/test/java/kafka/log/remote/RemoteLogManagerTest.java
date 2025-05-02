@@ -152,6 +152,7 @@ import static org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig.
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_STORAGE_THREAD_POOL_METRICS;
 import static org.apache.kafka.test.TestUtils.tempFile;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -1849,12 +1850,13 @@ public class RemoteLogManagerTest {
 
             List<MetricName> remoteLogManagerMetricNames = Arrays.asList(
                     REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC,
-                    REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
+                    REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC,
+                    REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
             Set<String> remoteStorageThreadPoolMetricNames = REMOTE_STORAGE_THREAD_POOL_METRICS;
 
             verify(mockRlmMetricsGroup, times(1)).newGauge(any(MetricName.class), any());
             verify(mockRlmMetricsGroup, times(1)).newGauge(anyString(), any());
-            verify(mockRlmMetricsGroup, times(1)).newTimer(any(MetricName.class), any(), any());
+            verify(mockRlmMetricsGroup, times(2)).newTimer(any(MetricName.class), any(), any());
             // Verify that the RemoteLogManager metrics are removed
             remoteLogManagerMetricNames.forEach(metricName -> verify(mockRlmMetricsGroup).removeMetric(metricName));
             verify(mockRlmMetricsGroup).removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
