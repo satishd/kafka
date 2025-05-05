@@ -231,6 +231,7 @@ public final class TopicBasedRemoteLogMetadataManagerConfig {
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 5);
         return Collections.unmodifiableMap(props);
     }
 
