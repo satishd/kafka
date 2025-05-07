@@ -165,7 +165,7 @@ versions += [
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
   // TODO: Update the version to latest production version after its release (JIRA: DKAFC-5718)
-  kafkasecurity: "0.0.2-cs",
+  kafkasecurity: "2.0.10",
   hadoop: '2.8.2.18b2c1e428284d81'
 ]
 
