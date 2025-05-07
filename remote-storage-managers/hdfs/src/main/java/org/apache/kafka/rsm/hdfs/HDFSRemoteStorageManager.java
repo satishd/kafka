@@ -90,7 +90,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private int cacheLineSize;
     private LRUCache readCache;
     private ByteBufferPool byteBufferPool;
-    private final ThreadLocal<FileSystem> fs = new ThreadLocal<>();
+    private FileSystem fs;
     private final Time time = Time.SYSTEM;
     private final Cache<RemoteLogSegmentId, SegmentHeaderHolder> segmentHeaderHolderCache =
             Caffeine.newBuilder()
@@ -147,6 +147,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerBufferPoolMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
+        try {
+            fs = FileSystem.newInstance(hadoopConf);
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to create file system instance", e);
+        }
         executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
         LOGGER.info("HDFSRemoteStorageManager is configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, " +
                         "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
@@ -289,7 +294,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void close() {
-        Utils.closeQuietly(fs.get(), "Hadoop file system");
+        Utils.closeQuietly(fs, "Hadoop file system");
         ThreadUtils.shutdownExecutorServiceQuietly(executor, 5, TimeUnit.SECONDS);
     }
 
@@ -379,11 +384,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     @VisibleForTesting
-    FileSystem getFS() throws IOException {
-        if (fs.get() == null) {
-            fs.set(FileSystem.newInstance(hadoopConf));
+    FileSystem getFS() {
+        if (fs == null) {
+            throw new RuntimeException("File system is not initialized");
         }
-        return fs.get();
+        return fs;
     }
 
     @VisibleForTesting

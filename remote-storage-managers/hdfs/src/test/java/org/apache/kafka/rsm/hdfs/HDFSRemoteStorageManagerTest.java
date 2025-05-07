@@ -53,6 +53,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.IOException;
@@ -144,6 +145,23 @@ public class HDFSRemoteStorageManagerTest {
         RemoteStorageManager rsm = new HDFSRemoteStorageManager();
         rsm.configure(configs);
         rsm.close();
+    }
+
+    @Test
+    public void testConfigureFailedToCreateFileSystem() throws IOException {
+        try (RemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, "oci://localhost:1234");
+            assertThrows(RuntimeException.class, () -> rsm.configure(configs),
+                         "Unable to create file system instance");
+        }
+    }
+
+    @Test
+    public void testGetFSBeforeConfigure() {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            assertThrows(RuntimeException.class, rsm::getFS,
+                "File system is not initialized");
+        }
     }
 
     @Test
@@ -507,7 +525,12 @@ public class HDFSRemoteStorageManagerTest {
         // support repeated configuration.
         rsm.close();
         configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
-        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // the MiniDFSCluster only supports hdfs filesystem, but we want to test with different valid schemes
+            // so we mock the FileSystem creation
+            mockedFileSystem.when(() -> FileSystem.newInstance(Mockito.any(Configuration.class)))
+                    .thenReturn(hdfs);
             rsm.setHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
 
