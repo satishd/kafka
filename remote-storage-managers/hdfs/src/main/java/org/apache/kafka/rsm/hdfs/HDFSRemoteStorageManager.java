@@ -437,8 +437,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             } catch (Exception e) {
                 if (inputStream != null) {
                     Utils.closeAll(inputStream);
-                    openInputStreamCount.decrementAndGet();
                     inputStream = null;
+                    openInputStreamCount.decrementAndGet();
                 }
                 throw new IOException(String.format("Failed to open file stream for %s", getString(segmentId)), e);
             }
@@ -480,6 +480,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         public void close() throws IOException {
             if (inputStream != null) {
                 Utils.closeAll(inputStream);
+                inputStream = null;
                 openInputStreamCount.decrementAndGet();
             }
         }
@@ -529,8 +530,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             } catch (Exception e) {
                 if (inputStream != null) {
                     Utils.closeAll(inputStream);
-                    openInputStreamCount.decrementAndGet();
                     inputStream = null;
+                    openInputStreamCount.decrementAndGet();
                 }
                 throw new IOException(String.format("Failed to open file stream for %s", getString(segmentId)), e);
             }
@@ -698,8 +699,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         public void close() throws IOException {
             if (inputStream != null) {
                 Utils.closeAll(inputStream);
-                openInputStreamCount.decrementAndGet();
                 inputStream = null;
+                openInputStreamCount.decrementAndGet();
             }
         }
     }
