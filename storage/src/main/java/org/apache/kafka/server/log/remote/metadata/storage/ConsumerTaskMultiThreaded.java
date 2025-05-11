@@ -122,6 +122,7 @@ public class ConsumerTaskMultiThreaded implements IConsumerTask {
     private final ExecutorService catchupConsumerExecutorService = Executors.newCachedThreadPool(ThreadUtils
             .createThreadFactory("RLMMCatchupConsumer-%d", false));
     private Map<TopicPartition, CatchupConsumerInfo> activeCatchupConsumers = new HashMap<>();
+    private int errorRetryBackoffMs = 5000;
 
     public ConsumerTaskMultiThreaded(final RemotePartitionMetadataEventHandler remotePartitionMetadataEventHandler,
                                      final RemoteLogMetadataTopicPartitioner topicPartitioner,
@@ -164,8 +165,15 @@ public class ConsumerTaskMultiThreaded implements IConsumerTask {
         } catch (final RetriableException ex) {
             log.warn("Retriable error occurred while processing the records. Retrying...", ex);
         } catch (final Exception ex) {
-            isClosed = true;
-            log.error("Error occurred while processing the records", ex);
+            // Don't close the consumer, retry on any exception. Sleep added to avoid busy loop.
+            log.error("Error occurred while processing the records. Retrying...", ex);
+            if (!isClosed) {
+                try {
+                    Thread.sleep(errorRetryBackoffMs);
+                } catch (InterruptedException e) {
+                    // ignore
+                }
+            }
         }
     }
 
@@ -525,6 +533,11 @@ public class ConsumerTaskMultiThreaded implements IConsumerTask {
 
     static TopicPartition toRemoteLogPartition(int partition) {
         return new TopicPartition(REMOTE_LOG_METADATA_TOPIC_NAME, partition);
+    }
+
+    // VisibleForTesting
+    void setErrorRetryBackoffMs(int errorRetryBackoffMs) {
+        this.errorRetryBackoffMs = errorRetryBackoffMs;
     }
 
     static class UserTopicIdPartition {

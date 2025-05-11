@@ -23,6 +23,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.Time;
@@ -87,6 +88,7 @@ public class ConsumerTaskTest {
         consumer = new MockConsumer<>(OffsetResetStrategy.EARLIEST);
         consumer.updateBeginningOffsets(offsets);
         consumerTask = new ConsumerTask(handler, partitioner, consumer, 10L, 300_000L, Time.SYSTEM);
+        consumerTask.setErrorRetryBackoffMs(1);
     }
 
     @AfterEach
@@ -403,7 +405,7 @@ public class ConsumerTaskTest {
     }
 
     @Test
-    public void testConsumerShouldCloseOnNonRetriableError() {
+    public void testConsumerShouldNotCloseOnNonRetriableError() {
         final TopicIdPartition tpId = getIdPartitions("world", 1).get(0);
         final int metadataPartition = partitioner.metadataPartition(tpId);
         consumer.updateEndOffsets(Collections.singletonMap(toRemoteLogPartition(metadataPartition), 1L));
@@ -414,10 +416,16 @@ public class ConsumerTaskTest {
         assertTrue(consumerTask.isMetadataPartitionAssigned(metadataPartition));
 
         consumer.setPollException(new AuthorizationException("Unauthorized to read the topic!"));
-        // Due to the exception set up earlier, calling run() will trigger an exception and close the Consumer, instead of resulting in an infinite loop
-        // The purpose of calling run() is to validate the capability of ConsumerTask to shut down automatically
-        consumerTask.run();
-        assertTrue(consumer.closed(), "Should close the consume on non-retriable error");
+        consumerTask.ingestRecords();
+        addRecord(consumer, metadataPartition, tpId, 0);
+        consumerTask.ingestRecords();
+        consumer.setPollException(new InvalidTopicException("Not able to complete the operation within the timeout"));
+        consumerTask.ingestRecords();
+        addRecord(consumer, metadataPartition, tpId, 1);
+        consumerTask.ingestRecords();
+
+        assertEquals(Optional.of(1L), consumerTask.readOffsetForMetadataPartition(metadataPartition));
+        assertEquals(2, handler.metadataCounter);
     }
 
     private void addRecord(final MockConsumer<byte[], byte[]> consumer,

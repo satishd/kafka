@@ -23,6 +23,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.InvalidTopicException;
 import org.apache.kafka.common.errors.LeaderNotAvailableException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.utils.Time;
@@ -104,6 +105,7 @@ class ConsumerTaskMultiThreadedTest {
                 return catchupConsumerList.poll();
             }
         }, 10L, 300_000L, Time.SYSTEM);
+        consumerTask.setErrorRetryBackoffMs(1);
         thread = new Thread(consumerTask);
     }
 
@@ -424,7 +426,7 @@ class ConsumerTaskMultiThreadedTest {
     }
 
     @Test
-    public void testConsumerShouldCloseOnNonRetriableError() throws InterruptedException {
+    public void testConsumerShouldNotCloseOnNonRetriableError() throws InterruptedException {
         final TopicIdPartition tpId = getIdPartitions("world", 1).get(0);
         final int metadataPartition = partitioner.metadataPartition(tpId);
         primaryConsumer.updateEndOffsets(Collections.singletonMap(toRemoteLogPartition(metadataPartition), 1L));
@@ -439,7 +441,12 @@ class ConsumerTaskMultiThreadedTest {
         assertTrue(consumerTask.isMetadataPartitionAssigned(metadataPartition));
 
         primaryConsumer.setPollException(new AuthorizationException("Unauthorized to read the topic!"));
-        TestUtils.waitForCondition(() -> primaryConsumer.closed(), 1000, "Should close the consume on non-retriable error");
+        addRecord(primaryConsumer, metadataPartition, tpId, 0);
+        primaryConsumer.setPollException(new InvalidTopicException("Invalid topic!"));
+        addRecord(primaryConsumer, metadataPartition, tpId, 1);
+
+        TestUtils.waitForCondition(() -> consumerTask.readOffsetForMetadataPartition(metadataPartition).equals(Optional.of(1L)), 1000, "Couldn't read record");
+        assertEquals(2, handler.metadataCounter);
     }
 
     private void addRecord(final MockConsumer<byte[], byte[]> consumer,
