@@ -2164,6 +2164,7 @@ project(':remote-storage-managers:hdfs') {
     testImplementation libs.hadoopMiniCluster
     testImplementation libs.argparse4j
     testImplementation libs.junitJupiter
+    testImplementation libs.mockitoCore
     testImplementation project(':storage')
     testImplementation project(':clients').sourceSets.test.output
   }

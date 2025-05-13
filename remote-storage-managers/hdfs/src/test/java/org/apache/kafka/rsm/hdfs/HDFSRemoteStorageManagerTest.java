@@ -52,6 +52,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 
 import java.io.File;
 import java.io.IOException;
@@ -79,6 +80,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 
 public class HDFSRemoteStorageManagerTest {
     private static final int ONE_MB = 1024 * 1024;
@@ -509,6 +514,16 @@ public class HDFSRemoteStorageManagerTest {
             RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
             String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(rsm.baseDir(), segmentId);
             assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
+        }
+    }
+
+    @Test
+    public void testRelogin() throws Exception {
+        try (MockedStatic<UserGroupInformation> mockedUserGroupInfo = mockStatic(UserGroupInformation.class)) {
+            UserGroupInformation mockUser = mock(UserGroupInformation.class);
+            mockedUserGroupInfo.when(UserGroupInformation::getCurrentUser).thenReturn(mockUser);
+            ((HDFSRemoteStorageManager) rsm).relogin();
+            verify(mockUser, atLeastOnce()).checkTGTAndReloginFromKeytab();
         }
     }
 

@@ -20,6 +20,7 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
+import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPool;
@@ -56,6 +57,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -96,6 +100,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final HDFSRemoteStorageManagerMetrics metrics;
     private final AtomicInteger openInputStreamCount = new AtomicInteger();
     private final AtomicInteger openOutputStreamCount = new AtomicInteger();
+    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
+            ThreadUtils.createThreadFactory("hdfs-rsm-scheduler", false));
 
     public HDFSRemoteStorageManager() {
         this.metrics = new HDFSRemoteStorageManagerMetrics();
@@ -141,8 +147,22 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerBufferPoolMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
+        executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
         LOGGER.info("HDFSRemoteStorageManager is configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, " +
                         "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
+    }
+
+    void relogin() {
+        try {
+            UserGroupInformation currentUser = UserGroupInformation.getCurrentUser();
+            LOGGER.info(
+                    "relogin: currentUser={}, loginUser={}",
+                    currentUser,
+                    UserGroupInformation.getLoginUser());
+            currentUser.checkTGTAndReloginFromKeytab();
+        } catch (IOException e) {
+            LOGGER.error("relogin: failed", e);
+        }
     }
 
     @VisibleForTesting
@@ -270,6 +290,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public void close() {
         Utils.closeQuietly(fs.get(), "Hadoop file system");
+        ThreadUtils.shutdownExecutorServiceQuietly(executor, 5, TimeUnit.SECONDS);
     }
 
     @VisibleForTesting
