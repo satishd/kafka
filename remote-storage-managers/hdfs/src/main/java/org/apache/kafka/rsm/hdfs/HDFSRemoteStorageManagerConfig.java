@@ -25,6 +25,7 @@ import static org.apache.kafka.common.config.ConfigDef.Importance.HIGH;
 import static org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
+import static org.apache.kafka.common.config.ConfigDef.Type.LIST;
 import static org.apache.kafka.common.config.ConfigDef.Type.LONG;
 import static org.apache.kafka.common.config.ConfigDef.Type.STRING;
 
@@ -58,6 +59,9 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC = "Maximum capacity of the buffer pool that manages ByteBuffer instances for remote data caching. Controls memory usage and buffer reuse efficiency.";
     public static final int DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE = 256;
 
+    public static final String HDFS_OCI_BUCKETS_PROP = "hdfs.oci.buckets";
+    public static final String HDFS_OCI_BUCKETS_DOC = "Comma separated list of OCI buckets";
+
     private static final ConfigDef CONFIG;
 
     static {
@@ -67,8 +71,9 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_KEYTAB_PATH_PROP, STRING, null, new ConfigDef.NonEmptyString(), MEDIUM, HDFS_KEYTAB_PATH_DOC)
             .define(HDFS_REMOTE_READ_BYTES_PROP, INT, DEFAULT_HDFS_REMOTE_READ_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_BYTES_DOC)
             .define(HDFS_REMOTE_READ_CACHE_BYTES_PROP, LONG, DEFAULT_HDFS_REMOTE_READ_CACHE_BYTES, atLeast(1048576), MEDIUM, HDFS_REMOTE_READ_CACHE_BYTES_DOC)
-            .define(HDFS_DEFAULT_FS_URI_PROP, STRING, null, HIGH, HDFS_DEFAULT_FS_URI_DOC)
-            .define(HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE, atLeast(128), MEDIUM, HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC);
+            .define(HDFS_DEFAULT_FS_URI_PROP, STRING, "", HIGH, HDFS_DEFAULT_FS_URI_DOC)
+            .define(HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE, atLeast(128), MEDIUM, HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC)
+            .define(HDFS_OCI_BUCKETS_PROP, LIST, "", HIGH, HDFS_OCI_BUCKETS_DOC);
     }
 
     HDFSRemoteStorageManagerConfig(Map<?, ?> props, boolean doLog) {

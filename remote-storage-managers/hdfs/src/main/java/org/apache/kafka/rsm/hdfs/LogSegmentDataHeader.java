@@ -19,8 +19,6 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.common.errors.UnsupportedVersionException;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 
-import com.google.common.annotations.VisibleForTesting;
-
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.EnumMap;
@@ -73,12 +71,10 @@ public class LogSegmentDataHeader {
     private LogSegmentDataHeader() {
     }
 
-    @VisibleForTesting
     byte version() {
         return version;
     }
 
-    @VisibleForTesting
     EnumMap<FileType, Integer> filePositions() {
         return filePositions;
     }

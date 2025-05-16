@@ -29,6 +29,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import org.apache.kafka.test.TestUtils;
 
@@ -58,8 +59,10 @@ import org.mockito.Mockito;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -69,8 +72,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
@@ -82,6 +92,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -99,7 +110,7 @@ public class HDFSRemoteStorageManagerTest {
     private FileSystem hdfs;
     private Map<String, String> configs;
 
-    private RemoteStorageManager rsm;
+    private HDFSRemoteStorageManager rsm;
     private String defaultFsUri;
     private final Time time = new MockTime();
 
@@ -120,14 +131,14 @@ public class HDFSRemoteStorageManagerTest {
         defaultFsUri = hdfsCluster.getFileSystem().getDefaultUri().toString();
 
         configs = new HashMap<>();
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        configs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        configs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
 
         rsm = new HDFSRemoteStorageManager();
-        ((HDFSRemoteStorageManager) rsm).setHadoopConfiguration(hadoopConf);
+        rsm.setHadoopConfiguration(hadoopConf);
         rsm.configure(configs);
-        hdfs = ((HDFSRemoteStorageManager) rsm).getFS();
-        baseDir = ((HDFSRemoteStorageManager) rsm).baseDir();
+        hdfs = rsm.getFS(defaultFsUri);
+        baseDir = rsm.baseDir();
     }
 
     @AfterEach
@@ -149,18 +160,9 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     @Test
-    public void testConfigureFailedToCreateFileSystem() throws IOException {
-        try (RemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, "oci://localhost:1234");
-            assertThrows(RuntimeException.class, () -> rsm.configure(configs),
-                         "Unable to create file system instance");
-        }
-    }
-
-    @Test
     public void testGetFSBeforeConfigure() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            assertThrows(RuntimeException.class, rsm::getFS,
+            assertThrows(RuntimeException.class, () -> rsm.getFS(defaultFsUri),
                 "File system is not initialized");
         }
     }
@@ -178,8 +180,8 @@ public class HDFSRemoteStorageManagerTest {
         String user = "test@ATHENA.MIT.EDU";
 
         Map<String, String> secureConfigs = new HashMap<>(configs);
-        secureConfigs.put(HDFSRemoteStorageManagerConfig.HDFS_USER_PROP, user);
-        secureConfigs.put(HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP, "test.keytab");
+        secureConfigs.put(HDFS_USER_PROP, user);
+        secureConfigs.put(HDFS_KEYTAB_PATH_PROP, "test.keytab");
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Configuration configuration = new Configuration();
             configuration.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
@@ -316,7 +318,7 @@ public class HDFSRemoteStorageManagerTest {
         // Read 1000 KB at once from the stream
         int segSize = 10485760;
         LRUCacheWithContext cache = new LRUCacheWithContext(2097152);
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, "1048576");
+        configs.put(HDFS_REMOTE_READ_BYTES_PROP, "1048576");
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             rsm.setHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
@@ -384,7 +386,7 @@ public class HDFSRemoteStorageManagerTest {
         // Read 1 MB at once from the stream
         int segSize = 10485760;
         LRUCacheWithContext cache = new LRUCacheWithContext(2097152);
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, "1048576");
+        configs.put(HDFS_REMOTE_READ_BYTES_PROP, "1048576");
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             rsm.setHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
@@ -453,7 +455,7 @@ public class HDFSRemoteStorageManagerTest {
             rsm.registerStreamMetrics();
 
             // Call once to initialize the default filesystem
-            rsm.getFS();
+            rsm.getFS(defaultFsUri);
 
             // Verify initial values
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 0L);
@@ -487,60 +489,17 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     @Test
-    public void testRemoveTrailingSlashFromDefaultFsUri() {
-        String defaultFsUri = "hdfs://localhost:1234";
-        Map<String, String> props = new HashMap<>();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri + Path.SEPARATOR);
-        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
-        assertEquals(defaultFsUri, HDFSRemoteStorageManager.getDefaultFsUri(config));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"", "abc://", "invalid-uri", "/"})
-    public void shouldThrowErrorOnInvalidDefaultFsUri(String defaultFsUri) {
-        Map<String, String> props = new HashMap<>();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "kafka-remote-logs");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
-        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
-        assertThrows(IllegalArgumentException.class, () -> HDFSRemoteStorageManager.getDefaultFsUri(config));
-    }
-
-    @Test
     public void testGetPartitionRemoteDir() {
         RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
         String partitionRemoteDir = HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, segmentId.topicIdPartition());
-        assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA", partitionRemoteDir);
+        assertEquals("/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA", partitionRemoteDir);
     }
 
     @Test
     public void testGetSegmentRemoteDir() {
         RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
         String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(baseDir, segmentId);
-        assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"hdfs://localhost:1234", "cfs://localhost:1234", "oci://localhost:1234"})
-    public void testGetSegmentRemoteDirWithValidDefaultFsUri(String defaultFsUri) throws IOException {
-        // NOTE: The underlying code allows calling RemoteStorageManager#configure() multiple times on the same instance.
-        // However, this is not currently done. Ideally, RemoteStorageManager should provide a #reconfigure method to
-        // support repeated configuration.
-        rsm.close();
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
-        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
-             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
-            // the MiniDFSCluster only supports hdfs filesystem, but we want to test with different valid schemes
-            // so we mock the FileSystem creation
-            mockedFileSystem.when(() -> FileSystem.newInstance(Mockito.any(Configuration.class)))
-                    .thenReturn(hdfs);
-            rsm.setHadoopConfiguration(hadoopConf);
-            rsm.configure(configs);
-
-            RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
-            String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(rsm.baseDir(), segmentId);
-            assertEquals(defaultFsUri + "/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
-        }
+        assertEquals("/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
     }
 
     @Test
@@ -548,7 +507,7 @@ public class HDFSRemoteStorageManagerTest {
         try (MockedStatic<UserGroupInformation> mockedUserGroupInfo = mockStatic(UserGroupInformation.class)) {
             UserGroupInformation mockUser = mock(UserGroupInformation.class);
             mockedUserGroupInfo.when(UserGroupInformation::getCurrentUser).thenReturn(mockUser);
-            ((HDFSRemoteStorageManager) rsm).relogin();
+            rsm.relogin();
             verify(mockUser, atLeastOnce()).checkTGTAndReloginFromKeytab();
         }
     }
@@ -582,6 +541,61 @@ public class HDFSRemoteStorageManagerTest {
             verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, segSize, 2096162);
             // fetch exceeds the segment size
             verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, segSize + 10, 2096162);
+        }
+    }
+
+    @Test
+    public void testConfigureWithOciBuckets() {
+        String ociBucket1 = "oci://uber@abc/lwrka";
+        String ociBucket2 = "oci://uber@def/lwrka";
+        String ociBucket3 = "oci://uber@xyz/lwrka";
+        List<String> allBuckets = Arrays.asList(ociBucket1, ociBucket2, ociBucket3);
+
+        configs.put(HDFS_OCI_BUCKETS_PROP, String.join(",", allBuckets));
+        AtomicInteger instanceCount = new AtomicInteger();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // the MiniDFSCluster only supports hdfs filesystem, but we want to test with different valid schemes
+            // so we mock the FileSystem creation
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenAnswer(ans -> {
+                        instanceCount.incrementAndGet();
+                        return hdfs;
+                    });
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            assertEquals(allBuckets, rsm.ociBuckets());
+            // verify that the FileSystem instance is called 4 times
+            // once for the default filesystem and 3 times for the OCI buckets
+            assertEquals(4, instanceCount.get());
+
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.fromString("k5X5v70mQcWQ34-gnNDJhA"));
+            RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(tp, Uuid.fromString("_Npw8WQWQ--x5cu-0zz9aA"));
+            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, segmentId));
+            assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, segmentId1));
+            // verify that the same bucket is returned for the same segmentId
+            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, segmentId));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abcd", "invalid-uri"})
+    public void testConfigureInvalidOciBuckets(String ociBuckets) {
+        configs.put(HDFS_OCI_BUCKETS_PROP, ociBuckets);
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            assertThrows(IllegalArgumentException.class, () -> rsm.configure(configs));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abcd", "invalid-uri"})
+    public void testConfigureInvalidHdfsBuckets(String hdfsBuckets) {
+        configs.put(HDFS_DEFAULT_FS_URI_PROP, hdfsBuckets);
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHadoopConfiguration(hadoopConf);
+            assertThrows(IllegalArgumentException.class, () -> rsm.configure(configs));
         }
     }
 
@@ -639,7 +653,7 @@ public class HDFSRemoteStorageManagerTest {
                                         int segSize,
                                         int expectedCacheHit,
                                         int expectedSegmentReadFileOpenCalls) throws Exception {
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, cacheLineSizeInBytes);
+        configs.put(HDFS_REMOTE_READ_BYTES_PROP, cacheLineSizeInBytes);
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             rsm.setHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
@@ -748,12 +762,12 @@ public class HDFSRemoteStorageManagerTest {
                                                   int segSize,
                                                   boolean withOptionalFiles) throws Exception {
         long bytesReadFromRemoteSoFar = ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote();
-        RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
-        RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
+        RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, uuid);
+        RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
                 0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
         LogSegmentData segmentData = TestLogSegmentUtils
                 .createLogSegmentData(logDir, startOffset, segSize, withOptionalFiles);
-        rsm.copyLogSegmentData(segmentMetadata, segmentData);
+        Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadataOpt = rsm.copyLogSegmentData(segmentMetadata, segmentData);
         checkFileExistence(uuid);
         checkAssociatedFileContents(rsm, segmentMetadata, segmentData);
         assertTrue(hdfs.exists(new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp) + Path.SEPARATOR + uuid)));
@@ -765,6 +779,8 @@ public class HDFSRemoteStorageManagerTest {
         } else {
             assertEquals(expectedBytesRead, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
         }
+        assertTrue(customMetadataOpt.isPresent());
+        assertEquals(defaultFsUri, new String(customMetadataOpt.get().value(), StandardCharsets.UTF_8));
         return segmentMetadata;
     }
 

@@ -31,10 +31,10 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -50,13 +50,16 @@ import org.slf4j.LoggerFactory;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +70,7 @@ import java.util.function.Function;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BYTES_PROP;
@@ -81,8 +85,7 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    private static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
-    private static final List<String> ALLOWED_SCHEMES = Arrays.asList("hdfs://", "oci://", "cfs://");
+    static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
@@ -90,7 +93,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private int cacheLineSize;
     private LRUCache readCache;
     private ByteBufferPool byteBufferPool;
-    private FileSystem fs;
     private final Time time = Time.SYSTEM;
     private final Cache<RemoteLogSegmentId, SegmentHeaderHolder> segmentHeaderHolderCache =
             Caffeine.newBuilder()
@@ -102,6 +104,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final AtomicInteger openOutputStreamCount = new AtomicInteger();
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
             ThreadUtils.createThreadFactory("hdfs-rsm-scheduler", false));
+
+    private String hdfsBucket;
+    private List<String> ociBuckets;
+    private final Map<String, FileSystem> fileSystemByBucket = new ConcurrentHashMap<>();
 
     public HDFSRemoteStorageManager() {
         this.metrics = new HDFSRemoteStorageManagerMetrics();
@@ -115,6 +121,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public void configure(Map<String, ?> configs) {
         HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
+        baseDir = KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
         cacheLineSize = conf.getInt(HDFS_REMOTE_READ_BYTES_PROP);
         long cacheSize = conf.getLong(HDFS_REMOTE_READ_CACHE_BYTES_PROP);
         if (cacheSize < cacheLineSize) {
@@ -128,10 +135,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // Loads configuration from hadoop configuration files in class path
             hadoopConf = new Configuration();
         }
-        String defaultFsUri = getDefaultFsUri(conf);
-        hadoopConf.set(CommonConfigurationKeys.FS_DEFAULT_NAME_KEY, defaultFsUri);
-        baseDir = defaultFsUri + KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
-
         String authentication = hadoopConf.get(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION);
         if (authentication.equalsIgnoreCase("kerberos")) {
             String user = conf.getString(HDFS_USER_PROP);
@@ -147,14 +150,25 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerBufferPoolMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
-        try {
-            fs = FileSystem.newInstance(hadoopConf);
-        } catch (IOException e) {
-            throw new RuntimeException("Unable to create file system instance", e);
+
+        hdfsBucket = conf.getString(HDFS_DEFAULT_FS_URI_PROP);
+        validateScheme(hdfsBucket, RemoteStorageProvider.HDFS);
+        getFS(hdfsBucket);
+
+        ociBuckets = conf.getList(HDFS_OCI_BUCKETS_PROP);
+        for (String ociBucket : ociBuckets) {
+            validateScheme(ociBucket, RemoteStorageProvider.OCI);
+            getFS(ociBucket);
         }
         executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
-        LOGGER.info("HDFSRemoteStorageManager is configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, " +
-                        "defaultFsUri: {}", baseDir, cacheLineSize, cacheSize, defaultFsUri);
+        LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, ociBuckets: {}",
+                baseDir, cacheLineSize, cacheSize, hdfsBucket, ociBuckets);
+    }
+
+    private void validateScheme(String bucket, RemoteStorageProvider provider) {
+        if (!bucket.startsWith(provider.toString() + "://")) {
+            throw new IllegalArgumentException(String.format("Invalid bucket URI: %s. It should start with %s://", bucket, provider));
+        }
     }
 
     void relogin() {
@@ -170,7 +184,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    @VisibleForTesting
     void registerMetrics(LRUCache cache) {
         metrics.registerCacheMetrics(cache);
     }
@@ -183,15 +196,48 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         metrics.registerHDFSReadMetrics();
     }
 
-    @VisibleForTesting
     void registerStreamMetrics() {
         metrics.registerStreamMetrics(openInputStreamCount, openOutputStreamCount);
     }
 
+    /**
+     * Finds the bucket name for the given provider. This should be used only for writing data.
+     * If multiple OCI buckets are configured, then it returns the bucket in round-robin fashion.
+     * @param provider storage provider
+     * @return bucket name
+     */
+    String findBucket(RemoteStorageProvider provider, RemoteLogSegmentId segmentId) {
+        if (provider == RemoteStorageProvider.HDFS) {
+            return hdfsBucket;
+        } else if (provider == RemoteStorageProvider.OCI) {
+            if (ociBuckets.isEmpty()) {
+                throw new IllegalArgumentException("No OCI buckets are configured for writing");
+            }
+            int idx = Math.abs(segmentId.id().hashCode() % ociBuckets.size());
+            return ociBuckets.get(idx);
+        } else {
+            throw new IllegalArgumentException("Unknown remote storage provider: " + provider);
+        }
+    }
+
+    /**
+     * Returns the bucket name for the given metadata.
+     * @param metadata metadata
+     * @return bucket name
+     */
+    private String getBucket(RemoteLogSegmentMetadata metadata) {
+        Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadataOpt = metadata.customMetadata();
+        return customMetadataOpt.map(cm -> new String(cm.value(), StandardCharsets.UTF_8))
+                .orElseGet(() -> hdfsBucket);
+    }
+
     @Override
-    public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
+    public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata,
+                                                                                LogSegmentData segmentData) throws RemoteStorageException {
+        final RemoteStorageProvider provider = segmentData.storageProvider();
         final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
-        try (final FSDataOutputStream fsOut = getFS().create(dirPath)) {
+        final String bucket = findBucket(provider, metadata.remoteLogSegmentId());
+        try (final FSDataOutputStream fsOut = getFS(bucket).create(dirPath)) {
             openOutputStreamCount.incrementAndGet();
             final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
             byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
@@ -210,8 +256,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         } finally {
             openOutputStreamCount.decrementAndGet();
         }
-        //DKAFC-4132: Return custom metadata
-        return Optional.empty();
+        return Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8)));
     }
 
     @Override
@@ -266,7 +311,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
             Path path = new Path(getSegmentRemoteDir(segmentMetadata.remoteLogSegmentId()));
-            FileSystem fs = getFS();
+            String bucket = getBucket(segmentMetadata);
+            FileSystem fs = getFS(bucket);
             if (fs.exists(path)) {
                 delete = fs.delete(path, true);
             } else {
@@ -284,64 +330,41 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    // @Override
+    @Override
     public void deletePartition(TopicIdPartition partition) throws RemoteStorageException {
-        boolean status;
+        boolean status = false;
         try {
             Path path = new Path(getPartitionRemoteDir(partition));
-            FileSystem fs = getFS();
-            if (fs.exists(path)) {
-                status = fs.delete(path, true);
-                if (status) {
-                    LOGGER.info("Remote logs are deleted for {} partition", partition);
+            for (FileSystem fs : fileSystemByBucket.values()) {
+                if (fs.exists(path)) {
+                    status = fs.delete(path, true);
+                    if (status) {
+                        LOGGER.info("Remote logs are deleted for {} partition", partition);
+                    }
                 }
-            } else {
-                status = true;
+            }
+            if (!status) {
                 LOGGER.warn("Skipping the call to delete partition: {} as the folder doesn't exists", partition);
             }
         } catch (Exception e) {
             throw new RemoteStorageException("Failed to delete remote log partition:" + partition, e);
         }
-        if (!status) {
-            throw new RemoteStorageException("Failed to delete remote log partition: " + partition);
-        }
     }
 
     @Override
     public void close() {
-        Utils.closeQuietly(fs, "Hadoop file system");
+        fileSystemByBucket.forEach((bucket, fs) ->
+            Utils.closeQuietly(fs, "Closed FileSystem for bucket: " + bucket)
+        );
         ThreadUtils.shutdownExecutorServiceQuietly(executor, 5, TimeUnit.SECONDS);
     }
 
-    @VisibleForTesting
     void setLRUCache(final LRUCache cache) {
         this.readCache = cache;
     }
 
-    @VisibleForTesting
     void setHadoopConfiguration(final Configuration configuration) {
         this.hadoopConf = configuration;
-    }
-
-    @VisibleForTesting
-    static String getDefaultFsUri(HDFSRemoteStorageManagerConfig conf) {
-        String defaultFsUri = conf.getString(HDFS_DEFAULT_FS_URI_PROP);
-        // NOTE: If defaultFsUri is not set, then it can be taken from the `hadoopConf.get(CommonConfigurationKeys.FS_DEFAULT_NAME_KEY)`
-        // But, we want to enforce that the value should be set in the Kafka DSC config.
-        if (Utils.isBlank(defaultFsUri)) {
-            throw new IllegalArgumentException(String.format("Default file system URI is not set. " +
-                    "Please set %s in the configuration", HDFS_DEFAULT_FS_URI_PROP));
-        }
-        boolean isValidScheme = ALLOWED_SCHEMES.stream().anyMatch(defaultFsUri::startsWith);
-        if (!isValidScheme) {
-            throw new IllegalArgumentException(String.format("Invalid default file system URI: %s. It should start with %s",
-                    defaultFsUri, ALLOWED_SCHEMES));
-        }
-        defaultFsUri = defaultFsUri.trim();
-        if (defaultFsUri.endsWith(Path.SEPARATOR)) {
-            defaultFsUri = defaultFsUri.substring(0, defaultFsUri.length() - 1);
-        }
-        return defaultFsUri;
     }
 
     private void uploadFile(final java.nio.file.Path localSrc,
@@ -380,7 +403,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private InputStream fetchAuxFile(RemoteLogSegmentMetadata metadata,
                                      LogSegmentDataHeader.FileType fileType) throws RemoteStorageException {
         try {
-            return new AuxiliaryDataInputStream(metadata.remoteLogSegmentId(), fileType);
+            String bucket = getBucket(metadata);
+            return new AuxiliaryDataInputStream(metadata.remoteLogSegmentId(), bucket, fileType);
         } catch (Exception e) {
             throw new RemoteStorageException(
                     String.format("Failed to fetch %s file from remote storage. Metadata: %s", fileType, metadata), e);
@@ -392,10 +416,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                                          int startPosition,
                                          int endPosition) throws RemoteStorageException {
         try {
+            String bucket = getBucket(metadata);
             if (enablePrefetch) {
-                return new CachedInputStream(metadata.remoteLogSegmentId(), startPosition, endPosition);
+                return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition);
             } else {
-                return new SimpleInputStream(metadata.remoteLogSegmentId(), startPosition, endPosition);
+                return new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition);
             }
         } catch (Exception e) {
             throw new RemoteStorageException(
@@ -403,29 +428,34 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    @VisibleForTesting
-    FileSystem getFS() {
-        if (fs == null) {
-            throw new RuntimeException("File system is not initialized");
-        }
-        return fs;
+    FileSystem getFS(String bucket) {
+        return fileSystemByBucket.computeIfAbsent(bucket, k -> {
+            try {
+                FileSystem system = FileSystem.get(new URI(k), hadoopConf);
+                LOGGER.info("FileSystem created for uri: {}", k);
+                return system;
+            } catch (URISyntaxException | IOException e) {
+                throw new RuntimeException("Unable to create file system instance for uri: " + bucket, e);
+            }
+        });
     }
 
-    @VisibleForTesting
     long bytesReadFromRemote() {
         return auxBytesReadFromRemote.get();
     }
 
-    @VisibleForTesting
     long segmentFileReadOpenCounter() {
         return metrics.getFileSystemOpenCount();
     }
 
-    @VisibleForTesting
     String baseDir() {
         return baseDir;
     }
 
+    List<String> ociBuckets() {
+        return ociBuckets;
+    }
+    
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
         return getSegmentRemoteDir(baseDir, remoteLogSegmentId);
     }
@@ -451,6 +481,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     class AuxiliaryDataInputStream extends InputStream {
         private static final int MAX_AUX_BUFFER_SIZE = 2 * 1024 * 1024; // 2 MB
         private final RemoteLogSegmentId segmentId;
+        private final String bucket;
         private final LogSegmentDataHeader.FileType fileType;
         private FSDataInputStream inputStream;
         private final LogSegmentDataHeader.DataPosition dataPosition;
@@ -458,14 +489,16 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         private int position; // current position in the data
 
         AuxiliaryDataInputStream(RemoteLogSegmentId segmentId,
+                                 String bucket,
                                  LogSegmentDataHeader.FileType fileType) throws IOException {
             this.segmentId = segmentId;
+            this.bucket = bucket;
             this.fileType = fileType;
 
             Path dataPath = new Path(getSegmentRemoteDir(segmentId));
             long currentTimeMs = time.milliseconds();
             try {
-                inputStream = getFS().open(dataPath);
+                inputStream = getFS(bucket).open(dataPath);
                 openInputStreamCount.incrementAndGet();
                 LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
@@ -496,7 +529,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
             inputStream.readFully(0, buffer);
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
-            long actualFileLength = getFS().getFileStatus(dataPath).getLen();
+            long actualFileLength = getFS(bucket).getFileStatus(dataPath).getLen();
             LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
             return new SegmentHeaderHolder(header, actualFileLength);
         }
@@ -534,6 +567,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private class CachedInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
+        private final String bucket;
         private final Path dataPath;
         private final LogSegmentDataHeader.DataPosition dataPosition;
         // Represents the length of the segment file that is readable
@@ -547,14 +581,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         /**
          * Input Stream which caches the SEGMENT data to serve them locally on repeated reads.
          * @param segmentId  remote log segment id
+         * @param bucket     bucket name
          * @param currentPos current position to read from the stream, inclusive.
          * @param endPos     to read upto the end position, inclusive.
          * @throws IOException IO problems
          */
         CachedInputStream(RemoteLogSegmentId segmentId,
+                          String bucket,
                           int currentPos,
                           int endPos) throws IOException {
             this.segmentId = segmentId;
+            this.bucket = bucket;
             this.dataPath = new Path(getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
@@ -585,7 +622,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         private void openFileStream() throws IOException {
             long currentTimeMs = time.milliseconds();
-            FileSystem fileSystem = getFS();
+            FileSystem fileSystem = getFS(bucket);
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             openInputStreamCount.incrementAndGet();
             LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
@@ -598,7 +635,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             metrics.timeSegmentHeaderRead(() -> inputStream.readFully(0, buffer));
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
 
-            FileSystem fileSystem = getFS();
+            FileSystem fileSystem = getFS(bucket);
             FileStatus[] fileStatusHolder = new FileStatus[1];
             metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
             long actualFileLength = fileStatusHolder[0].getLen();
@@ -761,6 +798,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private class SimpleInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
+        private final String bucket;
         private final Path dataPath;
         // Represents the length of the segment file that is readable
         private final long readableSegmentLen;
@@ -782,14 +820,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
          * for all the offsets.
          *
          * @param segmentId  remote log segment id
+         * @param bucket     bucket name
          * @param startPos   starting position to read from the stream, inclusive.
          * @param endPos     to read upto the end position, inclusive.
          * @throws IOException IO problems
          */
         SimpleInputStream(RemoteLogSegmentId segmentId,
+                          String bucket,
                           int startPos,
                           int endPos) throws IOException {
             this.segmentId = segmentId;
+            this.bucket = bucket;
             this.dataPath = new Path(getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
@@ -909,7 +950,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         private void openFileStream() throws IOException {
             long currentTimeMs = time.milliseconds();
-            FileSystem fileSystem = getFS();
+            FileSystem fileSystem = getFS(bucket);
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             openInputStreamCount.incrementAndGet();
             LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
@@ -922,7 +963,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             metrics.timeSegmentHeaderRead(() -> inputStream.readFully(0, buffer));
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
 
-            FileSystem fileSystem = getFS();
+            FileSystem fileSystem = getFS(bucket);
             FileStatus[] fileStatusHolder = new FileStatus[1];
             metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
             long actualFileLength = fileStatusHolder[0].getLen();
