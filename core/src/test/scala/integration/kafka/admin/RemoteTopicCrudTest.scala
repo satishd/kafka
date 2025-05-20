@@ -504,6 +504,29 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
     recreateBrokers(startup = true)
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = Array("zk", "kraft"))
+  def testUpdateTopicConfigToChangeStorageProvider(quorum: String): Unit = {
+    val admin = createAdminClient()
+    val topicConfig = new Properties()
+    topicConfig.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true")
+    TestUtils.createTopicWithAdmin(admin, testTopicName, brokers, controllerServers, numPartitions, numReplicationFactor,
+      topicConfig = topicConfig)
+    // default value is HDFS storage provider if unspecified
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS)
+    verifyRemoteLogTopicConfigs(topicConfig)
+
+    val configs = new util.HashMap[ConfigResource, util.Collection[AlterConfigOp]]()
+    configs.put(new ConfigResource(ConfigResource.Type.TOPIC, testTopicName),
+      util.Collections.singletonList(
+        new AlterConfigOp(new ConfigEntry(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI),
+          AlterConfigOp.OpType.SET),
+      ))
+    admin.incrementalAlterConfigs(configs).all().get()
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI)
+    verifyRemoteLogTopicConfigs(topicConfig)
+  }
+
   private def assertThrowsException(exceptionType: Class[_ <: Throwable],
                                     executable: Executable,
                                     message: String = ""): Throwable = {
@@ -546,15 +569,20 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
             topicConfig.getProperty(TopicConfig.RETENTION_BYTES_CONFIG).toLong ==
               logBuffer.head.config.retentionSize
         }
-        if (topicConfig.contains(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG)) {
+        if (topicConfig.containsKey(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG)) {
           result = result &&
             topicConfig.getProperty(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG).toBoolean ==
               logBuffer.head.config.remoteLogCopyDisable()
         }
-        if (topicConfig.contains(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG)) {
+        if (topicConfig.containsKey(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG)) {
           result = result &&
             topicConfig.getProperty(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG).toBoolean ==
               logBuffer.head.config.remoteLogDeleteOnDisable()
+        }
+        if (topicConfig.containsKey(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG)) {
+          result = result &&
+            topicConfig.getProperty(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG) ==
+              logBuffer.head.config.remoteStorageProvider
         }
       }
       result

@@ -30,6 +30,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.compress.Compression;
+import org.apache.kafka.common.config.TopicConfig;
 import org.apache.kafka.common.errors.ReplicaNotAvailableException;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
@@ -59,6 +60,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.kafka.server.metrics.KafkaMetricsGroup;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import org.apache.kafka.server.util.MockScheduler;
@@ -268,6 +270,7 @@ public class RemoteLogManagerTest {
             }
         };
         doReturn(true).when(remoteLogMetadataManager).isReady(any(TopicIdPartition.class));
+        doReturn(new LogConfig(Collections.emptyMap())).when(mockLog).config();
     }
 
     @AfterEach
@@ -584,7 +587,7 @@ public class RemoteLogManagerTest {
         assertEquals(remoteLogSegmentMetadataArg.getValue(), remoteLogSegmentMetadataArg2.getValue());
         // The old segment should only contain leader epoch [0->0, 1->100] since its offset range is [0, 149]
         verifyLogSegmentData(logSegmentDataArg.getValue(), idx, timeIdx, txnIndex, tempFile, mockProducerSnapshotIndex,
-            Arrays.asList(epochEntry0, epochEntry1));
+            Arrays.asList(epochEntry0, epochEntry1), RemoteStorageProvider.HDFS);
 
         // verify remoteLogMetadataManager did add the expected RemoteLogSegmentMetadataUpdate
         ArgumentCaptor<RemoteLogSegmentMetadataUpdate> remoteLogSegmentMetadataUpdateArg = ArgumentCaptor.forClass(RemoteLogSegmentMetadataUpdate.class);
@@ -1369,7 +1372,8 @@ public class RemoteLogManagerTest {
                                       TransactionIndex txnIndex,
                                       File tempFile,
                                       File mockProducerSnapshotIndex,
-                                      List<EpochEntry> expectedLeaderEpoch) throws IOException {
+                                      List<EpochEntry> expectedLeaderEpoch,
+                                      RemoteStorageProvider storageProvider) throws IOException {
         assertEquals(idx.file().getAbsolutePath(), logSegmentData.offsetIndex().toAbsolutePath().toString());
         assertEquals(timeIdx.file().getAbsolutePath(), logSegmentData.timeIndex().toAbsolutePath().toString());
         assertEquals(txnIndex.file().getPath(), logSegmentData.transactionIndex().get().toAbsolutePath().toString());
@@ -1377,6 +1381,7 @@ public class RemoteLogManagerTest {
         assertEquals(mockProducerSnapshotIndex.getAbsolutePath(), logSegmentData.producerSnapshotIndex().toAbsolutePath().toString());
 
         assertEquals(RemoteLogManager.epochEntriesAsByteBuffer(expectedLeaderEpoch), logSegmentData.leaderEpochIndex());
+        assertEquals(storageProvider, logSegmentData.storageProvider());
     }
 
     @Test
@@ -2312,6 +2317,7 @@ public class RemoteLogManagerTest {
 
     @Test
     public void testDeletionSkippedForSegmentsBeingCopied() throws RemoteStorageException, IOException, InterruptedException, ExecutionException {
+        RemoteStorageProvider storageProvider = RemoteStorageProvider.OCI;
         RemoteLogMetadataManager remoteLogMetadataManager = new NoOpRemoteLogMetadataManager() {
             List<RemoteLogSegmentMetadata> metadataList = new ArrayList<>();
 
@@ -2431,9 +2437,10 @@ public class RemoteLogManagerTest {
         when(rlmCopyQuotaManager.getThrottleTimeMs()).thenReturn(quotaAvailableThrottleTime);
 
         // Set up expiration behaviour
-        Map<String, Long> logProps = new HashMap<>();
+        Map<String, Object> logProps = new HashMap<>();
         logProps.put("retention.bytes", 0L);
         logProps.put("retention.ms", -1L);
+        logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, storageProvider.name());
         LogConfig mockLogConfig = new LogConfig(logProps);
         when(mockLog.config()).thenReturn(mockLogConfig);
 
@@ -2463,6 +2470,12 @@ public class RemoteLogManagerTest {
 
         copyThread.join(10_000);
         expirationThread.join(1_000);
+
+        ArgumentCaptor<LogSegmentData> logSegmentDataArg = ArgumentCaptor.forClass(LogSegmentData.class);
+        verify(remoteStorageManager, times(1))
+                .copyLogSegmentData(any(RemoteLogSegmentMetadata.class), logSegmentDataArg.capture());
+        verifyLogSegmentData(logSegmentDataArg.getValue(), idx, timeIdx, txnIndex, tempFile, mockProducerSnapshotIndex,
+                Arrays.asList(epochEntry0), storageProvider);
 
         // Verify no segments were deleted
         verify(remoteStorageManager, times(0)).deleteLogSegmentData(any(RemoteLogSegmentMetadata.class));

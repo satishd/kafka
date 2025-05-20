@@ -37,6 +37,7 @@ public class LogSegmentData {
     private final Optional<Path> transactionIndex;
     private final Path producerSnapshotIndex;
     private final ByteBuffer leaderEpochIndex;
+    private final RemoteStorageProvider storageProvider;
 
     /**
      * Creates a LogSegmentData instance with data and indexes.
@@ -47,19 +48,22 @@ public class LogSegmentData {
      * @param transactionIndex      transaction index file, which can be null
      * @param producerSnapshotIndex producer snapshot until this segment
      * @param leaderEpochIndex      leader-epoch-index until this segment
+     * @param storageProvider       storage provider to upload the segment to
      */
     public LogSegmentData(Path logSegment,
                           Path offsetIndex,
                           Path timeIndex,
                           Optional<Path> transactionIndex,
                           Path producerSnapshotIndex,
-                          ByteBuffer leaderEpochIndex) {
+                          ByteBuffer leaderEpochIndex,
+                          RemoteStorageProvider storageProvider) {
         this.logSegment = Objects.requireNonNull(logSegment, "logSegment can not be null");
         this.offsetIndex = Objects.requireNonNull(offsetIndex, "offsetIndex can not be null");
         this.timeIndex = Objects.requireNonNull(timeIndex, "timeIndex can not be null");
         this.transactionIndex = Objects.requireNonNull(transactionIndex, "transactionIndex can not be null");
         this.producerSnapshotIndex = Objects.requireNonNull(producerSnapshotIndex, "producerSnapshotIndex can not be null");
         this.leaderEpochIndex = Objects.requireNonNull(leaderEpochIndex, "leaderEpochIndex can not be null");
+        this.storageProvider = Objects.requireNonNull(storageProvider, "storageProvider can not be null");
     }
 
     /**
@@ -104,6 +108,13 @@ public class LogSegmentData {
         return leaderEpochIndex;
     }
 
+    /**
+     * @return Storage provider to upload the segment to.
+     */
+    public RemoteStorageProvider storageProvider() {
+        return storageProvider;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -118,12 +129,13 @@ public class LogSegmentData {
                Objects.equals(timeIndex, that.timeIndex) &&
                Objects.equals(transactionIndex, that.transactionIndex) &&
                Objects.equals(producerSnapshotIndex, that.producerSnapshotIndex) &&
-               Objects.equals(leaderEpochIndex, that.leaderEpochIndex);
+               Objects.equals(leaderEpochIndex, that.leaderEpochIndex) &&
+               Objects.equals(storageProvider, that.storageProvider);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(logSegment, offsetIndex, timeIndex, transactionIndex, producerSnapshotIndex, leaderEpochIndex);
+        return Objects.hash(logSegment, offsetIndex, timeIndex, transactionIndex, producerSnapshotIndex, leaderEpochIndex, storageProvider);
     }
 
     @Override
@@ -135,6 +147,7 @@ public class LogSegmentData {
                ", txnIndex=" + transactionIndex +
                ", producerSnapshotIndex=" + producerSnapshotIndex +
                ", leaderEpochIndex=" + leaderEpochIndex +
+               ", storageProvider=" + storageProvider +
                '}';
     }
 }

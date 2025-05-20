@@ -68,6 +68,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadataUpdate
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.kafka.server.metrics.KafkaMetricsGroup;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
@@ -1094,10 +1095,11 @@ public class RemoteLogManager implements Closeable {
 
             remoteLogMetadataManager.addRemoteLogSegmentMetadata(copySegmentStartedRlsm).get();
 
+            RemoteStorageProvider storageProvider = RemoteStorageProvider.fromName(log.config().remoteStorageProvider());
             ByteBuffer leaderEpochsIndex = epochEntriesAsByteBuffer(getLeaderEpochEntries(log, -1, nextSegmentBaseOffset));
             LogSegmentData segmentData = new LogSegmentData(logFile.toPath(), toPathIfExists(segment.offsetIndex().file()),
                     toPathIfExists(segment.timeIndex().file()), Optional.ofNullable(toPathIfExists(segment.txnIndex().file())),
-                    producerStateSnapshotFile.toPath(), leaderEpochsIndex);
+                    producerStateSnapshotFile.toPath(), leaderEpochsIndex, storageProvider);
             brokerTopicStats.topicStats(log.topicPartition().topic()).remoteCopyRequestRate().mark();
             brokerTopicStats.allTopicsStats().remoteCopyRequestRate().mark();
             Optional<CustomMetadata> customMetadata;

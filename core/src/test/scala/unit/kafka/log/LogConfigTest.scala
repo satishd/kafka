@@ -102,6 +102,7 @@ class LogConfigTest {
       case TopicConfig.COMPRESSION_ZSTD_LEVEL_CONFIG => assertPropertyInvalid(name, "not_a_number", "-0.1")
       case TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
       case TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
+      case TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
 
       case _ => assertPropertyInvalid(name, "not_a_number", "-1")
     })
@@ -488,5 +489,13 @@ class LogConfigTest {
     assertThrows(classOf[IllegalArgumentException], () =>
       validate(MetadataVersion.IBP_3_7_IV0, jbodConfig = true))
     validate(MetadataVersion.IBP_3_7_IV2, jbodConfig = true)
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = Array(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI))
+  def testValidRemoteStorageProvider(provider: String): Unit = {
+    val logProps = new Properties
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, provider)
+    LogConfig.validate(logProps)
   }
 }

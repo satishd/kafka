@@ -257,4 +257,10 @@ public class TopicConfig {
         "broker will not perform down-conversion for consumers expecting an older message format. The broker responds " +
         "with <code>UNSUPPORTED_VERSION</code> error for consume requests from such older clients. This configuration" +
         "does not apply to any message format conversion that might be required for replication to followers.";
+
+    public static final String REMOTE_STORAGE_PROVIDER_CONFIG = "remote.storage.provider";
+    public static final String REMOTE_STORAGE_PROVIDER_HDFS = "hdfs";
+    public static final String REMOTE_STORAGE_PROVIDER_OCI = "oci";
+    public static final String REMOTE_STORAGE_PROVIDER_DOC = "The remote storage provider to use for the topic. " +
+            "The supported providers are 'hdfs' and 'oci'.";
 }

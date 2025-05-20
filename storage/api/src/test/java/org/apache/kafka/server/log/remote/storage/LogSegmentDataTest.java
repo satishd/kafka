@@ -38,7 +38,8 @@ public class LogSegmentDataTest {
                 new File(dir, "time-index").toPath(),
                 Optional.of(new File(dir, "transaction-index").toPath()),
                 new File(dir, "producer-snapshot").toPath(),
-                ByteBuffer.allocate(1)
+                ByteBuffer.allocate(1),
+                RemoteStorageProvider.HDFS
         );
         Assertions.assertTrue(logSegmentDataWithTransactionIndex.transactionIndex().isPresent());
 
@@ -48,7 +49,8 @@ public class LogSegmentDataTest {
                 new File(dir, "time-index").toPath(),
                 Optional.empty(),
                 new File(dir, "producer-snapshot").toPath(),
-                ByteBuffer.allocate(1)
+                ByteBuffer.allocate(1),
+                RemoteStorageProvider.HDFS
         );
         assertFalse(logSegmentDataWithNoTransactionIndex.transactionIndex().isPresent());
     }

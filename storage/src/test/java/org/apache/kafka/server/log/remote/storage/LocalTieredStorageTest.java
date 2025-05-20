@@ -642,7 +642,8 @@ public final class LocalTieredStorageTest {
 
                 baseOffset += data.length;
                 return new LogSegmentData(segment, offsetIdx, timeIdx, Optional.of(txnIdx),
-                        producerIdSnapshot, ByteBuffer.wrap(LEADER_EPOCH_CHECKPOINT_FILE_BYTES));
+                        producerIdSnapshot, ByteBuffer.wrap(LEADER_EPOCH_CHECKPOINT_FILE_BYTES),
+                        RemoteStorageProvider.HDFS);
             } catch (IOException e) {
                 throw new AssertionError(e);
             }

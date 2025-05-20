@@ -17,6 +17,7 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.kafka.test.TestUtils;
 
 import java.io.File;
@@ -78,6 +79,6 @@ public class TestLogSegmentUtils {
             Files.write(txnIndex, TestUtils.randomBytes(TXN_INDEX_FILE_SIZE));
         }
         return new LogSegmentData(segment, offsetIndex, timeIndex, Optional.ofNullable(txnIndex),
-                producerSnapshotIndex, leaderEpochIndex);
+                producerSnapshotIndex, leaderEpochIndex, RemoteStorageProvider.HDFS);
     }
 }
