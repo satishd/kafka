@@ -105,4 +105,13 @@ public class ClassLoaderAwareRemoteStorageManager implements RemoteStorageManage
         });
     }
 
+    @Override
+    public InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata, boolean enablePrefetch, int startPosition) throws RemoteStorageException {
+        return withClassLoader(() -> delegate.fetchLogSegment(remoteLogSegmentMetadata, enablePrefetch, startPosition));
+    }
+
+    @Override
+    public InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata, boolean enablePrefetch, int startPosition, int endPosition) throws RemoteStorageException {
+        return withClassLoader(() -> delegate.fetchLogSegment(remoteLogSegmentMetadata, enablePrefetch, startPosition, endPosition));
+    }
 }

@@ -160,4 +160,40 @@ public interface RemoteStorageManager extends Configurable, Closeable {
      */
     void deletePartition(TopicIdPartition partition) throws RemoteStorageException;
 
+    /**
+     * Returns the remote log segment data file/object as InputStream for the given {@link RemoteLogSegmentMetadata}
+     * starting from the given startPosition. The stream will end at the end of the remote log segment data file/object.
+     *
+     * @param remoteLogSegmentMetadata metadata about the remote log segment.
+     * @param enablePrefetch           prefetch the data
+     * @param startPosition            start position of log segment to be read, inclusive.
+     * @return input stream of the requested log segment data.
+     * @throws RemoteStorageException          if there are any errors while fetching the desired segment.
+     * @throws RemoteResourceNotFoundException the requested log segment is not found in the remote storage.
+     */
+    default InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
+                                        boolean enablePrefetch,
+                                        int startPosition) throws RemoteStorageException {
+        return fetchLogSegment(remoteLogSegmentMetadata, startPosition);
+    }
+
+    /**
+     * Returns the remote log segment data file/object as InputStream for the given {@link RemoteLogSegmentMetadata}
+     * starting from the given startPosition. The stream will end at the smaller of endPosition and the end of the
+     * remote log segment data file/object.
+     *
+     * @param remoteLogSegmentMetadata metadata about the remote log segment.
+     * @param enablePrefetch           prefetch the data
+     * @param startPosition            start position of log segment to be read, inclusive.
+     * @param endPosition              end position of log segment to be read, inclusive.
+     * @return input stream of the requested log segment data.
+     * @throws RemoteStorageException          if there are any errors while fetching the desired segment.
+     * @throws RemoteResourceNotFoundException the requested log segment is not found in the remote storage.
+     */
+    default InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
+                                        boolean enablePrefetch,
+                                        int startPosition,
+                                        int endPosition) throws RemoteStorageException {
+        return fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
+    }
 }

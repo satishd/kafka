@@ -217,14 +217,29 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
                                        int startPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, startPosition, Integer.MAX_VALUE);
+        return fetchSegmentData(metadata, true, startPosition, Integer.MAX_VALUE);
     }
 
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
                                        int startPosition,
                                        int endPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, startPosition, endPosition);
+        return fetchSegmentData(metadata, true, startPosition, endPosition);
+    }
+
+    @Override
+    public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
+                                       boolean enablePrefetch,
+                                       int startPosition) throws RemoteStorageException {
+        return fetchSegmentData(metadata, enablePrefetch, startPosition, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
+                                       boolean enablePrefetch,
+                                       int startPosition,
+                                       int endPosition) throws RemoteStorageException {
+        return fetchSegmentData(metadata, enablePrefetch, startPosition, endPosition);
     }
 
     @Override
@@ -373,10 +388,15 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private InputStream fetchSegmentData(RemoteLogSegmentMetadata metadata,
+                                         boolean enablePrefetch,
                                          int startPosition,
                                          int endPosition) throws RemoteStorageException {
         try {
-            return new CachedInputStream(metadata.remoteLogSegmentId(), startPosition, endPosition);
+            if (enablePrefetch) {
+                return new CachedInputStream(metadata.remoteLogSegmentId(), startPosition, endPosition);
+            } else {
+                return new SimpleInputStream(metadata.remoteLogSegmentId(), startPosition, endPosition);
+            }
         } catch (Exception e) {
             throw new RemoteStorageException(
                     String.format("Failed to fetch SEGMENT file from remote storage. Metadata: %s", metadata), e);
@@ -737,5 +757,177 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             return tp + "-" + segmentId.topicIdPartition().topicId() + "/" + segmentId.id();
         }
         return null;
+    }
+
+    private class SimpleInputStream extends InputStream {
+        private final RemoteLogSegmentId segmentId;
+        private final Path dataPath;
+        // Represents the length of the segment file that is readable
+        private final long readableSegmentLen;
+        // Datatype of `position` is kept as Long to avoid overflow error when the realFileLen is higher than 2 GB.
+        private long position;
+        private FSDataInputStream inputStream;
+
+        private ByteBufferWrapper bufferWrapper = byteBufferPool.acquire().retain();
+        private byte[] cache;
+        private int cacheIndex = 0;
+        private int cacheLimit = 0;
+        private boolean cacheLoaded = false;
+
+        /**
+         * Input Stream that caches the {@link HDFSRemoteStorageManager#cacheLineSize} amount of data on the first byte
+         * read. It serves the initial data from cached data and then reads from the underlying input stream.
+         * The first cache-line size of data gets cached so that the reader can skip the initial RecordBatch's and
+         * read the actual data. This is required due to the offset-index which is sparse and does not contain entry
+         * for all the offsets.
+         *
+         * @param segmentId  remote log segment id
+         * @param startPos   starting position to read from the stream, inclusive.
+         * @param endPos     to read upto the end position, inclusive.
+         * @throws IOException IO problems
+         */
+        SimpleInputStream(RemoteLogSegmentId segmentId,
+                          int startPos,
+                          int endPos) throws IOException {
+            this.segmentId = segmentId;
+            this.dataPath = new Path(getSegmentRemoteDir(segmentId));
+            try {
+                SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
+                openFileStream();
+                if (headerHolder == null) {
+                    headerHolder = fetchSegmentHeaderHolder();
+                    segmentHeaderHolderCache.put(segmentId, headerHolder);
+                }
+                LogSegmentDataHeader.DataPosition dataPosition = headerHolder.header().getDataPosition(SEGMENT);
+                // realFileLen is the length of both the LogSegmentDataHeader and the Segment file.
+                long realFileLen = headerHolder.fileLength();
+
+                long validSegmentLen = realFileLen - dataPosition.getPos();
+                if (endPos != Integer.MAX_VALUE) {
+                    // Note that the endPos is inclusive.
+                    validSegmentLen = Math.min(endPos + 1, validSegmentLen);
+                }
+                readableSegmentLen = Math.max(0, validSegmentLen - startPos);
+                inputStream.seek(dataPosition.getPos() + startPos);
+                LOGGER.info("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +
+                                "readableSegmentLen: {}, realFileLen: {}, cacheLineSize: {}",
+                        getString(segmentId), startPos, endPos, readableSegmentLen, realFileLen, cacheLineSize);
+            } catch (Exception e) {
+                if (inputStream != null) {
+                    Utils.closeAll(inputStream);
+                    inputStream = null;
+                    openInputStreamCount.decrementAndGet();
+                }
+                throw new IOException(String.format("Failed to open file stream for %s", getString(segmentId)), e);
+            }
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (position >= readableSegmentLen)
+                return -1;
+
+            // On first read, load cache
+            if (!cacheLoaded) {
+                loadCache();
+            }
+
+            // Serve from cache first
+            position++;
+            if (cacheIndex < cacheLimit) {
+                return cache[cacheIndex++] & 0xFF;
+            }
+
+            // Then fallback to source
+            return inputStream.read();
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (len > readableSegmentLen - position) {
+                len = (int) (readableSegmentLen - position);
+            }
+
+            if (len <= 0)
+                return -1;
+
+            if (!cacheLoaded) {
+                loadCache();
+            }
+
+            int bytesRead = 0;
+            // Read from cache if any left
+            while (cacheIndex < cacheLimit && len > 0) {
+                b[off++] = cache[cacheIndex++];
+                len--;
+                bytesRead++;
+            }
+
+            // If cache exhausted, read from underlying stream
+            if (len > 0) {
+                inputStream.readFully(b, off, len);
+                bytesRead += len;
+            }
+            position += bytesRead;
+            return bytesRead == 0 ? -1 : bytesRead;
+        }
+
+        @Override
+        public int available() {
+            long available = readableSegmentLen - position;
+            if (available > Integer.MAX_VALUE)
+                return Integer.MAX_VALUE;
+
+            return (int) available;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (inputStream != null) {
+                Utils.closeAll(inputStream);
+                inputStream = null;
+                openInputStreamCount.decrementAndGet();
+            }
+            if (bufferWrapper != null) {
+                bufferWrapper.release();
+                bufferWrapper = null;
+            }
+        }
+
+        private void loadCache() throws IOException {
+            cache = bufferWrapper.getByteBuffer().array();
+            cacheLimit = 0;
+            int total = 0;
+            int readLen = Math.min(cacheLineSize, (int) (readableSegmentLen - position));
+            while (total < readLen) {
+                inputStream.readFully(cache, 0, readLen);
+                total += readLen;
+            }
+            cacheLimit = total;
+            cacheLoaded = true;
+        }
+
+        private void openFileStream() throws IOException {
+            long currentTimeMs = time.milliseconds();
+            FileSystem fileSystem = getFS();
+            metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
+            openInputStreamCount.incrementAndGet();
+            LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+        }
+
+        private SegmentHeaderHolder fetchSegmentHeaderHolder() throws IOException {
+            // Sends a remote fetch to read the file header.
+            long currentTimeMs = time.milliseconds();
+            byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
+            metrics.timeSegmentHeaderRead(() -> inputStream.readFully(0, buffer));
+            LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
+
+            FileSystem fileSystem = getFS();
+            FileStatus[] fileStatusHolder = new FileStatus[1];
+            metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
+            long actualFileLength = fileStatusHolder[0].getLen();
+            LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            return new SegmentHeaderHolder(header, actualFileLength);
+        }
     }
 }

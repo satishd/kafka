@@ -166,6 +166,7 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -3719,7 +3720,7 @@ public class RemoteLogManagerTest {
         File segmentFile = tempFile();
         appendRecordsToFile(segmentFile, 100, 3);
         FileInputStream fileInputStream = new FileInputStream(segmentFile);
-        when(remoteStorageManager.fetchLogSegment(any(RemoteLogSegmentMetadata.class), anyInt()))
+        when(remoteStorageManager.fetchLogSegment(any(RemoteLogSegmentMetadata.class), anyBoolean(), anyInt()))
                 .thenReturn(fileInputStream);
 
         RemoteLogManager remoteLogManager = new RemoteLogManager(config.remoteLogManagerConfig(), brokerId, logDir, clusterId, time,

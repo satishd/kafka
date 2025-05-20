@@ -165,6 +165,8 @@ public class RemoteLogManager implements Closeable {
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteLogManager.class);
     private static final String REMOTE_LOG_READER_THREAD_NAME_PATTERN = "remote-log-reader-%d";
     private static final String REMOTE_LOG_OFFSET_READER_THREAD_NAME_PATTERN = "remote-log-offset-reader-%d";
+    // The size of remote-read chunk is chosen to be 4MB, to avoid old-gen GCs, and it aligns with the RSM plugin.
+    private static final Integer FOUR_MB_SIZE = 4194304;
     private final RemoteLogManagerConfig rlmConfig;
     private final int brokerId;
     private final String logDir;
@@ -1744,6 +1746,7 @@ public class RemoteLogManager implements Closeable {
 
         long offset = fetchInfo.fetchOffset;
         int maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes);
+        boolean enablePrefetch = maxBytes < FOUR_MB_SIZE;
 
         Optional<UnifiedLog> logOptional = fetchLog.apply(tp);
         OptionalInt epoch = OptionalInt.empty();
@@ -1777,7 +1780,7 @@ public class RemoteLogManager implements Closeable {
                 remoteLogSegmentMetadata = rlsMetadataOptional.get();
                 // Search forward for the position of the last offset that is greater than or equal to the target offset
                 startPos = lookupPositionForOffset(remoteLogSegmentMetadata, offset);
-                remoteSegInputStream = remoteLogStorageManager.fetchLogSegment(remoteLogSegmentMetadata, startPos);
+                remoteSegInputStream = remoteLogStorageManager.fetchLogSegment(remoteLogSegmentMetadata, enablePrefetch, startPos);
                 RemoteLogInputStream remoteLogInputStream = getRemoteLogInputStream(remoteSegInputStream);
                 enrichedRecordBatch = findFirstBatch(remoteLogInputStream, offset);
                 if (enrichedRecordBatch.batch == null) {

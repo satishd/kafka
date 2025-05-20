@@ -62,6 +62,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -218,6 +219,8 @@ public class HDFSRemoteStorageManagerTest {
     public void testFetchOnOptionalFile() throws Exception {
         Uuid uuid = Uuid.randomUuid();
         RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, false);
+        verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+        verifyGauge(FS_OPEN_INPUT_STREAM, 0);
         try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET)) {
             verifyGauge(FS_OPEN_INPUT_STREAM, 1);
             assertNotEquals(0, stream.available());
@@ -242,13 +245,13 @@ public class HDFSRemoteStorageManagerTest {
 
         // start and end position are both inclusive in RSM
         // full fetch segment
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, 999, 1000);
+        verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 0, 999, 1000);
         // fetch intermediate segment
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 100, 199, 100);
+        verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 100, 199, 100);
         // fetch till the end of the segment
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 990, 999, 10);
+        verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, 999, 10);
         // fetch exceeds the segment size
-        verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 990, 1050, 10);
+        verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, 1050, 10);
     }
     
     @Test
@@ -469,7 +472,7 @@ public class HDFSRemoteStorageManagerTest {
                     0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
             LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
             rsm.copyLogSegmentData(segmentMetadata, segmentData);
-            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
+            verifyFetchLogSegmentDefaultPrefetch(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
 
             // Verify the metrics
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 1L);
@@ -550,6 +553,38 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
+    /**
+     * The test asserts that the SimpleInputStream impl is able to read the data from the stream beyond the
+     * cacheLineSize or hdfs.remote.read.bytes.
+     */
+    @Test
+    public void testFetchLogSegmentWithSegmentSizeExceedCacheLineSize() throws Exception {
+        rsm.close();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, String.valueOf(ONE_MB));
+            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+            clearKafkaMetrics();
+
+            Uuid uuid = Uuid.randomUuid();
+            int segSize = 2 * ONE_MB;
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id, 0L, 100L, 0L, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+
+            // start and end position are both inclusive in RSM
+            // full fetch segment
+            verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 0, 999, 1000);
+            // fetch intermediate segment
+            verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 100, 199, 100);
+            // fetch till the end of the segment
+            verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, segSize, 2096162);
+            // fetch exceeds the segment size
+            verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, segSize + 10, 2096162);
+        }
+    }
+
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
         Uuid segmentId = Uuid.fromString("pQpAc9OvTGaxywm8JnN9IQ");
         Uuid topicId = Uuid.fromString("hHJfD_slRkGCrDPSvJsMtA");
@@ -623,11 +658,11 @@ public class HDFSRemoteStorageManagerTest {
 
             assertEquals(0, cache.getCacheHit());
             assertEquals(0, rsm.segmentFileReadOpenCounter());
-            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
+            verifyFetchLogSegmentDefaultPrefetch(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
             assertEquals(0, cache.getCacheHit());
 
             // read from cache
-            verifyFetchLogSegment(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
+            verifyFetchLogSegmentDefaultPrefetch(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, segSize);
             assertEquals(expectedCacheHit, cache.getCacheHit());
             assertEquals(expectedSegmentReadFileOpenCalls, rsm.segmentFileReadOpenCounter());
 
@@ -658,22 +693,44 @@ public class HDFSRemoteStorageManagerTest {
             .map(Map.Entry::getValue);
     }
 
+    private void verifyFetchLogSegmentDefaultPrefetch(RemoteStorageManager rsm,
+                                                      RemoteLogSegmentMetadata metadata,
+                                                      LogSegmentData segmentData,
+                                                      int startPosition,
+                                                      int endPosition,
+                                                      int size) throws Exception {
+        verifyFetchLogSegmentInternal(rsm, metadata, segmentData, true, startPosition, endPosition, size);
+    }
+
+    private void verifyFetchLogSegmentWithPrefetchVariants(RemoteStorageManager rsm,
+                                                           RemoteLogSegmentMetadata metadata,
+                                                           LogSegmentData segmentData,
+                                                           int startPosition,
+                                                           int endPosition,
+                                                           int size) throws Exception {
+        for (boolean enablePrefetch : Arrays.asList(true, false)) {
+            verifyFetchLogSegmentInternal(rsm, metadata, segmentData, enablePrefetch, startPosition, endPosition, size);
+        }
+    }
+
     /**
      * Verifies the log segment fetch.
      * @param rsm           remote storage manager
      * @param metadata      metadata about the remote log segment.
      * @param segmentData   segment data.
+     * @param enablePrefetch enable cache prefetch
      * @param startPosition start position to fetch from the segment, inclusive
      * @param endPosition   Fetch data till the end position, inclusive
      * @throws Exception I/O Error, file not found exception.
      */
-    private void verifyFetchLogSegment(RemoteStorageManager rsm,
-                                       RemoteLogSegmentMetadata metadata,
-                                       LogSegmentData segmentData,
-                                       int startPosition,
-                                       int endPosition,
-                                       int size) throws Exception {
-        try (InputStream stream = rsm.fetchLogSegment(metadata, startPosition, endPosition)) {
+    private void verifyFetchLogSegmentInternal(RemoteStorageManager rsm,
+                                               RemoteLogSegmentMetadata metadata,
+                                               LogSegmentData segmentData,
+                                               boolean enablePrefetch,
+                                               int startPosition,
+                                               int endPosition,
+                                               int size) throws Exception {
+        try (InputStream stream = rsm.fetchLogSegment(metadata, enablePrefetch, startPosition, endPosition)) {
             ByteBuffer buffer = ByteBuffer.wrap(new byte[size]);
             SeekableByteChannel byteChannel = Files.newByteChannel(segmentData.logSegment());
             byteChannel.position(startPosition);
@@ -769,8 +826,11 @@ public class HDFSRemoteStorageManagerTest {
                 assertFileEquals(segmentData.producerSnapshotIndex().toFile(), actualStream);
             }
         }
-        try (InputStream actualStream = rsm.fetchLogSegment(metadata, 0)) {
-            assertFileEquals(segmentData.logSegment().toFile(), actualStream);
+        // Fetch the segment with and without LRU cache.
+        for (boolean enablePrefetch : Arrays.asList(true, false)) {
+            try (InputStream actualStream = rsm.fetchLogSegment(metadata, enablePrefetch, 0)) {
+                assertFileEquals(segmentData.logSegment().toFile(), actualStream);
+            }
         }
     }
 
