@@ -102,7 +102,8 @@ class DelayedRemoteFetch(remoteFetchTask: Future[Void],
         && result.error == Errors.NONE
         && result.info.delayedRemoteStorageFetch.isPresent) {
         if (remoteFetchResult.get.error.isPresent) {
-          tp -> ReplicaManager.createLogReadResult(remoteFetchResult.get.error.get).toFetchPartitionData(false)
+          tp -> ReplicaManager.createLogReadResult(remoteFetchResult.get.error.get)
+            .toFetchPartitionData(isReassignmentFetch = false, isRemoteFetch = true)
         } else {
           val info = remoteFetchResult.get.fetchDataInfo.get
           tp -> new FetchPartitionData(
@@ -114,7 +115,8 @@ class DelayedRemoteFetch(remoteFetchTask: Future[Void],
             if (result.lastStableOffset.isDefined) OptionalLong.of(result.lastStableOffset.get) else OptionalLong.empty(),
             info.abortedTransactions,
             if (result.preferredReadReplica.isDefined) OptionalInt.of(result.preferredReadReplica.get) else OptionalInt.empty(),
-            false)
+            false,
+            true)
         }
       } else {
         tp -> result.toFetchPartitionData(false)

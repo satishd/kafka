@@ -922,11 +922,13 @@ class KafkaApis(val requestChannel: RequestChannel,
     def processResponseCallback(responsePartitionData: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
       val partitions = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
       val reassigningPartitions = mutable.Set[TopicIdPartition]()
+      val remoteFetchPartitions = mutable.Set[TopicIdPartition]()
       val nodeEndpoints = new mutable.HashMap[Int, Node]
       responsePartitionData.foreach { case (tp, data) =>
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
+        if (data.isRemoteFetch) remoteFetchPartitions.add(tp)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
           .setErrorCode(maybeDownConvertStorageError(data.error).code)
@@ -989,6 +991,17 @@ class KafkaApis(val requestChannel: RequestChannel,
                   versionId,
                   tp.topic,
                   recordsSize)
+                if (remoteFetchPartitions.contains(tp)) {
+                  clientIoTracer.recordByteRate(
+                    ClientIoType.RemoteFetch,
+                    sanitizedUser,
+                    clientId,
+                    versionId,
+                    tp.topic,
+                    recordsSize)
+                  // Note that RemoteFetch triggers for only one partition in the FETCH request
+                  clientIoTracer.recordRequestRate(ClientIoType.RemoteFetch, sanitizedUser, clientId, versionId, tp.topic())
+                }
               }
             }
           }

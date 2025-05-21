@@ -23,7 +23,7 @@ import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests.FetchRequest
 import org.apache.kafka.common.{TopicIdPartition, Uuid}
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
-import org.apache.kafka.storage.internals.log._
+import org.apache.kafka.storage.internals.log.{RemoteLogReadResult, _}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.{mock, verify, when}
@@ -58,12 +58,14 @@ class DelayedRemoteFetchTest {
       fetchResultOpt = Some(responses.head._2)
     }
 
+    val result = new RemoteLogReadResult(Optional.of(
+      new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA, MemoryRecords.EMPTY)), Optional.empty())
     val future: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
-    future.complete(null)
+    future.complete(result)
     val fetchInfo: RemoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, topicIdPartition.topicPartition(), null, null, false)
     val highWatermark = 100
     val leaderLogStartOffset = 10
-    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset)
+    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset, fetchInfo)
 
     val delayedRemoteFetch = new DelayedRemoteFetch(null, future, fetchInfo, remoteFetchMaxWaitMs,
       Seq(topicIdPartition -> fetchStatus), fetchParams, Seq(topicIdPartition -> logReadInfo), replicaManager, callback)
@@ -81,6 +83,7 @@ class DelayedRemoteFetchTest {
     assertEquals(Errors.NONE, fetchResult.error)
     assertEquals(highWatermark, fetchResult.highWatermark)
     assertEquals(leaderLogStartOffset, fetchResult.logStartOffset)
+    assertTrue(fetchResult.isRemoteFetch)
   }
 
   @Test
@@ -99,7 +102,7 @@ class DelayedRemoteFetchTest {
     val fetchInfo: RemoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, topicIdPartition.topicPartition(), null, null, false)
     val highWatermark = 100
     val leaderLogStartOffset = 10
-    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset)
+    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset, fetchInfo)
     val fetchParams = buildFetchParams(replicaId = 1, maxWaitMs = 500)
     assertThrows(classOf[IllegalStateException], () => new DelayedRemoteFetch(null, future, fetchInfo, remoteFetchMaxWaitMs,
       Seq(topicIdPartition -> fetchStatus), fetchParams, Seq(topicIdPartition -> logReadInfo), replicaManager, callback))
@@ -123,7 +126,7 @@ class DelayedRemoteFetchTest {
     val future: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
     val fetchInfo: RemoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, topicIdPartition.topicPartition(), null, null, false)
 
-    val logReadInfo = buildReadResult(Errors.NONE)
+    val logReadInfo = buildReadResult(Errors.NONE, remoteStorageFetchInfo = fetchInfo)
 
     val delayedRemoteFetch = new DelayedRemoteFetch(null, future, fetchInfo, remoteFetchMaxWaitMs,
       Seq(topicIdPartition -> fetchStatus), fetchParams, Seq(topicIdPartition -> logReadInfo), replicaManager, callback)
@@ -133,6 +136,7 @@ class DelayedRemoteFetchTest {
     assertTrue(delayedRemoteFetch.isCompleted)
     assertEquals(topicIdPartition, actualTopicPartition.get)
     assertTrue(fetchResultOpt.isDefined)
+    assertFalse(fetchResultOpt.get.isRemoteFetch)
   }
 
   @Test
@@ -154,7 +158,7 @@ class DelayedRemoteFetchTest {
     val fetchInfo: RemoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, topicIdPartition.topicPartition(), null, null, false)
 
     // build a read result with error
-    val logReadInfo = buildReadResult(Errors.FENCED_LEADER_EPOCH)
+    val logReadInfo = buildReadResult(Errors.FENCED_LEADER_EPOCH, remoteStorageFetchInfo = fetchInfo)
 
     val delayedRemoteFetch = new DelayedRemoteFetch(null, future, fetchInfo, remoteFetchMaxWaitMs,
       Seq(topicIdPartition -> fetchStatus), fetchParams, Seq(topicIdPartition -> logReadInfo), replicaManager, callback)
@@ -164,6 +168,7 @@ class DelayedRemoteFetchTest {
     assertEquals(topicIdPartition, actualTopicPartition.get)
     assertTrue(fetchResultOpt.isDefined)
     assertEquals(Errors.FENCED_LEADER_EPOCH, fetchResultOpt.get.error)
+    assertFalse(fetchResultOpt.get.isRemoteFetch)
   }
 
   @Test
@@ -183,7 +188,7 @@ class DelayedRemoteFetchTest {
     val remoteFetchTask = mock(classOf[Future[Void]])
     val future: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
     val fetchInfo: RemoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, topicIdPartition.topicPartition(), null, null, false)
-    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset)
+    val logReadInfo = buildReadResult(Errors.NONE, highWatermark, leaderLogStartOffset, remoteStorageFetchInfo = fetchInfo)
 
     val delayedRemoteFetch = new DelayedRemoteFetch(remoteFetchTask, future, fetchInfo, remoteFetchMaxWaitMs,
       Seq(topicIdPartition -> fetchStatus), fetchParams, Seq(topicIdPartition -> logReadInfo), replicaManager, callback)
@@ -214,6 +219,7 @@ class DelayedRemoteFetchTest {
     assertEquals(Errors.NONE, fetchResult.error)
     assertEquals(highWatermark, fetchResult.highWatermark)
     assertEquals(leaderLogStartOffset, fetchResult.logStartOffset)
+    assertFalse(fetchResult.isRemoteFetch)
   }
 
   private def buildFetchParams(replicaId: Int,
@@ -232,10 +238,19 @@ class DelayedRemoteFetchTest {
 
   private def buildReadResult(error: Errors,
                               highWatermark: Int = 0,
-                              leaderLogStartOffset: Int = 0): LogReadResult = {
+                              leaderLogStartOffset: Int = 0,
+                              remoteStorageFetchInfo: RemoteStorageFetchInfo): LogReadResult = {
+    val fetchDataInfo = new FetchDataInfo(
+      LogOffsetMetadata.UNKNOWN_OFFSET_METADATA,
+      MemoryRecords.EMPTY,
+      false,
+      Optional.empty(),
+      Optional.of(remoteStorageFetchInfo),
+    )
+
     LogReadResult(
       exception = if (error != Errors.NONE) Some(error.exception) else None,
-      info = new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA, MemoryRecords.EMPTY),
+      info = fetchDataInfo,
       divergingEpoch = None,
       highWatermark = highWatermark,
       leaderLogStartOffset = leaderLogStartOffset,

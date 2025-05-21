@@ -137,7 +137,8 @@ case class LogReadResult(info: FetchDataInfo,
     case Some(e) => Errors.forException(e)
   }
 
-  def toFetchPartitionData(isReassignmentFetch: Boolean): FetchPartitionData = new FetchPartitionData(
+  def toFetchPartitionData(isReassignmentFetch: Boolean,
+                           isRemoteFetch: Boolean = false): FetchPartitionData = new FetchPartitionData(
     this.error,
     this.highWatermark,
     this.leaderLogStartOffset,
@@ -146,7 +147,8 @@ case class LogReadResult(info: FetchDataInfo,
     if (this.lastStableOffset.isDefined) OptionalLong.of(this.lastStableOffset.get) else OptionalLong.empty(),
     this.info.abortedTransactions,
     if (this.preferredReadReplica.isDefined) OptionalInt.of(this.preferredReadReplica.get) else OptionalInt.empty(),
-    isReassignmentFetch)
+    isReassignmentFetch,
+    isRemoteFetch)
 
   override def toString: String = {
     "LogReadResult(" +

@@ -30,6 +30,7 @@ import org.apache.kafka.common.metrics.{Metrics, Sensor}
 object ClientIoType {
   case object Fetch extends ClientIoType
   case object Produce extends ClientIoType
+  case object RemoteFetch extends ClientIoType
 }
 
 sealed trait ClientIoType
