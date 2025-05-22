@@ -2153,7 +2153,15 @@ project(':remote-storage-managers:hdfs') {
   dependencies {
     implementation project(':server-common')
     implementation project(':storage:storage-api')
-    implementation libs.hadoopClient
+
+    implementation libs.hadoopHdfsClient
+    implementation libs.hadoopCommon
+    implementation libs.hadoopCfsShaded
+    implementation libs.ociHdfsFull
+    implementation libs.brokerHadoopConnector
+    implementation libs.bcprov
+    implementation libs.bcpkix
+
     implementation(libs.caffeine) {
       exclude group: 'org.checkerframework', module: 'checker-qual'
     }

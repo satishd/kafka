@@ -166,7 +166,8 @@ versions += [
   junitPlatform: "1.10.2",
   // TODO: Update the version to latest production version after its release (JIRA: DKAFC-5718)
   kafkasecurity: "2.0.10",
-  hadoop: '2.8.2.18b2c1e428284d81'
+  hadoop: '2.8.2.dual-write-v18',
+  brokerHadoopConnector: '0.10.8-176',
 ]
 
 libs += [
@@ -268,6 +269,11 @@ libs += [
   zstd: "com.github.luben:zstd-jni:$versions.zstd",
   httpclient: "org.apache.httpcomponents:httpclient:$versions.httpclient",
   kafkasecurity: "com.uber.kafka:kafkasecurity-core-shaded:$versions.kafkasecurity",
-  hadoopClient: "org.apache.hadoop:hadoop-client:$versions.hadoop",
-  hadoopMiniCluster: "org.apache.hadoop:hadoop-minicluster:$versions.hadoop"
+  hadoopMiniCluster: "org.apache.hadoop:hadoop-minicluster:$versions.hadoop",
+  hadoopHdfsClient: "org.apache.hadoop:hadoop-hdfs-client:$versions.hadoop",
+  hadoopCommon: "org.apache.hadoop:hadoop-common:$versions.hadoop",
+  hadoopCfsShaded: "org.apache.hadoop:hadoop-cfs-shaded:$versions.hadoop",
+  ociHdfsFull: "com.oracle.oci.sdk:oci-hdfs-full:$versions.hadoop",
+  brokerHadoopConnector: "com.google.cloud.broker:broker-hadoop-connector:$versions.brokerHadoopConnector:hadoop2-full",
+  bcprov: "org.bouncycastle:bcprov-jdk18on:$versions.bcpkix",
 ]

@@ -65,7 +65,9 @@ if cat /etc/kafka/server.properties | grep -E "^remote.log.storage.system.enable
 fi
 
 if cat /etc/kafka/server.properties | grep -e "^remote.log.storage.system.enable=true"; then
-  /opt/uber-data-hdfs-conf/scripts/setup.sh --region ${UBER_REGION} --conf ${HADOOP_CONF_DIR}
+  /opt/uber-data-hdfs-conf/scripts/setup.sh --region ${UBER_REGION} --conf ${HADOOP_CONF_DIR} --skystream true --runtime staging
+  # override the core-site.xml file after generation
+  cp /tmp/dsc/KAFKA/kafka/*/core-site.xml ${HADOOP_CONF_DIR}/core-site.xml || true
 fi
 
 if cat /etc/kafka/server.properties | grep -e "^zookeeper.set.acl=true"; then
