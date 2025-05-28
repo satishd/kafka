@@ -213,7 +213,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             if (ociBuckets.isEmpty()) {
                 throw new IllegalArgumentException("No OCI buckets are configured for writing");
             }
-            int idx = Math.abs(segmentId.id().hashCode() % ociBuckets.size());
+            int idx = Math.abs(segmentId.topicIdPartition().hashCode() % ociBuckets.size());
             return ociBuckets.get(idx);
         } else {
             throw new IllegalArgumentException("Unknown remote storage provider: " + provider);

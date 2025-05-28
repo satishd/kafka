@@ -570,12 +570,21 @@ public class HDFSRemoteStorageManagerTest {
             // once for the default filesystem and 3 times for the OCI buckets
             assertEquals(4, instanceCount.get());
 
-            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.fromString("k5X5v70mQcWQ34-gnNDJhA"));
-            RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(tp, Uuid.fromString("_Npw8WQWQ--x5cu-0zz9aA"));
-            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, segmentId));
-            assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, segmentId1));
-            // verify that the same bucket is returned for the same segmentId
-            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, segmentId));
+            Uuid topicId = Uuid.fromString("p9egHc6hSBGpCXzSk59d7g");
+            String topic = "topicA";
+            TopicIdPartition p0tpId = new TopicIdPartition(topicId, new TopicPartition(topic, 0));
+            RemoteLogSegmentId p0SegId0 = new RemoteLogSegmentId(p0tpId, Uuid.fromString("k5X5v70mQcWQ34-gnNDJhA"));
+            RemoteLogSegmentId p0SegId1 = new RemoteLogSegmentId(p0tpId, Uuid.fromString("cxXowFkJSWysCDlVs8WFfQ"));
+            TopicIdPartition p1tpId = new TopicIdPartition(topicId, new TopicPartition(topic, 1));
+            RemoteLogSegmentId p1SegId0 = new RemoteLogSegmentId(p1tpId, Uuid.fromString("zq3EhJvvRfamDtjXm1UGmw"));
+            RemoteLogSegmentId p1SegId1 = new RemoteLogSegmentId(p1tpId, Uuid.fromString("R0KHXc26RFSZYLMczT0VFA"));
+
+            // verify that the same bucket is returned for the same partition
+            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, p0SegId0));
+            assertEquals(ociBucket1, rsm.findBucket(RemoteStorageProvider.OCI, p0SegId1));
+
+            assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, p1SegId0));
+            assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, p1SegId1));
         }
     }
 
