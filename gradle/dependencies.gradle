@@ -164,9 +164,8 @@ versions += [
   // Also make sure the compression levels in org.apache.kafka.common.record.CompressionType are still valid
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
-  // TODO: Update the version to latest production version after its release (JIRA: DKAFC-5718)
   kafkasecurity: "2.0.11",
-  hadoop: '2.8.2.dual-write-v18',
+  hadoop: '2.8.2.57',
   brokerHadoopConnector: '0.10.8-176',
 ]
 
@@ -275,5 +274,4 @@ libs += [
   hadoopCfsShaded: "org.apache.hadoop:hadoop-cfs-shaded:$versions.hadoop",
   ociHdfsFull: "com.oracle.oci.sdk:oci-hdfs-full:$versions.hadoop",
   brokerHadoopConnector: "com.google.cloud.broker:broker-hadoop-connector:$versions.brokerHadoopConnector:hadoop2-full",
-  bcprov: "org.bouncycastle:bcprov-jdk18on:$versions.bcpkix",
 ]

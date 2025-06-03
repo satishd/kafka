@@ -2159,7 +2159,7 @@ project(':remote-storage-managers:hdfs') {
     implementation libs.hadoopCfsShaded
     implementation libs.ociHdfsFull
     implementation libs.brokerHadoopConnector
-    implementation libs.bcprov
+    // bcprov is a compile-time dependency of bcpkix, so it gets included in the distribution.
     implementation libs.bcpkix
 
     implementation(libs.caffeine) {
