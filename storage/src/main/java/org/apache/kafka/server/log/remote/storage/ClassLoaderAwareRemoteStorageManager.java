@@ -17,6 +17,7 @@
 package org.apache.kafka.server.log.remote.storage;
 
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 import org.apache.kafka.storage.internals.log.StorageAction;
 
@@ -24,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A wrapper class of {@link RemoteStorageManager} that sets the context class loader when calling the respective
@@ -47,6 +49,27 @@ public class ClassLoaderAwareRemoteStorageManager implements RemoteStorageManage
     public void configure(Map<String, ?> configs) {
         withClassLoader(() -> {
             delegate.configure(configs);
+            return null;
+        });
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        return withClassLoader(delegate::reconfigurableConfigs);
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        withClassLoader(() -> {
+            delegate.validateReconfiguration(configs);
+            return null;
+        });
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+        withClassLoader(() -> {
+            delegate.reconfigure(configs);
             return null;
         });
     }

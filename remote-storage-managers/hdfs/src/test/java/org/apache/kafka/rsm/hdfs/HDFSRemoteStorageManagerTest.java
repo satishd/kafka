@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.ByteBufferOutputStream;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
@@ -46,7 +47,9 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
+import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,11 +76,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
@@ -85,12 +94,24 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS_WIN;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_POOL_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_REJECTION_COUNT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
@@ -136,7 +157,7 @@ public class HDFSRemoteStorageManagerTest {
         configs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
 
         rsm = new HDFSRemoteStorageManager();
-        rsm.setHadoopConfiguration(hadoopConf);
+        rsm.setDefaultHadoopConfiguration(hadoopConf);
         rsm.configure(configs);
         hdfs = rsm.getFS(defaultFsUri);
         baseDir = rsm.baseDir();
@@ -186,7 +207,7 @@ public class HDFSRemoteStorageManagerTest {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Configuration configuration = new Configuration();
             configuration.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-            rsm.setHadoopConfiguration(configuration);
+            rsm.setDefaultHadoopConfiguration(configuration);
             assertThrows(RuntimeException.class, () -> rsm.configure(secureConfigs),
                     "Unable to login as user: " + user);
         } finally {
@@ -321,7 +342,7 @@ public class HDFSRemoteStorageManagerTest {
         LRUCacheWithContext cache = new LRUCacheWithContext(2097152);
         configs.put(HDFS_REMOTE_READ_BYTES_PROP, "1048576");
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
             rsm.setLRUCache(cache);
             // Clear previously registered metrics during object creation
@@ -389,7 +410,7 @@ public class HDFSRemoteStorageManagerTest {
         LRUCacheWithContext cache = new LRUCacheWithContext(2097152);
         configs.put(HDFS_REMOTE_READ_BYTES_PROP, "1048576");
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
             rsm.setLRUCache(cache);
             // Clear previously registered metrics during object creation
@@ -447,9 +468,156 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     @Test
+    public void testSetHedgedReadsConfiguration() {
+        Map<String, String> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
+        HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
+
+        Configuration config = new Configuration();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setHedgedReadsConfiguration(config, remoteStorageManagerConfig);
+
+            assertEquals("true", config.get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("200", config.get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            assertEquals("1", config.get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
+            assertEquals("100", config.get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
+            assertEquals("60", config.get(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY));
+            assertEquals("true", config.get(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY));
+        }
+    }
+
+    @Test
+    public void testGetFileSystemWithHedgedReads() throws IOException {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify hedged reads is disabled by default
+            assertNull(rsm.getFS(defaultFsUri).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+
+            // Verify the configuration of the returned FileSystem when hedged reads is enabled
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+
+            // Verify the configuration of returned FileSystem when hedged reads is disabled
+            assertNull(rsm.getFS(defaultFsUri, false).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        }
+    }
+
+    @Test
+    public void testUpdateHedgedReadsThreshold() throws IOException {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify hedged reads is enabled in the FileSystem configuration
+            FileSystem originalFS = rsm.getFS(defaultFsUri, true);
+            assertEquals("true", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("200", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+
+            // Without updates, the returned FileSystem should be the same as the original one
+            FileSystem fsPreUpdate = rsm.getFS(defaultFsUri, true);
+            assertEquals("true", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("200", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            assertSame(originalFS, fsPreUpdate);
+
+            // Update the hedged reads threshold and verify the returned FileSystem has the updated configuration
+            rsm.setHedgedReadThresholdMillis(100);
+            rsm.handleDynamicHedgedReadsConfigUpdates();
+            FileSystem fsPostUpdate = rsm.getFS(defaultFsUri, true);
+            assertEquals("true", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("100", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            assertNotSame(originalFS, fsPostUpdate);
+
+            // Verify updates to the configuration does not affect the returned FileSystem when hedged reads is disabled
+            rsm.setHedgedReadThresholdMillis(500);
+            rsm.handleDynamicHedgedReadsConfigUpdates();
+            assertNull(rsm.getFS(defaultFsUri, false).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+
+            // Verify the previous update takes affect for the filesystem with hedged reads enabled
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("500", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+        }
+    }
+
+    @Test
+    public void testUpdateReadThreadPoolCoreSize() throws IOException {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify the read thread pool core size before the update
+            assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE,
+                    ((DistributedFileSystem) rsm.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolSize());
+
+            // Update the read thread pool core size and verify the returned FileSystem has the updated configuration
+            int newCoreSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE + 1;
+            rsm.setReadThreadPoolCoreSize(newCoreSize);
+            rsm.handleDynamicHedgedReadsConfigUpdates();
+            assertEquals(newCoreSize, ((DistributedFileSystem) rsm.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolSize());
+        }
+    }
+
+    @Test
+    public void testUpdateReadThreadPoolMaxSize() throws IOException {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify the read thread pool max size before the update
+            assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE,
+                    ((DistributedFileSystem) rsm.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolMaxSize());
+
+            // Update the read thread pool max size and verify the returned FileSystem has the updated configuration
+            int newMaxSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE + 1;
+            rsm.setReadThreadPoolMaxSize(newMaxSize);
+            rsm.handleDynamicHedgedReadsConfigUpdates();
+            assertEquals(newMaxSize, ((DistributedFileSystem) rsm.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolMaxSize());
+        }
+    }
+
+    @Test
+    public void testHedgedReadsMetrics() throws Exception {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+            clearKafkaMetrics();
+            rsm.registerHedgedReadMetrics();
+
+            // Verify initial values
+            verifyGauge(HEDGED_READ_OPS, 0L);
+            verifyGauge(HEDGED_READ_OPS_WIN, 0L);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE, 0);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_REJECTION_COUNT, 0L);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT, 0.0);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE, 1);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE, 100);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_POOL_SIZE, 0);
+
+            // Copy one segment and fetch it via Remote Storage Manager
+            Uuid uuid = Uuid.randomUuid();
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
+                    0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+            verifyFetchLogSegmentDefaultPrefetchAndHedgedReads(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
+
+            // Verify the metrics
+            verifyGauge(HEDGED_READ_OPS, 0L);
+            verifyGauge(HEDGED_READ_OPS_WIN, 0L);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE, 0);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_REJECTION_COUNT, 0L);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT, 100.0);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE, 1);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE, 100);
+            verifyGauge(READ_THREADPOOL_EXECUTOR_POOL_SIZE, 1);
+        }
+    }
+
+    @Test
     public void testHDFSCallMetrics() throws Exception {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
             clearKafkaMetrics();
             rsm.registerHDFSReadMetrics();
@@ -475,7 +643,7 @@ public class HDFSRemoteStorageManagerTest {
                     0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
             LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
             rsm.copyLogSegmentData(segmentMetadata, segmentData);
-            verifyFetchLogSegmentDefaultPrefetch(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
+            verifyFetchLogSegmentDefaultPrefetchAndHedgedReads(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
 
             // Verify the metrics
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 1L);
@@ -486,6 +654,136 @@ public class HDFSRemoteStorageManagerTest {
             verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
             verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+        }
+    }
+
+    @Test
+    public void testReconfigurables() {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
+
+            assertEquals(3, reconfigurableConfigs.size());
+            assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
+        }
+    }
+
+    @Test
+    public void testVerifyConfigUpdateHedgedReadThreshold() throws Exception {
+        String hedgedReadThresholdMillis = HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify the initial configuration
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            // Verify that the property is reconfigurable
+            assertTrue(rsm.reconfigurableConfigs().contains(hedgedReadThresholdMillis));
+
+            Map<String, String> newConfigs = new HashMap<>();
+            newConfigs.put(hedgedReadThresholdMillis, "50");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(hedgedReadThresholdMillis, "500");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(hedgedReadThresholdMillis, "100");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(hedgedReadThresholdMillis, "400");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+        }
+    }
+
+    @Test
+    public void testVerifyConfigUpdateReadThreadPoolCoreSize() throws Exception {
+        String readThreadpoolCoreSize = HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            // Set initial core size as 5
+            configs.put(readThreadpoolCoreSize, "5");
+            rsm.configure(configs);
+
+            // Verify the initial configuration
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("5", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
+            // Verify that the property is reconfigurable
+            assertTrue(rsm.reconfigurableConfigs().contains(readThreadpoolCoreSize));
+
+            Map<String, String> newConfigs = new HashMap<>();
+            newConfigs.put(readThreadpoolCoreSize, "20");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolCoreSize, "1");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolCoreSize, "10");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolCoreSize, "3");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+        }
+    }
+
+    @Test
+    public void testVerifyConfigUpdateReadThreadPoolMaxSize() throws Exception {
+        String readThreadpoolMaxSize = HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            // Set initial max size as 50
+            configs.put(readThreadpoolMaxSize, "50");
+            rsm.configure(configs);
+
+            // Verify the initial configuration
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("50", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
+            // Verify that the property is reconfigurable
+            assertTrue(rsm.reconfigurableConfigs().contains(readThreadpoolMaxSize));
+
+            Map<String, String> newConfigs = new HashMap<>();
+            newConfigs.put(readThreadpoolMaxSize, "20");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolMaxSize, "150");
+            assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolMaxSize, "25");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+
+            newConfigs.put(readThreadpoolMaxSize, "100");
+            assertDoesNotThrow(() -> rsm.validateReconfiguration(newConfigs));
+        }
+    }
+
+    @Test
+    public void testReconfigure() throws Exception {
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Verify the initial configuration
+            assertEquals("true", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+            assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            assertEquals("1", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
+            assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
+
+            // Reconfigure with new threshold
+            Map<String, String> configs = new HashMap<>();
+            configs.put(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, "100");
+            configs.put(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, "5");
+            configs.put(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, "200");
+
+            // Verify that all the configs are reconfigurable
+            configs.keySet().forEach(key -> assertTrue(rsm.reconfigurableConfigs().contains(key)));
+
+            // Reconfigure and verify the new configurations
+            rsm.reconfigure(configs);
+            rsm.handleDynamicHedgedReadsConfigUpdates();
+            assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+            assertEquals("5", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
+            assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
         }
     }
 
@@ -522,7 +820,7 @@ public class HDFSRemoteStorageManagerTest {
         rsm.close();
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             configs.put(HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP, String.valueOf(ONE_MB));
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
             clearKafkaMetrics();
 
@@ -563,13 +861,13 @@ public class HDFSRemoteStorageManagerTest {
                         instanceCount.incrementAndGet();
                         return hdfs;
                     });
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
 
             assertEquals(allBuckets, rsm.ociBuckets());
-            // verify that the FileSystem instance is called 4 times
-            // once for the default filesystem and 3 times for the OCI buckets
-            assertEquals(4, instanceCount.get());
+            // verify that the FileSystem instance is called 5 times
+            // once for the default filesystem, once for the hedged reads enabled filesystem and 3 times for the OCI buckets
+            assertEquals(5, instanceCount.get());
 
             Uuid topicId = Uuid.fromString("p9egHc6hSBGpCXzSk59d7g");
             String topic = "topicA";
@@ -594,7 +892,7 @@ public class HDFSRemoteStorageManagerTest {
     public void testConfigureInvalidOciBuckets(String ociBuckets) {
         configs.put(HDFS_OCI_BUCKETS_PROP, ociBuckets);
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             assertThrows(IllegalArgumentException.class, () -> rsm.configure(configs));
         }
     }
@@ -604,7 +902,7 @@ public class HDFSRemoteStorageManagerTest {
     public void testConfigureInvalidHdfsBuckets(String hdfsBuckets) {
         configs.put(HDFS_DEFAULT_FS_URI_PROP, hdfsBuckets);
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             assertThrows(IllegalArgumentException.class, () -> rsm.configure(configs));
         }
     }
@@ -665,7 +963,7 @@ public class HDFSRemoteStorageManagerTest {
                                         int expectedSegmentReadFileOpenCalls) throws Exception {
         configs.put(HDFS_REMOTE_READ_BYTES_PROP, cacheLineSizeInBytes);
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setHadoopConfiguration(hadoopConf);
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
             rsm.setLRUCache(cache);
             // Clear previously registered metrics during object creation
@@ -724,6 +1022,16 @@ public class HDFSRemoteStorageManagerTest {
                                                       int endPosition,
                                                       int size) throws Exception {
         RemoteReadContext readContext = new RemoteReadContext(true, false);
+        verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
+    }
+
+    private void verifyFetchLogSegmentDefaultPrefetchAndHedgedReads(RemoteStorageManager rsm,
+                                                                    RemoteLogSegmentMetadata metadata,
+                                                                    LogSegmentData segmentData,
+                                                                    int startPosition,
+                                                                    int endPosition,
+                                                                    int size) throws Exception {
+        RemoteReadContext readContext = new RemoteReadContext(true, true);
         verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 

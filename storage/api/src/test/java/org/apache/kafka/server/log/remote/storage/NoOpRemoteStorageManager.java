@@ -17,12 +17,15 @@
 package org.apache.kafka.server.log.remote.storage;
 
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class NoOpRemoteStorageManager implements RemoteStorageManager {
     @Override
@@ -64,5 +67,18 @@ public class NoOpRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void configure(Map<String, ?> configs) {
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        return Collections.emptySet();
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
     }
 }

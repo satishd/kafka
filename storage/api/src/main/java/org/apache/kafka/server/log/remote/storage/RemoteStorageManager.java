@@ -16,7 +16,7 @@
  */
 package org.apache.kafka.server.log.remote.storage;
 
-import org.apache.kafka.common.Configurable;
+import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
@@ -43,7 +43,7 @@ import java.util.Optional;
  * (default value is "rsm.config.") are passed when {@link #configure(Map)} is invoked on this instance.
  */
 @InterfaceStability.Evolving
-public interface RemoteStorageManager extends Configurable, Closeable {
+public interface RemoteStorageManager extends Reconfigurable, Closeable {
 
     /**
      * Type of the index file.

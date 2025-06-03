@@ -77,6 +77,7 @@ import org.apache.kafka.storage.internals.log.AbortedTxn;
 import org.apache.kafka.storage.internals.log.EpochEntry;
 import org.apache.kafka.storage.internals.log.FetchDataInfo;
 import org.apache.kafka.storage.internals.log.FetchIsolation;
+import org.apache.kafka.storage.internals.log.LogConfig;
 import org.apache.kafka.storage.internals.log.LogOffsetMetadata;
 import org.apache.kafka.storage.internals.log.LogSegment;
 import org.apache.kafka.storage.internals.log.OffsetIndex;
@@ -1750,8 +1751,10 @@ public class RemoteLogManager implements Closeable {
         long offset = fetchInfo.fetchOffset;
         int maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes);
         boolean enablePrefetch = maxBytes < FOUR_MB_SIZE;
-        // TODO - fix in the followup diff
-        boolean enableHedgedReads = false;
+        boolean enableHedgedReads = fetchLog.apply(tp)
+                .map(UnifiedLog::config)
+                .map(LogConfig::remoteHedgedReadsEnable)
+                .orElse(false);
         RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads);
 
         Optional<UnifiedLog> logOptional = fetchLog.apply(tp);

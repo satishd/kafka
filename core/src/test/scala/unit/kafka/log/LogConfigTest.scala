@@ -102,6 +102,7 @@ class LogConfigTest {
       case TopicConfig.COMPRESSION_ZSTD_LEVEL_CONFIG => assertPropertyInvalid(name, "not_a_number", "-0.1")
       case TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
       case TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
+      case TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG => assertPropertyInvalid(name, "not_a_boolean")
       case TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG => assertPropertyInvalid(name, "not_a_number", "remove", "0")
 
       case _ => assertPropertyInvalid(name, "not_a_number", "-1")
@@ -489,6 +490,40 @@ class LogConfigTest {
     assertThrows(classOf[IllegalArgumentException], () =>
       validate(MetadataVersion.IBP_3_7_IV0, jbodConfig = true))
     validate(MetadataVersion.IBP_3_7_IV2, jbodConfig = true)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testValidRemoteHedgedReadsEnableConfig(enable: Boolean): Unit = {
+    val logProps = new Properties
+    logProps.put(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG, enable.toString)
+    LogConfig.validate(logProps)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testRemoteHedgedReadsEnableProps(enableRemoteStorage: Boolean): Unit = {
+    val kafkaProps = TestUtils.createDummyBrokerConfig()
+    kafkaProps.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, "true")
+    val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
+
+    val props = new Properties()
+    props.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, enableRemoteStorage.toString)
+    // Default value should be false
+    var logConfig = new LogConfig(props)
+    assertFalse(logConfig.remoteHedgedReadsEnable)
+
+    // Set to false and verify logConfig
+    props.put(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG, false.toString)
+    assertDoesNotThrow[Unit](() => LogConfig.validate(Collections.emptyMap(), props, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), true))
+    logConfig = new LogConfig(props)
+    assertFalse(logConfig.remoteHedgedReadsEnable)
+
+    // Set to true, and verify logConfig
+    props.put(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG, true.toString)
+    assertDoesNotThrow[Unit](() => LogConfig.validate(Collections.emptyMap(), props, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), true))
+    logConfig = new LogConfig(props)
+    assertTrue(logConfig.remoteHedgedReadsEnable)
   }
 
   @ParameterizedTest

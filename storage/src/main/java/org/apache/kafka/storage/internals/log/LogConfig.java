@@ -115,6 +115,7 @@ public class LogConfig extends AbstractConfig {
         private final boolean remoteLogCopyDisable;
         private final long localRetentionMs;
         private final long localRetentionBytes;
+        private final boolean remoteHedgedReadsEnable;
         private final String remoteStorageProvider;
 
         private RemoteLogConfig(LogConfig config) {
@@ -123,6 +124,7 @@ public class LogConfig extends AbstractConfig {
             this.remoteLogDeleteOnDisable = config.getBoolean(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG);
             this.localRetentionMs = config.getLong(TopicConfig.LOCAL_LOG_RETENTION_MS_CONFIG);
             this.localRetentionBytes = config.getLong(TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG);
+            this.remoteHedgedReadsEnable = config.getBoolean(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG);
             this.remoteStorageProvider = config.getString(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG);
         }
 
@@ -134,6 +136,7 @@ public class LogConfig extends AbstractConfig {
                     ", remoteLogDeleteOnDisable=" + remoteLogDeleteOnDisable +
                     ", localRetentionMs=" + localRetentionMs +
                     ", localRetentionBytes=" + localRetentionBytes +
+                    ", remoteHedgedReadsEnable=" + remoteHedgedReadsEnable +
                     ", remoteStorageProvider='" + remoteStorageProvider +
                     '}';
         }
@@ -189,6 +192,7 @@ public class LogConfig extends AbstractConfig {
     public static final boolean DEFAULT_REMOTE_STORAGE_ENABLE = false;
     public static final boolean DEFAULT_REMOTE_LOG_COPY_DISABLE_CONFIG = false;
     public static final boolean DEFAULT_REMOTE_LOG_DELETE_ON_DISABLE_CONFIG = false;
+    public static final boolean DEFAULT_REMOTE_HEDGED_READS_ENABLE_CONFIG = false;
     public static final long DEFAULT_LOCAL_RETENTION_BYTES = -2; // It indicates the value to be derived from RetentionBytes
     public static final long DEFAULT_LOCAL_RETENTION_MS = -2; // It indicates the value to be derived from RetentionMs
 
@@ -212,6 +216,7 @@ public class LogConfig extends AbstractConfig {
             TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG,
             TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG,
             TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG,
+            TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG,
             TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG,
             QuotaConfigs.LEADER_REPLICATION_THROTTLED_REPLICAS_CONFIG,
             QuotaConfigs.FOLLOWER_REPLICATION_THROTTLED_REPLICAS_CONFIG
@@ -341,6 +346,7 @@ public class LogConfig extends AbstractConfig {
                         TopicConfig.LOCAL_LOG_RETENTION_BYTES_DOC)
                 .define(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG, BOOLEAN, false, MEDIUM, TopicConfig.REMOTE_LOG_COPY_DISABLE_DOC)
                 .define(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, BOOLEAN, false, MEDIUM, TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_DOC)
+                .define(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG, BOOLEAN, DEFAULT_REMOTE_HEDGED_READS_ENABLE_CONFIG, MEDIUM, TopicConfig.REMOTE_HEDGED_READS_ENABLE_DOC)
                 .define(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, STRING, TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS,
                         ConfigDef.CaseInsensitiveValidString.in(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI), MEDIUM, TopicConfig.REMOTE_STORAGE_PROVIDER_DOC);
     }
@@ -537,6 +543,10 @@ public class LogConfig extends AbstractConfig {
 
     public long localRetentionBytes() {
         return remoteLogConfig.localRetentionBytes == LogConfig.DEFAULT_LOCAL_RETENTION_BYTES ? retentionSize : remoteLogConfig.localRetentionBytes;
+    }
+
+    public boolean remoteHedgedReadsEnable() {
+        return remoteLogConfig.remoteHedgedReadsEnable;
     }
 
     public String remoteStorageProvider() {

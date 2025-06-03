@@ -19,17 +19,26 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPool;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.Timer;
 import com.yammer.metrics.core.TimerContext;
 
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 public class HDFSRemoteStorageManagerMetrics {
+    private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManagerMetrics.class);
+
     // Buffer Pool metrics
     static final String BUFFER_POOL_ALLOC_COUNT = "buffer-pool-alloc-count";
     static final String BUFFER_POOL_RELEASE_COUNT = "buffer-pool-release-count";
@@ -37,6 +46,16 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String BUFFER_POOL_RECYCLE_COUNT = "buffer-pool-recycle-count";
     static final String BUFFER_POOL_DISCARD_COUNT = "buffer-pool-discard-count";
     static final String BUFFER_POOL_SIZE = "buffer-pool-size";
+
+    // Hedged read metrics
+    static final String HEDGED_READ_OPS = "hedged-read-ops";
+    static final String HEDGED_READ_OPS_WIN = "hedged-read-ops-win";
+    static final String READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE = "read-threadpool-executor-task-queue-size";
+    static final String READ_THREADPOOL_EXECUTOR_REJECTION_COUNT = "read-threadpool-executor-rejection-count";
+    static final String READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT = "read-threadpool-executor-avg-idle-percent";
+    static final String READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE = "read-threadpool-executor-core-pool-size";
+    static final String READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE = "read-threadpool-executor-max-pool-size";
+    static final String READ_THREADPOOL_EXECUTOR_POOL_SIZE = "read-threadpool-executor-pool-size";
 
     // HDFS read metrics
     static final String FS_OPEN_RATE_AND_TIME_MS = "fs-open-rate-and-time-ms";
@@ -149,6 +168,150 @@ public class HDFSRemoteStorageManagerMetrics {
             @Override
             public Integer value() {
                 return byteBufferPool.poolSize();
+            }
+        });
+    }
+
+    /**
+     * Executes the given supplier with the HDFSRemoteStorageManager's class loader as the
+     * thread context class loader.
+     *
+     * <p>This is required for accessing Hadoop FileSystem metrics because Hadoop JARs are
+     * loaded in a separate class loader (the RSM's class loader) rather than the application's
+     * main class loader. When retrieving metrics from Hadoop FileSystem, the calls must be
+     * made with the same class loader that loaded the Hadoop classes, otherwise it may result
+     * in ClassNotFoundException or NoClassDefFoundError.
+     *
+     * <p>The original thread context class loader is always restored after execution,
+     * even if the supplier throws an exception.
+     *
+     * @param rsmClassLoader the class loader that loaded the Hadoop JARs (RSM's class loader)
+     * @param supplier the metrics retrieval operation to execute with the correct class loader context
+     * @param <T> the return type of the supplier
+     * @return the result of the supplier execution
+     */
+    private <T> T withClassLoader(ClassLoader rsmClassLoader, Supplier<T> supplier) {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(rsmClassLoader);
+        try {
+            return supplier.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
+    }
+
+    @VisibleForTesting
+    void registerHedgedReadMetrics(ThrowingSupplier<FileSystem, IOException> fileSystemSupplier) {
+        ClassLoader rsmClassLoader = Thread.currentThread().getContextClassLoader();
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(HEDGED_READ_OPS), new Gauge<Long>() {
+            @Override
+            public Long value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getReadOpsInReadThread();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the number of hedged read ops", e);
+                        return 0L;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(HEDGED_READ_OPS_WIN), new Gauge<Long>() {
+            @Override
+            public Long value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getHedgedReadWinsInReadThread();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the number of hedged read wins", e);
+                        return 0L;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE), new Gauge<Integer>() {
+            @Override
+            public Integer value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getNumberOfOperationsInReadThread();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the number of operations in read thread", e);
+                        return 0;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_REJECTION_COUNT), new Gauge<Long>() {
+            @Override
+            public Long value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getReadThreadRejectionCount();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the number of read thread rejections", e);
+                        return 0L;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT), new Gauge<Double>() {
+            @Override
+            public Double value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getReadThreadIdlePercentage();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the read thread idle percentage", e);
+                        return 0.0;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE), new Gauge<Integer>() {
+            @Override
+            public Integer value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getDFSClientReaderThreadPoolSize();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the read thread pool size", e);
+                        return 0;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE), new Gauge<Integer>() {
+            @Override
+            public Integer value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getDFSClientReaderThreadPoolMaxSize();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the read thread pool max size", e);
+                        return 0;
+                    }
+                });
+            }
+        });
+
+        KafkaYammerMetrics.defaultRegistry().newGauge(metricName(READ_THREADPOOL_EXECUTOR_POOL_SIZE), new Gauge<Integer>() {
+            @Override
+            public Integer value() {
+                return withClassLoader(rsmClassLoader, () -> {
+                    try {
+                        return ((DistributedFileSystem) fileSystemSupplier.get()).getReaderThreadPoolSize();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to get the read thread pool size", e);
+                        return 0;
+                    }
+                });
             }
         });
     }

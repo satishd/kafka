@@ -18,6 +18,7 @@ package org.apache.kafka.server.log.remote.storage;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.server.log.remote.storage.LocalTieredStorageListener.LocalTieredStorageListeners;
@@ -37,9 +38,11 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -300,6 +303,21 @@ public final class LocalTieredStorage implements RemoteStorageManager {
         }
 
         logger.info("Created local tiered storage manager [{}]:[{}]", brokerId, storageDirectory.getName());
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        return Collections.emptySet();
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+
     }
 
     @Override
