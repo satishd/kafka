@@ -27,6 +27,7 @@ import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
@@ -722,7 +723,8 @@ public class HDFSRemoteStorageManagerTest {
                                                       int startPosition,
                                                       int endPosition,
                                                       int size) throws Exception {
-        verifyFetchLogSegmentInternal(rsm, metadata, segmentData, true, startPosition, endPosition, size);
+        RemoteReadContext readContext = new RemoteReadContext(true, false);
+        verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 
     private void verifyFetchLogSegmentWithPrefetchVariants(RemoteStorageManager rsm,
@@ -732,7 +734,8 @@ public class HDFSRemoteStorageManagerTest {
                                                            int endPosition,
                                                            int size) throws Exception {
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            verifyFetchLogSegmentInternal(rsm, metadata, segmentData, enablePrefetch, startPosition, endPosition, size);
+            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false);
+            verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
         }
     }
 
@@ -741,7 +744,7 @@ public class HDFSRemoteStorageManagerTest {
      * @param rsm           remote storage manager
      * @param metadata      metadata about the remote log segment.
      * @param segmentData   segment data.
-     * @param enablePrefetch enable cache prefetch
+     * @param readContext   read context.
      * @param startPosition start position to fetch from the segment, inclusive
      * @param endPosition   Fetch data till the end position, inclusive
      * @throws Exception I/O Error, file not found exception.
@@ -749,11 +752,11 @@ public class HDFSRemoteStorageManagerTest {
     private void verifyFetchLogSegmentInternal(RemoteStorageManager rsm,
                                                RemoteLogSegmentMetadata metadata,
                                                LogSegmentData segmentData,
-                                               boolean enablePrefetch,
+                                               RemoteReadContext readContext,
                                                int startPosition,
                                                int endPosition,
                                                int size) throws Exception {
-        try (InputStream stream = rsm.fetchLogSegment(metadata, enablePrefetch, startPosition, endPosition)) {
+        try (InputStream stream = rsm.fetchLogSegment(metadata, readContext, startPosition, endPosition)) {
             ByteBuffer buffer = ByteBuffer.wrap(new byte[size]);
             SeekableByteChannel byteChannel = Files.newByteChannel(segmentData.logSegment());
             byteChannel.position(startPosition);
@@ -853,7 +856,8 @@ public class HDFSRemoteStorageManagerTest {
         }
         // Fetch the segment with and without LRU cache.
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            try (InputStream actualStream = rsm.fetchLogSegment(metadata, enablePrefetch, 0)) {
+            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false);
+            try (InputStream actualStream = rsm.fetchLogSegment(metadata, readContext, 0)) {
                 assertFileEquals(segmentData.logSegment().toFile(), actualStream);
             }
         }

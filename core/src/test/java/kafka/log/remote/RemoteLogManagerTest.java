@@ -57,6 +57,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadataUpdate;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType;
@@ -168,7 +169,6 @@ import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -3733,7 +3733,7 @@ public class RemoteLogManagerTest {
         File segmentFile = tempFile();
         appendRecordsToFile(segmentFile, 100, 3);
         FileInputStream fileInputStream = new FileInputStream(segmentFile);
-        when(remoteStorageManager.fetchLogSegment(any(RemoteLogSegmentMetadata.class), anyBoolean(), anyInt()))
+        when(remoteStorageManager.fetchLogSegment(any(RemoteLogSegmentMetadata.class), any(RemoteReadContext.class), anyInt()))
                 .thenReturn(fileInputStream);
 
         RemoteLogManager remoteLogManager = new RemoteLogManager(config.remoteLogManagerConfig(), brokerId, logDir, clusterId, time,

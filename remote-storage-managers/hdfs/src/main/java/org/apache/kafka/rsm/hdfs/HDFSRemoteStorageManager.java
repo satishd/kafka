@@ -29,6 +29,7 @@ import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
@@ -86,6 +87,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
     static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
+    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
@@ -262,29 +264,29 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
                                        int startPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, true, startPosition, Integer.MAX_VALUE);
+        return fetchSegmentData(metadata, DEFAULT_READ_CONTEXT, startPosition, Integer.MAX_VALUE);
     }
 
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
                                        int startPosition,
                                        int endPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, true, startPosition, endPosition);
+        return fetchSegmentData(metadata, DEFAULT_READ_CONTEXT, startPosition, endPosition);
     }
 
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
-                                       boolean enablePrefetch,
+                                       RemoteReadContext readContext,
                                        int startPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, enablePrefetch, startPosition, Integer.MAX_VALUE);
+        return fetchSegmentData(metadata, readContext, startPosition, Integer.MAX_VALUE);
     }
 
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata,
-                                       boolean enablePrefetch,
+                                       RemoteReadContext readContext,
                                        int startPosition,
                                        int endPosition) throws RemoteStorageException {
-        return fetchSegmentData(metadata, enablePrefetch, startPosition, endPosition);
+        return fetchSegmentData(metadata, readContext, startPosition, endPosition);
     }
 
     @Override
@@ -412,12 +414,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private InputStream fetchSegmentData(RemoteLogSegmentMetadata metadata,
-                                         boolean enablePrefetch,
+                                         RemoteReadContext readContext,
                                          int startPosition,
                                          int endPosition) throws RemoteStorageException {
         try {
             String bucket = getBucket(metadata);
-            if (enablePrefetch) {
+            if (readContext.isPrefetchEnabled()) {
                 return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition);
             } else {
                 return new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition);
