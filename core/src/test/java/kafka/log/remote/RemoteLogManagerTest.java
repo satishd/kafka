@@ -18,6 +18,7 @@ package kafka.log.remote;
 
 import kafka.cluster.EndPoint;
 import kafka.cluster.Partition;
+import kafka.log.LogMetricNames;
 import kafka.log.UnifiedLog;
 import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.log.remote.quota.RLMQuotaManagerConfig;
@@ -1866,12 +1867,13 @@ public class RemoteLogManagerTest {
             // Verify that the RemoteLogManager metrics are removed
             remoteLogManagerMetricNames.forEach(metricName -> verify(mockRlmMetricsGroup).removeMetric(metricName));
             verify(mockRlmMetricsGroup).removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
-
+            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.SizeInPercent());
 
             verify(mockThreadPoolMetricsGroup, times(remoteStorageThreadPoolMetricNames.size())).newGauge(anyString(), any());
             // Verify that the RemoteStorageThreadPool metrics are removed
             remoteStorageThreadPoolMetricNames.forEach(metricName -> verify(mockThreadPoolMetricsGroup).removeMetric(metricName));
 
+            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.SizeInPercent());
             verifyNoMoreInteractions(mockRlmMetricsGroup);
             verifyNoMoreInteractions(mockThreadPoolMetricsGroup);
         } finally {
@@ -3827,6 +3829,25 @@ public class RemoteLogManagerTest {
         remoteLogManager.close();
     }
 
+    @Test
+    public void testSizeInPercentMetric() throws RemoteStorageException {
+        remoteLogManager.startup();
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(leaderTopicIdPartition)), Collections.emptySet(), topicIds);
+
+        RemoteLogManager.RLMExpirationTask task = remoteLogManager.new RLMExpirationTask(leaderTopicIdPartition);
+        // Verify initial value
+        assertEquals(0, task.sizeInPercentValue.get());
+        List<RemoteLogSegmentMetadata> metadataList = listRemoteLogSegmentMetadata(leaderTopicIdPartition, 10,
+                100, 1024, Collections.singletonList(epochEntry0), RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition, 0)).thenReturn(metadataList.iterator());
+
+        TreeMap<Integer, Long> epochEntries = new TreeMap<>();
+        epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
+        task.buildRetentionSizeData(12288, 100, 1000, epochEntries);
+        assertEquals(84, task.sizeInPercentValue.get());
+    }
+
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {
         byte magic = RecordBatch.CURRENT_MAGIC_VALUE;
         Compression compression = Compression.NONE;
@@ -3870,5 +3891,4 @@ public class RemoteLogManagerTest {
         props.put(DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX + remoteLogMetadataConsumerTestProp, remoteLogMetadataConsumerTestVal);
         props.put(DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX + remoteLogMetadataProducerTestProp, remoteLogMetadataProducerTestVal);
     }
-
 }

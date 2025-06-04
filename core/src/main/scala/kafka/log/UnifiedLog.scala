@@ -47,7 +47,7 @@ import org.apache.kafka.storage.log.metrics.BrokerTopicMetrics
 import java.io.{File, IOException}
 import java.nio.file.{Files, Path}
 import java.util
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap, ScheduledFuture}
 import java.util.stream.Collectors
 import java.util.{Collections, Optional, OptionalInt, OptionalLong}
@@ -391,6 +391,14 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     trace(s"Setting high watermark $newHighWatermark")
   }
 
+  private[log] def calculateSizeInPercent(): Int = {
+    val retentionSize = localRetentionSize(config, remoteLogEnabledAndRemoteCopyEnabled())
+    if (!remoteLogEnabledAndRemoteCopyEnabled && retentionSize > 0)
+      ((size.toDouble / retentionSize) * 100).toInt
+    else
+      0
+  }
+
   /**
    * Get the first unstable offset. Unlike the last stable offset, which is always defined,
    * the first unstable offset only exists if there are transactions in progress.
@@ -456,7 +464,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
 
   private var metricNames: Map[String, java.util.Map[String, String]] = Map.empty
-
+  private val sizeInPercentValue = new AtomicInteger(0)
   newMetrics()
   private[log] def newMetrics(): Unit = {
     val tags = (Map("topic" -> topicPartition.topic, "partition" -> topicPartition.partition.toString) ++
@@ -465,11 +473,12 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     metricsGroup.newGauge(LogMetricNames.LogStartOffset, () => logStartOffset, tags)
     metricsGroup.newGauge(LogMetricNames.LogEndOffset, () => logEndOffset, tags)
     metricsGroup.newGauge(LogMetricNames.Size, () => size, tags)
+    metricsGroup.newGauge(LogMetricNames.SizeInPercent, () => sizeInPercentValue.get(), tags)
     metricNames = Map(LogMetricNames.NumLogSegments -> tags,
       LogMetricNames.LogStartOffset -> tags,
       LogMetricNames.LogEndOffset -> tags,
-      LogMetricNames.Size -> tags)
-
+      LogMetricNames.Size -> tags,
+      LogMetricNames.SizeInPercent -> tags)
   }
 
   val producerExpireCheck: ScheduledFuture[_] = scheduler.schedule("PeriodicProducerExpirationCheck", () => removeExpiredProducers(time.milliseconds),
@@ -1624,13 +1633,16 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * Whether or not deletion is enabled, delete any local log segments that are before the log start offset
    */
   def deleteOldSegments(): Int = {
-    if (config.delete) {
+    val deletedSegments = if (config.delete) {
       deleteLogStartOffsetBreachedSegments() +
         deleteRetentionSizeBreachedSegments() +
         deleteRetentionMsBreachedSegments()
     } else {
       deleteLogStartOffsetBreachedSegments()
     }
+    // To save CPU cycles, calculate `sizeInPercent` only when the log-cleaner thread runs
+    sizeInPercentValue.set(calculateSizeInPercent())
+    deletedSegments
   }
 
   private def deleteRetentionMsBreachedSegments(): Int = {
@@ -2425,9 +2437,10 @@ object LogMetricNames {
   val LogStartOffset: String = "LogStartOffset"
   val LogEndOffset: String = "LogEndOffset"
   val Size: String = "Size"
+  val SizeInPercent = "SizeInPercent"
 
   def allMetricNames: List[String] = {
-    List(NumLogSegments, LogStartOffset, LogEndOffset, Size)
+    List(NumLogSegments, LogStartOffset, LogEndOffset, Size, SizeInPercent)
   }
 }
 

@@ -46,8 +46,7 @@ import org.apache.kafka.storage.log.metrics.BrokerTopicMetrics
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.ArgumentsSource
-import org.junit.jupiter.params.provider.{EnumSource, ValueSource}
+import org.junit.jupiter.params.provider.{ArgumentsSource, CsvSource, EnumSource, ValueSource}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.{any, anyLong}
 import org.mockito.Mockito.{doAnswer, doThrow, spy}
@@ -65,6 +64,7 @@ import scala.annotation.nowarn
 import scala.collection.mutable.ListBuffer
 import scala.compat.java8.OptionConverters._
 import scala.jdk.CollectionConverters._
+import com.yammer.metrics.core.Gauge
 
 class UnifiedLogTest {
   var config: KafkaConfig = _
@@ -4655,6 +4655,36 @@ class UnifiedLogTest {
     assertEquals(OffsetResultHolder(None, None), result)
   }
 
+  @ParameterizedTest
+  @CsvSource(Array(
+    "true, false, 0",
+    "true, true, 100",
+    "false, false, 100",
+    "false, true, 100"
+  ))
+  def testLogSizeInPercent(remoteLogStorageEnable: Boolean, remoteLogCopyDisable: Boolean, expectedSizeInPercent: Int): Unit = {
+    def createRecords = TestUtils.singletonRecords("test".getBytes)
+    val logConfig = LogTestUtils.createLogConfig(
+      segmentBytes = createRecords.sizeInBytes * 5, retentionBytes = createRecords.sizeInBytes * 10,
+      remoteLogStorageEnable = remoteLogStorageEnable, remoteLogCopyDisable = remoteLogCopyDisable)
+    val log = createLog(logDir, logConfig, remoteStorageSystemEnable = true)
+
+    // append some messages to create some segments
+    val sizeInPercentGauge = getGauge[Int](LogMetricNames.SizeInPercent)
+    assertEquals(0, sizeInPercentGauge.value())
+    for (_ <- 0 until 15)
+      log.appendAsLeader(createRecords, leaderEpoch = 0)
+
+    assertTrue(expectedSizeInPercent == 0 || 150 == log.calculateSizeInPercent())
+    log.updateHighWatermark(log.logEndOffset)
+    log.updateHighestOffsetInRemoteStorage(9)
+    log.deleteOldSegments()
+    assertEquals(2, log.numberOfSegments, "should have 2 segments")
+
+    assertEquals(expectedSizeInPercent, sizeInPercentGauge.value())
+    clearMetrics()
+  }
+
   private def appendTransactionalToBuffer(buffer: ByteBuffer,
                                           producerId: Long,
                                           producerEpoch: Short,
@@ -4731,6 +4761,17 @@ class UnifiedLogTest {
 
     (log, segmentWithOverflow)
   }
+
+  private def getGauge[T](metricName: String): Gauge[T] = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala.filter { case (k, _) =>
+      k.getName == metricName
+    }.values.headOption.getOrElse(throw new AssertionError(s"Unable to find metric $metricName")).asInstanceOf[Gauge[T]]
+  }
+
+  private def clearMetrics(): Unit = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics
+      .forEach((metricName, metric) => KafkaYammerMetrics.defaultRegistry.removeMetric(metricName))
+  }
 }
 
 object UnifiedLogTest {
@@ -4748,3 +4789,4 @@ object UnifiedLogTest {
     assertEquals(expectedRecords, allRecords(log))
   }
 }
+

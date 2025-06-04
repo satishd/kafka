@@ -19,6 +19,7 @@ package kafka.log.remote;
 import kafka.cluster.EndPoint;
 import kafka.cluster.Partition;
 import kafka.log.AsyncOffsetReadFutureHolder;
+import kafka.log.LogMetricNames;
 import kafka.log.UnifiedLog;
 import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.log.remote.quota.RLMQuotaManagerConfig;
@@ -133,6 +134,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
@@ -374,6 +376,7 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.removeMetric(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
+        metricsGroup.removeMetric(LogMetricNames.SizeInPercent());
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
     }
@@ -871,10 +874,16 @@ public class RemoteLogManager implements Closeable {
 
         protected final TopicIdPartition topicIdPartition;
         private final Logger logger;
+        protected AtomicInteger sizeInPercentValue = new AtomicInteger(0);
 
         public RLMTask(TopicIdPartition topicIdPartition) {
             this.topicIdPartition = topicIdPartition;
             this.logger = getLogContext().logger(RLMTask.class);
+
+            Map<String, String> metricTags = new HashMap<>();
+            metricTags.put("topic", topicIdPartition.topic());
+            metricTags.put("partition", Integer.toString(topicIdPartition.partition()));
+            metricsGroup.newGauge(LogMetricNames.SizeInPercent(), sizeInPercentValue::get, metricTags);
         }
 
         protected LogContext getLogContext() {
@@ -1498,10 +1507,10 @@ public class RemoteLogManager implements Closeable {
                     : Optional.empty();
         }
 
-        private Optional<RetentionSizeData> buildRetentionSizeData(long retentionSize,
-                                                                   long onlyLocalLogSegmentsSize,
-                                                                   long logEndOffset,
-                                                                   NavigableMap<Integer, Long> epochEntries) throws RemoteStorageException {
+        Optional<RetentionSizeData> buildRetentionSizeData(long retentionSize,
+                                                           long onlyLocalLogSegmentsSize,
+                                                           long logEndOffset,
+                                                           NavigableMap<Integer, Long> epochEntries) throws RemoteStorageException {
             if (retentionSize > -1) {
                 long startTimeMs = time.milliseconds();
                 long remoteLogSizeBytes = 0L;
@@ -1533,6 +1542,11 @@ public class RemoteLogManager implements Closeable {
                 // This is the total size of segments in local log that have their base-offset > local-log-start-offset
                 // and size of the segments in remote storage which have their end-offset < local-log-start-offset.
                 long totalSize = onlyLocalLogSegmentsSize + remoteLogSizeBytes;
+
+                int sizePercentage = retentionSize > 0 ?
+                        (int) ((totalSize * 100.0) / retentionSize) : 0;
+                sizeInPercentValue.set(sizePercentage);
+
                 if (totalSize > retentionSize) {
                     long remainingBreachedSize = totalSize - retentionSize;
                     RetentionSizeData retentionSizeData = new RetentionSizeData(retentionSize, remainingBreachedSize);
