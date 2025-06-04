@@ -224,10 +224,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     void relogin() {
         try {
             UserGroupInformation currentUser = UserGroupInformation.getCurrentUser();
-            LOGGER.info(
-                    "relogin: currentUser={}, loginUser={}",
-                    currentUser,
-                    UserGroupInformation.getLoginUser());
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                        "relogin: currentUser={}, loginUser={}",
+                        currentUser,
+                        UserGroupInformation.getLoginUser());
+            }
             currentUser.checkTGTAndReloginFromKeytab();
         } catch (IOException e) {
             LOGGER.error("relogin: failed", e);
@@ -325,7 +327,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         conf.set(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, clientReadThreadPoolMaxSize.toString());
         conf.set(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY, clientReadThreadPoolKeepAliveTime.toString());
         conf.set(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY, isClientReadThreadPoolCoreThreadTimeoutAllowed.toString());
-
         LOGGER.debug("Hadoop configuration after setting hedged read properties: {}", conf);
     }
 
@@ -522,11 +523,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         boolean status = false;
         try {
             Path path = new Path(getPartitionRemoteDir(partition));
-            for (FileSystem fs : fileSystemByBucket.values()) {
+            for (Map.Entry<FileSystemKey, FileSystem> entry : fileSystemByBucket.entrySet()) {
+                FileSystemKey key = entry.getKey();
+                FileSystem fs = entry.getValue();
                 if (fs.exists(path)) {
                     status = fs.delete(path, true);
                     if (status) {
-                        LOGGER.info("Remote logs are deleted for {} partition", partition);
+                        LOGGER.info("Remote logs are deleted for {} partition. FileSystemKey: {}", partition, key);
                     }
                 }
             }
@@ -636,7 +639,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private FileSystem createFileSystem(String bucket, Configuration conf) {
         try {
             FileSystem fs = FileSystem.get(new URI(bucket), conf);
-            LOGGER.info("FileSystem created for uri: {}, conf: {}", bucket, conf);
+            LOGGER.info("FileSystem created for uri: {}", bucket);
             return fs;
         } catch (URISyntaxException | IOException e) {
             throw new RuntimeException("Unable to create file system instance for uri: " + bucket, e);
@@ -741,7 +744,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             try {
                 inputStream = getFS(bucket).open(dataPath);
                 openInputStreamCount.incrementAndGet();
-                LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+                if (LOGGER.isTraceEnabled()) {
+                    LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+                }
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 if (headerHolder == null) {
                     headerHolder = fetchSegmentHeaderHolder(dataPath);
@@ -771,7 +776,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             inputStream.readFully(0, buffer);
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
             long actualFileLength = getFS(bucket).getFileStatus(dataPath).getLen();
-            LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Time taken to fetch header for {} in {} ms",
+                        getString(segmentId), time.milliseconds() - currentTimeMs);
+            }
             return new SegmentHeaderHolder(header, actualFileLength);
         }
 
@@ -784,8 +792,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 long currentTimeMs = time.milliseconds();
                 int readLen = Math.min(MAX_AUX_BUFFER_SIZE, dataPosition.getLength() - position);
                 inputStream.readFully(bufferedData, 0, readLen);
-                LOGGER.trace("Time taken to fetch {} bytes from {} {} in {} ms", readLen, getString(segmentId),
-                        fileType.toString().toLowerCase(Locale.ROOT), time.milliseconds() - currentTimeMs);
+                if (LOGGER.isTraceEnabled()) {
+                    LOGGER.trace("Time taken to fetch {} bytes from {} {} in {} ms", readLen, getString(segmentId),
+                            fileType.toString().toLowerCase(Locale.ROOT), time.milliseconds() - currentTimeMs);
+                }
                 auxBytesReadFromRemote.addAndGet(readLen);
             }
             return bufferedData[position++ % MAX_AUX_BUFFER_SIZE] & 0xFF;
@@ -869,8 +879,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             FileSystem fileSystem = getFS(bucket, enableHedgedReads);
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             openInputStreamCount.incrementAndGet();
-            LOGGER.trace("Opened file stream for segment {} in {} ms (hedged reads enabled: {})", getString(segmentId),
-                    time.milliseconds() - currentTimeMs, enableHedgedReads);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Opened file stream for segment {} in {} ms (hedged reads enabled: {})", getString(segmentId),
+                        time.milliseconds() - currentTimeMs, enableHedgedReads);
+            }
         }
 
         private SegmentHeaderHolder fetchSegmentHeaderHolder() throws IOException {
@@ -884,7 +896,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             FileStatus[] fileStatusHolder = new FileStatus[1];
             metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
             long actualFileLength = fileStatusHolder[0].getLen();
-            LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Time taken to fetch header for {} in {} ms",
+                        getString(segmentId), time.milliseconds() - currentTimeMs);
+            }
             return new SegmentHeaderHolder(header, actualFileLength);
         }
 
@@ -1017,8 +1032,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // supplied byte array.
             byteBuffer.limit((int) dataLength);
 
-            LOGGER.trace("Time taken to fetch {} bytes from {} segment in {} ms",
-                    dataLength, getString(segmentId), time.milliseconds() - currentTimeMs);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Time taken to fetch {} bytes from {} segment in {} ms",
+                        dataLength, getString(segmentId), time.milliseconds() - currentTimeMs);
+            }
             readCache.put(dataPath.toString(), actualPosition, wrapper.duplicate());
             return wrapper;
         }
@@ -1095,9 +1112,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 }
                 readableSegmentLen = Math.max(0, validSegmentLen - startPos);
                 inputStream.seek(dataPosition.getPos() + startPos);
-                LOGGER.info("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +
-                                "readableSegmentLen: {}, realFileLen: {}, cacheLineSize: {}",
-                        getString(segmentId), startPos, endPos, readableSegmentLen, realFileLen, cacheLineSize);
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +
+                                    "readableSegmentLen: {}, realFileLen: {}, cacheLineSize: {}",
+                            getString(segmentId), startPos, endPos, readableSegmentLen, realFileLen, cacheLineSize);
+                }
             } catch (Exception e) {
                 if (inputStream != null) {
                     Utils.closeAll(inputStream);
@@ -1198,7 +1217,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             FileSystem fileSystem = getFS(bucket);
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             openInputStreamCount.incrementAndGet();
-            LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            }
         }
 
         private SegmentHeaderHolder fetchSegmentHeaderHolder() throws IOException {
@@ -1212,7 +1233,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             FileStatus[] fileStatusHolder = new FileStatus[1];
             metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
             long actualFileLength = fileStatusHolder[0].getLen();
-            LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            if (LOGGER.isTraceEnabled()) {
+                LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
+            }
             return new SegmentHeaderHolder(header, actualFileLength);
         }
     }
@@ -1224,6 +1247,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         public FileSystemKey(String bucket, boolean hedgedReadsEnabled) {
             this.bucket = bucket;
             this.hedgedReadsEnabled = hedgedReadsEnabled;
+        }
+
+        @Override
+        public String toString() {
+            return "FileSystemKey{" +
+                    "bucket='" + bucket + '\'' +
+                    ", hedgedReadsEnabled=" + hedgedReadsEnabled +
+                    '}';
         }
 
         @Override
