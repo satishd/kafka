@@ -110,11 +110,13 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -663,10 +665,11 @@ public class HDFSRemoteStorageManagerTest {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
 
-            assertEquals(3, reconfigurableConfigs.size());
+            assertEquals(4, reconfigurableConfigs.size());
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_OCI_BUCKETS_PROP));
         }
     }
 
@@ -788,6 +791,19 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"abcd", "invalid-uri", "oci://uber-staging@abcd,hdfs://abcd", ""})
+    public void testOCIBucketsReconfigureValidation(String updatedOciBuckets) {
+        Map<String, String> configs = new HashMap<>();
+        configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
+        try {
+            rsm.validateReconfiguration(configs);
+            fail("should have failed for invalid OCI buckets: " + updatedOciBuckets);
+        } catch (IllegalArgumentException | ConfigException e) {
+            // expected exception for invalid OCI buckets
+        }
+    }
+
     @Test
     public void testGetPartitionRemoteDir() {
         RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
@@ -845,7 +861,7 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     @Test
-    public void testConfigureWithOciBuckets() {
+    public void testReConfigureWithOciBuckets() {
         String ociBucket1 = "oci://uber@abc/lwrka";
         String ociBucket2 = "oci://uber@def/lwrka";
         String ociBucket3 = "oci://uber@xyz/lwrka";
@@ -885,6 +901,26 @@ public class HDFSRemoteStorageManagerTest {
 
             assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, p1SegId0));
             assertEquals(ociBucket3, rsm.findBucket(RemoteStorageProvider.OCI, p1SegId1));
+
+            // Reconfigure the OCI Buckets -- add new buckets
+            String ociBucket4 = "oci://uber@ghi/lwrka";
+            List<String> expectedBuckets = Arrays.asList(ociBucket1, ociBucket2, ociBucket3, ociBucket4);
+            String updatedOciBuckets = String.join(",", expectedBuckets);
+            configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
+            rsm.reconfigure(configs);
+            assertNotNull(rsm.getFS(ociBucket4));
+            assertEquals(6, instanceCount.get());
+            assertEquals(expectedBuckets, rsm.ociBuckets());
+
+            // Reconfigure the OCI Buckets -- remove some buckets
+            expectedBuckets = Arrays.asList(ociBucket1, ociBucket3, ociBucket4);
+            updatedOciBuckets = String.join(",", expectedBuckets);
+            configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
+            rsm.reconfigure(configs);
+            // removed bucket should still be accessible for reads.
+            assertNotNull(rsm.getFS(ociBucket2));
+            assertEquals(6, instanceCount.get());
+            assertEquals(expectedBuckets, rsm.ociBuckets());
         }
     }
 
