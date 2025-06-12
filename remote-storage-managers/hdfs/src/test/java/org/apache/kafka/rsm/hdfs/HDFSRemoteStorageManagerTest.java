@@ -26,6 +26,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
+import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
@@ -955,8 +956,7 @@ public class HDFSRemoteStorageManagerTest {
                 RemoteLogSegmentState.DELETE_SEGMENT_STARTED, segmentLeaderEpochs);
 
         String bucket = "bucket";
-        RemoteLogSegmentMetadata.CustomMetadata customMetadata1 = new RemoteLogSegmentMetadata.CustomMetadata(
-                bucket.getBytes(StandardCharsets.UTF_8));
+        RemoteLogSegmentMetadata.CustomMetadata customMetadata1 = HDFSRemoteStorageManager.createCustomMetadata(bucket);
         RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId, 101, 200,
                 timestamp, 0, timestamp, segmentSize, Optional.of(customMetadata1),
                 RemoteLogSegmentState.DELETE_SEGMENT_STARTED, segmentLeaderEpochs);
@@ -965,6 +965,20 @@ public class HDFSRemoteStorageManagerTest {
         assertEquals(2, buckets.size());
         assertTrue(buckets.contains(bucket));
         assertTrue(buckets.contains(defaultFsUri));
+    }
+
+    @Test
+    public void testCustomMetadataSizeWithinAllowedMaxBytes() {
+        String bucket = "oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka";
+        RemoteLogSegmentMetadata.CustomMetadata customMetadata = HDFSRemoteStorageManager.createCustomMetadata(bucket);
+        assertNotNull(customMetadata);
+        assertEquals(bucket, HDFSRemoteStorageManager.getBucket(customMetadata));
+        assertTrue(customMetadata.value().length < RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_METADATA_CUSTOM_METADATA_MAX_BYTES);
+
+        // Backward compatibility
+        // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
+        assertEquals(bucket, HDFSRemoteStorageManager.getBucket(
+                new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8))));
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
@@ -1163,7 +1177,7 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals(expectedBytesRead, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
         }
         assertTrue(customMetadataOpt.isPresent());
-        assertEquals(defaultFsUri, new String(customMetadataOpt.get().value(), StandardCharsets.UTF_8));
+        assertEquals(defaultFsUri, HDFSRemoteStorageManager.getBucket(customMetadataOpt.get()));
         return segmentMetadata;
     }
 

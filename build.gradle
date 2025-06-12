@@ -2158,6 +2158,10 @@ project(':remote-storage-managers:hdfs') {
     archivesName = "kafka-rsm-hdfs"
   }
 
+  configurations {
+    generator
+  }
+
   dependencies {
     implementation project(':server-common')
     implementation project(':storage:storage-api')
@@ -2183,11 +2187,47 @@ project(':remote-storage-managers:hdfs') {
     testImplementation libs.mockitoCore
     testImplementation project(':storage')
     testImplementation project(':clients').sourceSets.test.output
+
+    generator project(':generator')
+  }
+
+  sourceSets {
+    main {
+      java {
+        srcDirs = ["src/generated/java", "src/main/java"]
+      }
+    }
+    test {
+      java {
+        srcDirs = ["src/test/java"]
+      }
+    }
+  }
+
+  javadoc {
+    enabled = false
   }
 
   checkstyle {
     configProperties = checkstyleConfigProperties("import-control-remote-storage-managers.xml")
   }
+
+  task processMessages(type:JavaExec) {
+    main = "org.apache.kafka.message.MessageGenerator"
+    classpath = configurations.generator
+    args = [ "-p", "org.apache.kafka.rsm.hdfs.generated",
+             "-o", "src/generated/java/org/apache/kafka/rsm/hdfs/generated",
+             "-i", "src/main/resources/common/message",
+             "-m", "MessageDataGenerator"]
+    inputs.dir("src/main/resources/common/message")
+            .withPropertyName("messages")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.cacheIf { true }
+    outputs.dir("src/generated/java/org/apache/kafka/rsm/hdfs/generated")
+  }
+
+  compileJava.dependsOn 'processMessages'
+  srcJar.dependsOn 'processMessages'
 }
 
 project(':tools:tools-api') {

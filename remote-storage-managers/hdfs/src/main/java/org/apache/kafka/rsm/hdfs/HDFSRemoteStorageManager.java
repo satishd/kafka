@@ -20,10 +20,13 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
+import org.apache.kafka.common.protocol.MessageUtil;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.rsm.hdfs.generated.ConnectorCustomMetadata;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPool;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPoolImpl;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
@@ -444,15 +447,35 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
      * @return bucket name
      */
     private String getBucket(RemoteLogSegmentMetadata metadata) {
-        Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadataOpt = metadata.customMetadata();
-        return customMetadataOpt.map(cm -> new String(cm.value(), StandardCharsets.UTF_8))
-                .orElseGet(() -> hdfsBucket);
+        return metadata.customMetadata()
+                .map(HDFSRemoteStorageManager::getBucket)
+                .orElse(hdfsBucket);
+    }
+
+    static String getBucket(RemoteLogSegmentMetadata.CustomMetadata customMetadata) {
+        try {
+            ByteBuffer byteBuffer = ByteBuffer.wrap(customMetadata.value());
+            ConnectorCustomMetadata connectorCustomMetadata =
+                    new ConnectorCustomMetadata(new ByteBufferAccessor(byteBuffer), ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);
+            return connectorCustomMetadata.uri();
+        } catch (Exception e) {
+            // Backward compatibility
+            // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
+            return new String(customMetadata.value(), StandardCharsets.UTF_8);
+        }
     }
 
     Set<String> getBuckets(List<RemoteLogSegmentMetadata> metadataList) {
         return metadataList.stream()
                 .map(this::getBucket)
                 .collect(Collectors.toSet());
+    }
+
+    static RemoteLogSegmentMetadata.CustomMetadata createCustomMetadata(String bucket) {
+        ConnectorCustomMetadata connectorCustomMetadata = new ConnectorCustomMetadata();
+        connectorCustomMetadata.setUri(bucket);
+        ByteBuffer byteBuffer = MessageUtil.toByteBuffer(connectorCustomMetadata, ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);
+        return new RemoteLogSegmentMetadata.CustomMetadata(byteBuffer.array());
     }
 
     @Override
@@ -479,7 +502,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         } finally {
             openOutputStreamCount.decrementAndGet();
         }
-        return Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8)));
+        return Optional.of(createCustomMetadata(bucket));
     }
 
     @Override
