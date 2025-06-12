@@ -41,6 +41,7 @@ if [ "${dsc_server_properties_count}" -eq "1" ]; then
     cp /tmp/dsc/KAFKA/kafka/*/broker-security.properties /etc/kafka/broker-security.properties || true
     cp /tmp/dsc/KAFKA/kafka/*/kafka_server_jaas.conf /etc/kafka/kafka_server_jaas.conf || true
     cp /tmp/dsc/KAFKA/kafka/*/log4j.xml /etc/kafka/log4j.xml || true
+    cp /tmp/dsc/KAFKA/kafka/*/upki.properties /etc/kafka/upki.properties || true
     cp ${DSC_SERVER_PROPERTIES_FILE_PATH}/*/${KAFKA_JVM_FILE} /tmp/dsc/
 elif [ "${dsc_server_properties}" -gt "1" ]; then
     # If multiple server.properties exists from dsc, bail out.
