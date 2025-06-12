@@ -39,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -446,8 +447,8 @@ public final class LocalTieredStorage implements RemoteStorageManager {
     }
 
     // KAFKA-15166: Add deletePartition API to the RemoteStorageManager
-    // @Override
-    public void deletePartition(TopicIdPartition partition) throws RemoteStorageException {
+    @Override
+    public void deletePartition(TopicIdPartition partition, List<RemoteLogSegmentMetadata> segmentMetadataList) throws RemoteStorageException {
         wrap(() -> {
             final LocalTieredStorageEvent.Builder eventBuilder = newEventBuilder(DELETE_PARTITION, partition);
 

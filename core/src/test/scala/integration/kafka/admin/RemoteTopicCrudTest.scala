@@ -614,7 +614,7 @@ class MyRemoteStorageManager extends NoOpRemoteStorageManager {
     deleteSegmentEventCounter.incrementAndGet()
   }
 
-  override def deletePartition(partition: TopicIdPartition): Unit = {
+  override def deletePartition(partition: TopicIdPartition, segmentMetadataList: util.List[RemoteLogSegmentMetadata]): Unit = {
     deletePartitionEventCounter.incrementAndGet()
   }
 }

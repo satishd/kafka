@@ -171,6 +171,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anySet;
@@ -2208,7 +2209,7 @@ public class RemoteLogManagerTest {
         assertNull(remoteLogManager.leaderExpirationTask(leaderTopicIdPartition));
         assertNull(remoteLogManager.followerTask(followerTopicIdPartition));
         verify(remoteLogMetadataManager, times(1)).onStopPartitions(any());
-        verify(remoteStorageManager, times(2)).deletePartition(any());
+        verify(remoteStorageManager, times(2)).deletePartition(any(), anyList());
         verify(remoteLogMetadataManager, times(16)).updateRemoteLogSegmentMetadata(any());
     }
 
@@ -3316,7 +3317,7 @@ public class RemoteLogManagerTest {
         when(rlmmManager.updateRemoteLogSegmentMetadata(updateMetadataCaptor.capture()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
-        doNothing().when(rsmManager).deletePartition(leaderTopicIdPartition);
+        doNothing().when(rsmManager).deletePartition(eq(leaderTopicIdPartition), anyList());
 
         RemoteLogManager remoteLogManager = new RemoteLogManager(config.remoteLogManagerConfig(), brokerId, logDir, clusterId, time,
                 tp -> Optional.of(mockLog),
@@ -3342,7 +3343,7 @@ public class RemoteLogManagerTest {
             assertEquals(RemoteLogSegmentState.DELETE_SEGMENT_FINISHED, updateMetadataValues.get(idx + segmentCount).state());
         }
 
-        verify(rsmManager).deletePartition(leaderTopicIdPartition);
+        verify(rsmManager).deletePartition(eq(leaderTopicIdPartition), anyList());
         verify(rlmmManager, times(segmentCount * 2)).updateRemoteLogSegmentMetadata(any(RemoteLogSegmentMetadataUpdate.class));
     }
 

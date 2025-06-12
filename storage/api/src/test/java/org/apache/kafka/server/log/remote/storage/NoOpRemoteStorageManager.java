@@ -23,6 +23,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.Custo
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -58,7 +59,7 @@ public class NoOpRemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
-    public void deletePartition(TopicIdPartition partition) {
+    public void deletePartition(TopicIdPartition partition, List<RemoteLogSegmentMetadata> segmentMetadataList) {
     }
 
     @Override

@@ -28,6 +28,7 @@ import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
@@ -328,7 +329,7 @@ public class HDFSRemoteStorageManagerTest {
         Path path = new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp));
         assertTrue(hdfs.exists(path));
         assertEquals(segmentCount, hdfs.listStatus(path).length);
-        rsm.deletePartition(tp);
+        rsm.deletePartition(tp, metadataList);
         assertFalse(hdfs.exists(path));
     }
 
@@ -907,6 +908,29 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
+    @Test
+    public void testGetBuckets() {
+        RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
+        long timestamp = time.milliseconds();
+        int segmentSize = 1024;
+        Map<Integer, Long> segmentLeaderEpochs = Collections.singletonMap(0, 0L);
+        RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, 0, 100,
+                timestamp, 0, timestamp, segmentSize, Optional.empty(),
+                RemoteLogSegmentState.DELETE_SEGMENT_STARTED, segmentLeaderEpochs);
+
+        String bucket = "bucket";
+        RemoteLogSegmentMetadata.CustomMetadata customMetadata1 = new RemoteLogSegmentMetadata.CustomMetadata(
+                bucket.getBytes(StandardCharsets.UTF_8));
+        RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(segmentId, 101, 200,
+                timestamp, 0, timestamp, segmentSize, Optional.of(customMetadata1),
+                RemoteLogSegmentState.DELETE_SEGMENT_STARTED, segmentLeaderEpochs);
+
+        Set<String> buckets = rsm.getBuckets(Arrays.asList(metadata, metadata1));
+        assertEquals(2, buckets.size());
+        assertTrue(buckets.contains(bucket));
+        assertTrue(buckets.contains(defaultFsUri));
+    }
+
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
         Uuid segmentId = Uuid.fromString("pQpAc9OvTGaxywm8JnN9IQ");
         Uuid topicId = Uuid.fromString("hHJfD_slRkGCrDPSvJsMtA");
@@ -950,8 +974,11 @@ public class HDFSRemoteStorageManagerTest {
             long startOffset = (long) idx * recordsPerSegment;
             long endOffset = startOffset + recordsPerSegment - 1;
             Map<Integer, Long> segmentLeaderEpochs = Collections.singletonMap(0, 0L);
-            metadataList.add(new RemoteLogSegmentMetadata(new RemoteLogSegmentId(tp, Uuid.randomUuid()),
-                    startOffset, endOffset, timestamp, 0, timestamp, segmentSize, segmentLeaderEpochs));
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, startOffset, endOffset,
+                    timestamp, 0, timestamp, segmentSize, Optional.empty(),
+                    RemoteLogSegmentState.DELETE_SEGMENT_STARTED, segmentLeaderEpochs);
+            metadataList.add(metadata);
         }
         return metadataList;
     }

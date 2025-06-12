@@ -74,6 +74,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
@@ -419,6 +420,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 .orElseGet(() -> hdfsBucket);
     }
 
+    Set<String> getBuckets(List<RemoteLogSegmentMetadata> metadataList) {
+        return metadataList.stream()
+                .map(this::getBucket)
+                .collect(Collectors.toSet());
+    }
+
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata,
                                                                                 LogSegmentData segmentData) throws RemoteStorageException {
@@ -519,17 +526,21 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     @Override
-    public void deletePartition(TopicIdPartition partition) throws RemoteStorageException {
+    public void deletePartition(TopicIdPartition partition,
+                                List<RemoteLogSegmentMetadata> metadataList) throws RemoteStorageException {
+        // Even-though the exact buckets are known to issue the delete-partition request, sending the request to all
+        // buckets to ensure that the *empty* partition directories are also deleted.
+        Set<String> allBuckets = getBuckets(metadataList);
+        fileSystemByBucket.keySet().forEach(key -> allBuckets.add(key.bucket));
         boolean status = false;
         try {
             Path path = new Path(getPartitionRemoteDir(partition));
-            for (Map.Entry<FileSystemKey, FileSystem> entry : fileSystemByBucket.entrySet()) {
-                FileSystemKey key = entry.getKey();
-                FileSystem fs = entry.getValue();
+            for (String bucket : allBuckets) {
+                FileSystem fs = getFS(bucket);
                 if (fs.exists(path)) {
                     status = fs.delete(path, true);
                     if (status) {
-                        LOGGER.info("Remote logs are deleted for {} partition. FileSystemKey: {}", partition, key);
+                        LOGGER.info("Remote logs are deleted for {} partition. Bucket: {}", partition, bucket);
                     }
                 }
             }

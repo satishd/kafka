@@ -23,6 +23,7 @@ import org.apache.kafka.storage.internals.log.StorageAction;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -121,9 +122,10 @@ public class ClassLoaderAwareRemoteStorageManager implements RemoteStorageManage
     }
 
     @Override
-    public void deletePartition(TopicIdPartition topicIdPartition) throws RemoteStorageException {
+    public void deletePartition(TopicIdPartition topicIdPartition,
+                                List<RemoteLogSegmentMetadata> segmentMetadataList) throws RemoteStorageException {
         withClassLoader(() -> {
-            delegate.deletePartition(topicIdPartition);
+            delegate.deletePartition(topicIdPartition, segmentMetadataList);
             return null;
         });
     }

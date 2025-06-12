@@ -221,7 +221,7 @@ public final class LocalTieredStorageTest {
             remoteStorageVerifier.verifyContainsLogSegmentFiles(metadata);
             segmentMetadatas.add(metadata);
         }
-        tieredStorage.deletePartition(topicIdPartition);
+        tieredStorage.deletePartition(topicIdPartition, segmentMetadatas);
         remoteStorageVerifier.assertFileDoesNotExist(remoteStorageVerifier.expectedPartitionPath());
         for (RemoteLogSegmentMetadata segmentMetadata: segmentMetadatas) {
             remoteStorageVerifier.verifyLogSegmentFilesAbsent(segmentMetadata);

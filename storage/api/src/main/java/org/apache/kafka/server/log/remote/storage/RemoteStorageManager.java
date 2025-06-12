@@ -23,6 +23,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.Custo
 
 import java.io.Closeable;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -156,9 +157,11 @@ public interface RemoteStorageManager extends Reconfigurable, Closeable {
      * Deletes all the remote log segments for the given partition.
      *
      * @param partition the partition to be deleted
+     * @param segmentMetadataList segment metadata list to be deleted
      * @throws RemoteStorageException when there are no resources associated with the given partition.
      */
-    void deletePartition(TopicIdPartition partition) throws RemoteStorageException;
+    void deletePartition(TopicIdPartition partition,
+                         List<RemoteLogSegmentMetadata> segmentMetadataList) throws RemoteStorageException;
 
     /**
      * Returns the remote log segment data file/object as InputStream for the given {@link RemoteLogSegmentMetadata}
