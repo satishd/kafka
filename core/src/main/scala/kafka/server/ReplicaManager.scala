@@ -1313,11 +1313,19 @@ class ReplicaManager(val config: KafkaConfig,
                 logs.filter { log =>
                   partitions.contains(log.topicPartition)
                 }.map { log =>
-                  new DescribeLogDirsResponseData.DescribeLogDirsPartition()
+                  val describeLogDirsPartition = new DescribeLogDirsResponseData.DescribeLogDirsPartition()
                     .setPartitionSize(log.size)
                     .setPartitionIndex(log.topicPartition.partition)
                     .setOffsetLag(getLogEndOffsetLag(log.topicPartition, log.logEndOffset, log.isFuture))
                     .setIsFutureKey(log.isFuture)
+
+                  if (remoteLogManager.isDefined && log.remoteLogEnabled()) {
+                    remoteLogManager.get.remoteLogSize(log.topicPartition).asScala.map { remoteLogSize =>
+                      describeLogDirsPartition.setURemoteLogSize(remoteLogSize)
+                    }
+                    describeLogDirsPartition.setUOnlyLocalLogSize(log.onlyLocalLogSegmentsSize)
+                  }
+                  describeLogDirsPartition
                 }.toList.asJava)
             }.filterNot(_.partitions().isEmpty).toList.asJava
           case None =>

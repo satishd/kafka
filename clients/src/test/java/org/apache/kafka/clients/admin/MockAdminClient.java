@@ -1004,7 +1004,7 @@ public class MockAdminClient extends AdminClient {
                     Map<String, LogDirDescription> logDirDescriptionMap = unwrappedResults.get(node.id());
                     LogDirDescription logDirDescription = logDirDescriptionMap.getOrDefault(partitionLogDirs.get(0), new LogDirDescription(null, new HashMap<>()));
                     Map<TopicPartition, ReplicaInfo> topicPartitionReplicaInfoMap = new HashMap<>(logDirDescription.replicaInfos());
-                    topicPartitionReplicaInfoMap.put(new TopicPartition(topicName, topicPartitionInfo.partition()), new ReplicaInfo(0, 0, false));
+                    topicPartitionReplicaInfoMap.put(new TopicPartition(topicName, topicPartitionInfo.partition()), new ReplicaInfo(0, 0, false, -1, -1));
                     logDirDescriptionMap.put(partitionLogDirs.get(0), new LogDirDescription(
                         logDirDescription.error(),
                         topicPartitionReplicaInfoMap,

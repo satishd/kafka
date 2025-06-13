@@ -111,6 +111,8 @@ public class LogDirsCommand {
                     put("size", entry.getValue().size());
                     put("offsetLag", entry.getValue().offsetLag());
                     put("isFuture", entry.getValue().isFuture());
+                    put("remoteLogSize", entry.getValue().remoteLogSize());
+                    put("onlyLocalLogSize", entry.getValue().onlyLocalLogSize());
                 }};
         }).collect(Collectors.toList());
     }

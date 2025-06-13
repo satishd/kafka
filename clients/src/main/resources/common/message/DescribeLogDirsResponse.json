@@ -20,6 +20,7 @@
   // Starting in version 1, on quota violation, brokers send out responses before throttling.
   "validVersions": "0-4",
   // Version 2 is the first flexible version.
+  // `URemoteLogSize` and `UOnlyLocalLogSize` are added as tagged fields from version 2
   // Version 3 adds the top-level ErrorCode field
   // Version 4 adds the TotalBytes and UsableBytes fields
   "flexibleVersions": "2+",
@@ -46,7 +47,11 @@
           { "name": "OffsetLag", "type": "int64", "versions": "0+",
             "about": "The lag of the log's LEO w.r.t. partition's HW (if it is the current log for the partition) or current replica's LEO (if it is the future log for the partition)" },
           { "name": "IsFutureKey", "type": "bool", "versions": "0+",
-            "about": "True if this log is created by AlterReplicaLogDirsRequest and will replace the current log of the replica in the future." }
+            "about": "True if this log is created by AlterReplicaLogDirsRequest and will replace the current log of the replica in the future." },
+          { "name": "URemoteLogSize", "type": "int64", "versions": "2+", "taggedVersions": "2+", "tag": 10000, "default": "-1", "ignorable": true,
+            "about": "The log size in bytes for all segments that are in the remote storage." },
+          { "name": "UOnlyLocalLogSize", "type": "int64", "versions": "2+", "taggedVersions": "2+", "tag": 10001, "default": "-1", "ignorable": true,
+            "about": "The log size in bytes for all segments that are only in local log but not yet in remote log." }
         ]}
       ]},
       { "name": "TotalBytes", "type": "int64", "versions": "4+", "ignorable": true, "default": "-1",

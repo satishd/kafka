@@ -24,11 +24,16 @@ public class ReplicaInfo {
     private final long size;
     private final long offsetLag;
     private final boolean isFuture;
+    private final long remoteLogSize;
+    private final long onlyLocalLogSize;
 
-    public ReplicaInfo(long size, long offsetLag, boolean isFuture) {
+    public ReplicaInfo(long size, long offsetLag, boolean isFuture,
+                       long remoteLogSize, long onlyLocalLogSize) {
         this.size = size;
         this.offsetLag = offsetLag;
         this.isFuture = isFuture;
+        this.remoteLogSize = remoteLogSize;
+        this.onlyLocalLogSize = onlyLocalLogSize;
     }
 
     /**
@@ -59,12 +64,30 @@ public class ReplicaInfo {
         return isFuture;
     }
 
+    /**
+     * The log size in bytes for all segments that are in the remote storage.
+     * @return the size of the remote log in bytes, or -1 if the remote log storage is not enabled.
+     */
+    public long remoteLogSize() {
+        return remoteLogSize;
+    }
+
+    /**
+     * The log size in bytes for all segments that are only in local log and yet to be uploaded to remote storage.
+     * @return the size of the local log in bytes that are yet to upload to remote, or -1 if the remote log storage is not enabled.
+     */
+    public long onlyLocalLogSize() {
+        return onlyLocalLogSize;
+    }
+
     @Override
     public String toString() {
         return "ReplicaInfo(" +
                 "size=" + size +
                 ", offsetLag=" + offsetLag +
                 ", isFuture=" + isFuture +
+                ", remoteLogSize=" + remoteLogSize +
+                ", onlyLocalLogSize=" + onlyLocalLogSize +
                 ')';
     }
 }

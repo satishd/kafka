@@ -3110,7 +3110,7 @@ public class KafkaAdminClient extends AdminClient {
                 for (DescribeLogDirsResponseData.DescribeLogDirsPartition p : t.partitions()) {
                     replicaInfoMap.put(
                             new TopicPartition(t.name(), p.partitionIndex()),
-                            new ReplicaInfo(p.partitionSize(), p.offsetLag(), p.isFutureKey()));
+                            new ReplicaInfo(p.partitionSize(), p.offsetLag(), p.isFutureKey(), p.uRemoteLogSize(), p.uOnlyLocalLogSize()));
                 }
             }
             result.put(logDirResult.logDir(), new LogDirDescription(

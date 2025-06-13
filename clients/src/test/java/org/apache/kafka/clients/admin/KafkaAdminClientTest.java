@@ -2105,6 +2105,24 @@ public class KafkaAdminClientTest {
                         .setOffsetLag(offsetLag))));
     }
 
+    private static DescribeLogDirsResponse prepareDescribeLogDirsResponse(Errors error, String logDir, TopicPartition tp, long partitionSize, long offsetLag, long totalBytes, long usableBytes, long remoteLogSize, long onlyLocalLogSize) {
+        return prepareDescribeLogDirsResponse(error, logDir,
+                prepareDescribeLogDirsTopics(partitionSize, offsetLag, tp.topic(), tp.partition(), false, remoteLogSize, onlyLocalLogSize), totalBytes, usableBytes);
+    }
+
+    private static List<DescribeLogDirsTopic> prepareDescribeLogDirsTopics(
+            long partitionSize, long offsetLag, String topic, int partition, boolean isFuture, long remoteLogSize, long onlyLocalLogSize) {
+        return singletonList(new DescribeLogDirsTopic()
+                .setName(topic)
+                .setPartitions(singletonList(new DescribeLogDirsResponseData.DescribeLogDirsPartition()
+                        .setPartitionIndex(partition)
+                        .setPartitionSize(partitionSize)
+                        .setIsFutureKey(isFuture)
+                        .setOffsetLag(offsetLag)
+                        .setURemoteLogSize(remoteLogSize)
+                        .setUOnlyLocalLogSize(onlyLocalLogSize))));
+    }
+
     private static DescribeLogDirsResponse prepareDescribeLogDirsResponse(Errors error, String logDir,
                                                                    List<DescribeLogDirsTopic> topics) {
         return new DescribeLogDirsResponse(
@@ -2184,6 +2202,12 @@ public class KafkaAdminClientTest {
 
     private static void assertDescriptionContains(Map<String, LogDirDescription> descriptionsMap, String logDir,
                                                   TopicPartition tp, long partitionSize, long offsetLag, OptionalLong totalBytes, OptionalLong usableBytes) {
+        assertDescriptionContains(descriptionsMap, logDir, tp, partitionSize, offsetLag, totalBytes, usableBytes, -1, -1);
+    }
+
+    private static void assertDescriptionContains(Map<String, LogDirDescription> descriptionsMap, String logDir,
+                                                  TopicPartition tp, long partitionSize, long offsetLag, OptionalLong totalBytes, OptionalLong usableBytes,
+                                                  long remoteLogSize, long onlyLocalLogSize) {
         assertNotNull(descriptionsMap);
         assertEquals(singleton(logDir), descriptionsMap.keySet());
         assertNull(descriptionsMap.get(logDir).error());
@@ -2194,6 +2218,9 @@ public class KafkaAdminClientTest {
         assertFalse(descriptionsReplicaInfos.get(tp).isFuture());
         assertEquals(totalBytes, descriptionsMap.get(logDir).totalBytes());
         assertEquals(usableBytes, descriptionsMap.get(logDir).usableBytes());
+
+        assertEquals(remoteLogSize, descriptionsReplicaInfos.get(tp).remoteLogSize());
+        assertEquals(onlyLocalLogSize, descriptionsReplicaInfos.get(tp).onlyLocalLogSize());
     }
 
     @Test
@@ -2222,6 +2249,53 @@ public class KafkaAdminClientTest {
             Map<Integer, Map<String, LogDirDescription>> allDescriptions = result.allDescriptions().get();
             assertEquals(brokers, allDescriptions.keySet());
             assertDescriptionContains(allDescriptions.get(0), logDir, tp, partitionSize, offsetLag, OptionalLong.of(totalBytes), OptionalLong.of(usableBytes));
+
+            // Empty results when not authorized with version < 3
+            env.kafkaClient().prepareResponseFrom(
+                    prepareEmptyDescribeLogDirsResponse(Optional.empty()),
+                    env.cluster().nodeById(0));
+            final DescribeLogDirsResult errorResult = env.adminClient().describeLogDirs(brokers);
+            ExecutionException exception = assertThrows(ExecutionException.class, () -> errorResult.allDescriptions().get());
+            assertInstanceOf(ClusterAuthorizationException.class, exception.getCause());
+
+            // Empty results with an error with version >= 3
+            env.kafkaClient().prepareResponseFrom(
+                    prepareEmptyDescribeLogDirsResponse(Optional.of(Errors.UNKNOWN_SERVER_ERROR)),
+                    env.cluster().nodeById(0));
+            final DescribeLogDirsResult errorResult2 = env.adminClient().describeLogDirs(brokers);
+            exception = assertThrows(ExecutionException.class, () -> errorResult2.allDescriptions().get());
+            assertInstanceOf(UnknownServerException.class, exception.getCause());
+        }
+    }
+
+    @Test
+    public void testDescribeLogDirsForRemoteTopicWithVolumeBytes() throws ExecutionException, InterruptedException {
+        Set<Integer> brokers = singleton(0);
+        String logDir = "/var/data/kafka";
+        TopicPartition tp = new TopicPartition("topic", 12);
+        long partitionSize = 1234567890;
+        long offsetLag = 24;
+        long remoteLogSize = 345L;
+        long onlyLocalLogSize = 678L;
+        long totalBytes = 123L;
+        long usableBytes = 456L;
+
+        try (AdminClientUnitTestEnv env = mockClientEnv()) {
+            env.kafkaClient().setNodeApiVersions(NodeApiVersions.create());
+            env.kafkaClient().prepareResponseFrom(
+                    prepareDescribeLogDirsResponse(Errors.NONE, logDir, tp, partitionSize, offsetLag, totalBytes, usableBytes, remoteLogSize, onlyLocalLogSize),
+                    env.cluster().nodeById(0));
+
+            DescribeLogDirsResult result = env.adminClient().describeLogDirs(brokers);
+
+            Map<Integer, KafkaFuture<Map<String, LogDirDescription>>> descriptions = result.descriptions();
+            assertEquals(brokers, descriptions.keySet());
+            assertNotNull(descriptions.get(0));
+            assertDescriptionContains(descriptions.get(0).get(), logDir, tp, partitionSize, offsetLag, OptionalLong.of(totalBytes), OptionalLong.of(usableBytes), remoteLogSize, onlyLocalLogSize);
+
+            Map<Integer, Map<String, LogDirDescription>> allDescriptions = result.allDescriptions().get();
+            assertEquals(brokers, allDescriptions.keySet());
+            assertDescriptionContains(allDescriptions.get(0), logDir, tp, partitionSize, offsetLag, OptionalLong.of(totalBytes), OptionalLong.of(usableBytes), remoteLogSize, onlyLocalLogSize);
 
             // Empty results when not authorized with version < 3
             env.kafkaClient().prepareResponseFrom(

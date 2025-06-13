@@ -3849,6 +3849,31 @@ public class RemoteLogManagerTest {
         assertEquals(84, task.sizeInPercentValue.get());
     }
 
+    @Test
+    public void testComputeRemoteLogSize() throws RemoteStorageException {
+        checkpoint.write(totalEpochEntries);
+        LeaderEpochFileCache cache = new LeaderEpochFileCache(tp, checkpoint, scheduler);
+        when(mockLog.leaderEpochCache()).thenReturn(Option.apply(cache));
+
+        remoteLogManager.startup();
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(leaderTopicIdPartition)), Collections.emptySet(), topicIds);
+
+        List<RemoteLogSegmentMetadata> segmentMetadataList = listRemoteLogSegmentMetadata(leaderTopicIdPartition, 10,
+                100, 1024, totalEpochEntries, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
+                .thenReturn(segmentMetadataList.iterator());
+        when(remoteLogMetadataManager.remoteLogSize(eq(leaderTopicIdPartition), anyInt()))
+                .thenAnswer(invocation -> {
+                    int leaderEpoch = invocation.getArgument(1);
+                    return segmentMetadataList.stream()
+                            .filter(segmentMetadata -> segmentMetadata.segmentLeaderEpochs().containsKey(leaderEpoch))
+                            .mapToLong(RemoteLogSegmentMetadata::segmentSizeInBytes)
+                            .sum();
+                });
+        assertEquals(10240, remoteLogManager.remoteLogSize(leaderTopicIdPartition.topicPartition()).get());
+    }
+
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {
         byte magic = RecordBatch.CURRENT_MAGIC_VALUE;
         Compression compression = Compression.NONE;
