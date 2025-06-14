@@ -367,6 +367,18 @@ public class HDFSRemoteStorageManagerMetrics {
         time(segmentReadTimer, operation);
     }
 
+    int timeSegmentRead(ThrowingSupplier<Integer, IOException> operation) throws IOException {
+        if (segmentReadTimer == null) {
+            return operation.get();
+        }
+        TimerContext context = segmentReadTimer.time();
+        try {
+            return operation.get();
+        } finally {
+            context.stop();
+        }
+    }
+
     void timeSegmentHeaderRead(ThrowingRunnable<IOException> operation) throws IOException {
         time(segmentHeaderReadTimer, operation);
     }

@@ -483,8 +483,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         final RemoteStorageProvider provider = segmentData.storageProvider();
         final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         final String bucket = findBucket(provider, metadata.remoteLogSegmentId());
+        openOutputStreamCount.incrementAndGet();
         try (final FSDataOutputStream fsOut = getFS(bucket).create(dirPath)) {
-            openOutputStreamCount.incrementAndGet();
             final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
             byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
             fsOut.write(serializedHeader, 0, serializedHeader.length);
@@ -1205,7 +1205,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             }
 
             // Then fallback to source
-            return inputStream.read();
+            return metrics.timeSegmentRead(() -> inputStream.read());
         }
 
         @Override
@@ -1231,7 +1231,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
             // If cache exhausted, read from underlying stream
             if (len > 0) {
-                inputStream.readFully(b, off, len);
+                final int finalOff = off;
+                final int finalLen = len;
+                metrics.timeSegmentRead(() -> inputStream.readFully(b, finalOff, finalLen));
                 bytesRead += len;
             }
             position += bytesRead;
@@ -1262,14 +1264,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         private void loadCache() throws IOException {
             cache = bufferWrapper.getByteBuffer().array();
-            cacheLimit = 0;
-            int total = 0;
             int readLen = Math.min(cacheLineSize, (int) (readableSegmentLen - position));
-            while (total < readLen) {
-                inputStream.readFully(cache, 0, readLen);
-                total += readLen;
-            }
-            cacheLimit = total;
+            metrics.timeSegmentRead(() -> inputStream.readFully(cache, 0, readLen));
+            cacheLimit = readLen;
             cacheLoaded = true;
         }
 

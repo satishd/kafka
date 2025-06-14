@@ -120,8 +120,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 public class HDFSRemoteStorageManagerTest {
@@ -647,11 +649,11 @@ public class HDFSRemoteStorageManagerTest {
                     0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
             LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
             rsm.copyLogSegmentData(segmentMetadata, segmentData);
-            verifyFetchLogSegmentDefaultPrefetchAndHedgedReads(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
+            verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
 
             // Verify the metrics
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 1L);
-            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 1L);
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 2L);
             verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 1L);
             verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value > 0);
             verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
@@ -979,6 +981,28 @@ public class HDFSRemoteStorageManagerTest {
         // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
         assertEquals(bucket, HDFSRemoteStorageManager.getBucket(
                 new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void testOpenRemoteOutputStreamCountOnException() throws IOException {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+            doThrow(new IOException("Test exception")).when(spyFileSystem).create(any());
+            rsm.configure(configs);
+            rsm.registerStreamMetrics();
+
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
+                    0, 100, 0, 0, 1L, 1024, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils
+                    .createLogSegmentData(logDir, 0, 1024, false);
+            assertThrows(RemoteStorageException.class, () -> rsm.copyLogSegmentData(segmentMetadata, segmentData));
+            verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+        }
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
