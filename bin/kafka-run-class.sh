@@ -247,6 +247,7 @@ KAFKA_LOG4J_CMD_OPTS="-Dkafka.logs.dir=$LOG_DIR $KAFKA_LOG4J_OPTS"
 if [ -z "$KAFKA_OPTS" ]; then
   KAFKA_OPTS=""
 fi
+KAFKA_OPTS="$KAFKA_OPTS -Dcom.uber.engsec.auth.bouncycastle-enabled=false"
 
 # Set Debug options if enabled
 if [ "x$KAFKA_DEBUG" != "x" ]; then
@@ -269,7 +270,9 @@ if [ "x$KAFKA_DEBUG" != "x" ]; then
 fi
 
 # Which java to use
-if [ -z "$JAVA_HOME" ]; then
+if [ -d "/usr/lib/jvm/java-17-openjdk" ]; then
+  JAVA="/usr/lib/jvm/java-17-openjdk/bin/java"
+elif [ -z "$JAVA_HOME" ]; then
   JAVA="java"
 else
   JAVA="$JAVA_HOME/bin/java"

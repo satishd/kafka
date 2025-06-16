@@ -28,6 +28,7 @@ java_standard:
   - 'RUN chmod 777 /etc/kafka'
   - 'RUN apt-get update'
   - 'RUN apt-get install openjdk-17-jre-headless -y'
+  #  Please update the JAVA_HOME path in kafka-run-class.sh if sym link to /usr/lib/jvm/java-17-openjdk is changed
   - 'RUN ARCH=$(dpkg --print-architecture) && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-8-openjdk-amd64 && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-17-openjdk'
   - 'RUN apt-get install fabric -y'
   - 'RUN apt-get install gettext -y'
