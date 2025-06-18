@@ -63,6 +63,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -149,6 +150,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final Map<FileSystemKey, FileSystem> fileSystemByBucket = new ConcurrentHashMap<>();
     private final AtomicBoolean isHedgedReadsThresholdChanged = new AtomicBoolean();
     private final AtomicBoolean isHedgedReadsThreadConfigChanged = new AtomicBoolean();
+
+    private static final Map<String, String> BUCKET_MAPPING = new HashMap<>();
+
+    static {
+        // deprecated buckets
+        BUCKET_MAPPING.put("oci://uber-prod-ea6bj@ax9estk6tuja/jwj42", "oci://uber-prod-ea6bj@ax9estk6tuja");
+    }
 
     public HDFSRemoteStorageManager() {
         this.metrics = new HDFSRemoteStorageManagerMetrics();
@@ -437,7 +445,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 throw new IllegalArgumentException("No OCI buckets are configured for writing");
             }
             int idx = Math.abs(segmentId.topicIdPartition().hashCode() % ociBuckets.size());
-            return ociBuckets.get(idx);
+            String bucket = ociBuckets.get(idx);
+            return BUCKET_MAPPING.getOrDefault(bucket, bucket);
         } else {
             throw new IllegalArgumentException("Unknown remote storage provider: " + provider);
         }
@@ -455,16 +464,18 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     static String getBucket(RemoteLogSegmentMetadata.CustomMetadata customMetadata) {
+        String bucket;
         try {
             ByteBuffer byteBuffer = ByteBuffer.wrap(customMetadata.value());
             ConnectorCustomMetadata connectorCustomMetadata =
                     new ConnectorCustomMetadata(new ByteBufferAccessor(byteBuffer), ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);
-            return connectorCustomMetadata.uri();
+            bucket = connectorCustomMetadata.uri();
         } catch (Exception e) {
             // Backward compatibility
             // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
-            return new String(customMetadata.value(), StandardCharsets.UTF_8);
+            bucket = new String(customMetadata.value(), StandardCharsets.UTF_8);
         }
+        return BUCKET_MAPPING.getOrDefault(bucket, bucket);
     }
 
     private RemoteStorageProvider getRemoteStorageProvider(String bucket) {
@@ -493,11 +504,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
         final RemoteStorageProvider provider = segmentData.storageProvider();
-        final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         final String bucket = findBucket(provider, metadata.remoteLogSegmentId());
+        final Path path = new Path(bucket + getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         metrics.timeSegmentWrite(provider, () -> {
             openOutputStreamCount.incrementAndGet();
-            try (final FSDataOutputStream fsOut = getFS(bucket).create(dirPath)) {
+            try (final FSDataOutputStream fsOut = getFS(bucket).create(path)) {
                 final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
                 byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
                 fsOut.write(serializedHeader, 0, serializedHeader.length);
@@ -571,8 +582,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         boolean delete;
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
-            Path path = new Path(getSegmentRemoteDir(segmentMetadata.remoteLogSegmentId()));
             String bucket = getBucket(segmentMetadata);
+            Path path = new Path(bucket + getSegmentRemoteDir(segmentMetadata.remoteLogSegmentId()));
             FileSystem fs = getFS(bucket);
             if (fs.exists(path)) {
                 delete = fs.delete(path, true);
@@ -600,9 +611,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         fileSystemByBucket.keySet().forEach(key -> allBuckets.add(key.bucket));
         boolean status = false;
         try {
-            Path path = new Path(getPartitionRemoteDir(partition));
+            String partitionRemoteDir = getPartitionRemoteDir(partition);
             for (String bucket : allBuckets) {
                 FileSystem fs = getFS(bucket);
+                Path path = new Path(bucket + partitionRemoteDir);
                 if (fs.exists(path)) {
                     status = fs.delete(path, true);
                     if (status) {
@@ -815,7 +827,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             this.bucket = bucket;
             this.fileType = fileType;
 
-            Path dataPath = new Path(getSegmentRemoteDir(segmentId));
+            Path dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             long currentTimeMs = time.milliseconds();
             try {
                 inputStream = getFS(bucket).open(dataPath);
@@ -924,7 +936,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             this.bucket = bucket;
             this.remoteStorageProvider = getRemoteStorageProvider(bucket);
             this.enableHedgedReads = enableHedgedReads;
-            this.dataPath = new Path(getSegmentRemoteDir(segmentId));
+            this.dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 if (headerHolder == null) {
@@ -1174,7 +1186,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             this.segmentId = segmentId;
             this.bucket = bucket;
             this.remoteStorageProvider = getRemoteStorageProvider(bucket);
-            this.dataPath = new Path(getSegmentRemoteDir(segmentId));
+            this.dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 openFileStream();

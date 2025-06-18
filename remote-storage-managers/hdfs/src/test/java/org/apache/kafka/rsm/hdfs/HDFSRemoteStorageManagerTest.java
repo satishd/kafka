@@ -58,7 +58,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -121,6 +123,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
@@ -286,7 +289,7 @@ public class HDFSRemoteStorageManagerTest {
         // fetch exceeds the segment size
         verifyFetchLogSegmentWithPrefetchVariants(rsm, segmentMetadata, segmentData, 990, 1050, 10);
     }
-    
+
     @Test
     public void testRepeatedFetchReadsFromCacheOnFullSegmentFetch() throws Exception {
         LRUCacheWithContext cache = new LRUCacheWithContext(10 * 1048576L);
@@ -987,17 +990,21 @@ public class HDFSRemoteStorageManagerTest {
         assertTrue(buckets.contains(defaultFsUri));
     }
 
-    @Test
-    public void testCustomMetadataSizeWithinAllowedMaxBytes() {
-        String bucket = "oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka";
+    @ParameterizedTest
+    @CsvSource(value = {
+            "oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka, oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka",
+            "oci://uber-prod-ea6bj@ax9estk6tuja/jwj42, oci://uber-prod-ea6bj@ax9estk6tuja",
+            "oci://uber-prod-abcde@ax9estk6tuja/jwj42, oci://uber-prod-abcde@ax9estk6tuja/jwj42"
+    })
+    public void testCustomMetadataSizeWithinAllowedMaxBytes(String bucket, String expectedBucket) {
         RemoteLogSegmentMetadata.CustomMetadata customMetadata = HDFSRemoteStorageManager.createCustomMetadata(bucket);
         assertNotNull(customMetadata);
-        assertEquals(bucket, HDFSRemoteStorageManager.getBucket(customMetadata));
+        assertEquals(expectedBucket, HDFSRemoteStorageManager.getBucket(customMetadata));
         assertTrue(customMetadata.value().length < RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_METADATA_CUSTOM_METADATA_MAX_BYTES);
 
         // Backward compatibility
         // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
-        assertEquals(bucket, HDFSRemoteStorageManager.getBucket(
+        assertEquals(expectedBucket, HDFSRemoteStorageManager.getBucket(
                 new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8))));
     }
 
@@ -1020,6 +1027,44 @@ public class HDFSRemoteStorageManagerTest {
                     .createLogSegmentData(logDir, 0, 1024, false);
             assertThrows(RemoteStorageException.class, () -> rsm.copyLogSegmentData(segmentMetadata, segmentData));
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+        }
+    }
+
+    @Test
+    public void testPathContainSchemeAndAuthority() throws Exception {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+
+            rsm.configure(configs);
+            rsm.registerStreamMetrics();
+            ArgumentCaptor<Path> pathArgCaptor = ArgumentCaptor.forClass(Path.class);
+            Mockito.doCallRealMethod().when(spyFileSystem).exists(pathArgCaptor.capture());
+            Mockito.doCallRealMethod().when(spyFileSystem).create(pathArgCaptor.capture());
+            Mockito.doCallRealMethod().when(spyFileSystem).open(pathArgCaptor.capture());
+            Mockito.doCallRealMethod().when(spyFileSystem).delete(pathArgCaptor.capture(), anyBoolean());
+
+            Uuid uuid = Uuid.randomUuid();
+            RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, true);
+            verifyDeleteRemoteLogSegment(rsm, metadata, tp, uuid);
+
+            List<Path> capturedPaths = pathArgCaptor.getAllValues();
+            assertFalse(capturedPaths.isEmpty());
+            String remotePartitionDir = defaultFsUri + "/user/kloak/kafka-remote-logs/" + tp.topicPartition() + "-" + tp.topicId();
+            String segmentPath = remotePartitionDir + "/" + uuid;
+            for (Path path : capturedPaths) {
+                assertEquals(segmentPath, path.toString());
+            }
+            rsm.deletePartition(tp, Collections.singletonList(metadata));
+            assertEquals(remotePartitionDir, pathArgCaptor.getValue().toString());
+
+            verify(spyFileSystem, atLeastOnce()).exists(any());
+            verify(spyFileSystem, atLeastOnce()).create(any());
+            verify(spyFileSystem, atLeastOnce()).open(any());
+            verify(spyFileSystem, atLeastOnce()).delete(any(), anyBoolean());
         }
     }
 
