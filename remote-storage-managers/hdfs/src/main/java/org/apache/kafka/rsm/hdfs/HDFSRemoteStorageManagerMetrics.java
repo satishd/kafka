@@ -17,6 +17,7 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPool;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -32,12 +33,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class HDFSRemoteStorageManagerMetrics {
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManagerMetrics.class);
+    static final String PROVIDER = "provider";
 
     // Buffer Pool metrics
     static final String BUFFER_POOL_ALLOC_COUNT = "buffer-pool-alloc-count";
@@ -67,17 +72,22 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String FS_OPEN_INPUT_STREAM = "fs-open-input-stream";
     static final String FS_OPEN_OUTPUT_STREAM = "fs-open-output-stream";
 
+    private final Map<RemoteStorageProvider, Timer> segmentReadTimerByProvider = new HashMap<>();
+    private final Map<RemoteStorageProvider, Timer> segmentHeaderReadTimerByProvider = new HashMap<>();
+
     private Meter cacheThrashMeter;
     private Timer fileSystemOpenTimer;
     private Timer fileSystemStatusTimer;
-    private Timer segmentReadTimer;
-    private Timer segmentHeaderReadTimer;
 
     private MetricName metricName(String name) {
+        return metricName(name, null);
+    }
+
+    private MetricName metricName(String name, LinkedHashMap<String, String> tags) {
         Class<? extends HDFSRemoteStorageManager> klass = HDFSRemoteStorageManager.class;
         String group = klass.getPackage() == null ? "" : klass.getPackage().getName();
         String typeName = klass.getSimpleName().replaceAll("\\$$", "");
-        return new MetricName(group, typeName, name, null, group + ":type=" + typeName + ",name=" + name);
+        return KafkaYammerMetrics.getMetricName(group, typeName, name, tags);
     }
 
     void registerCacheMetrics(LRUCache cache) {
@@ -321,10 +331,14 @@ public class HDFSRemoteStorageManagerMetrics {
                 metricName(FS_OPEN_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
         fileSystemStatusTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
                 metricName(FS_STATUS_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        segmentReadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
-                metricName(SEGMENT_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
-        segmentHeaderReadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
-                metricName(SEGMENT_HEADER_READ_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        for (RemoteStorageProvider provider : RemoteStorageProvider.values()) {
+            LinkedHashMap<String, String> tags = new LinkedHashMap<>();
+            tags.put(PROVIDER, provider.toString());
+            segmentReadTimerByProvider.put(provider, KafkaYammerMetrics.defaultRegistry().newTimer(
+                            metricName(SEGMENT_READ_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
+            segmentHeaderReadTimerByProvider.put(provider, KafkaYammerMetrics.defaultRegistry().newTimer(
+                            metricName(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
+        }
     }
 
     void registerStreamMetrics(final AtomicInteger openInputStreamCount,
@@ -363,11 +377,12 @@ public class HDFSRemoteStorageManagerMetrics {
         time(fileSystemStatusTimer, operation);
     }
 
-    void timeSegmentRead(ThrowingRunnable<IOException> operation) throws IOException {
-        time(segmentReadTimer, operation);
+    void timeSegmentRead(RemoteStorageProvider provider, ThrowingRunnable<IOException> operation) throws IOException {
+        time(segmentReadTimerByProvider.get(provider), operation);
     }
 
-    int timeSegmentRead(ThrowingSupplier<Integer, IOException> operation) throws IOException {
+    int timeSegmentRead(RemoteStorageProvider provider, ThrowingSupplier<Integer, IOException> operation) throws IOException {
+        Timer segmentReadTimer = segmentReadTimerByProvider.get(provider);
         if (segmentReadTimer == null) {
             return operation.get();
         }
@@ -379,8 +394,8 @@ public class HDFSRemoteStorageManagerMetrics {
         }
     }
 
-    void timeSegmentHeaderRead(ThrowingRunnable<IOException> operation) throws IOException {
-        time(segmentHeaderReadTimer, operation);
+    void timeSegmentHeaderRead(RemoteStorageProvider provider, ThrowingRunnable<IOException> operation) throws IOException {
+        time(segmentHeaderReadTimerByProvider.get(provider), operation);
     }
 
     private <E extends Exception> void time(Timer timer, ThrowingRunnable<E> operation) throws E {

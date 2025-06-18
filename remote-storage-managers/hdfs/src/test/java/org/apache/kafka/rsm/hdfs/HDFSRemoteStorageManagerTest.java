@@ -81,6 +81,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
@@ -632,15 +633,25 @@ public class HDFSRemoteStorageManagerTest {
             // Call once to initialize the default filesystem
             rsm.getFS(defaultFsUri);
 
+            Map<String, String> hdfsTags = Collections.singletonMap(
+                    HDFSRemoteStorageManagerMetrics.PROVIDER, RemoteStorageProvider.HDFS.toString());
+            Map<String, String> ociTags = Collections.singletonMap(
+                    HDFSRemoteStorageManagerMetrics.PROVIDER, RemoteStorageProvider.OCI.toString());
+
             // Verify initial values
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 0L);
-            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 0L);
-            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0L);
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, hdfsTags, 0L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, hdfsTags, 0L);
             verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value == 0);
-            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
-            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value == 0);
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
             verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+            // oci metrics should be zero
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
 
             // Copy one segment and fetch it via Remote Storage Manager
             Uuid uuid = Uuid.randomUuid();
@@ -653,13 +664,18 @@ public class HDFSRemoteStorageManagerTest {
 
             // Verify the metrics
             verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, 1L);
-            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, 2L);
-            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 1L);
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, hdfsTags, 2L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, hdfsTags, 1L);
             verifyTimerQuantile(FS_STATUS_RATE_AND_TIME_MS, 0.5, value -> value > 0);
-            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
-            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value > 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value > 0);
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
             verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+            // oci metrics should be zero
+            verifyTimerCount(SEGMENT_READ_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerCount(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerQuantile(SEGMENT_READ_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
+            verifyTimerQuantile(SEGMENT_HEADER_READ_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
         }
     }
 
@@ -1014,17 +1030,24 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     private void verifyTimerCount(String name, long expectedValue) {
-        Timer timer = findKafkaMetric(name)
-                .map(metric -> (Timer) metric)
-                .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
+        verifyTimerCount(name, Collections.emptyMap(), expectedValue);
+    }
 
-        assertEquals(expectedValue, timer.count(), "Timer count check failed for " + name);
+    private void verifyTimerCount(String name, Map<String, String> tags, long expectedValue) {
+        Timer timer = findKafkaMetric(name, tags)
+                .map(metric -> (Timer) metric)
+                .orElseThrow(() -> new AssertionError("Metric " + name + " with tags " + tags + " not found"));
+        assertEquals(expectedValue, timer.count(), "Timer count check failed for " + name + " with tags " + tags);
     }
 
     private void verifyTimerQuantile(String name, double quantile, Predicate<Double> assertion) {
-        Timer timer = findKafkaMetric(name)
-            .map(metric -> (Timer) metric)
-            .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
+        verifyTimerQuantile(name, Collections.emptyMap(), quantile, assertion);
+    }
+
+    private void verifyTimerQuantile(String name, Map<String, String> tags, double quantile, Predicate<Double> assertion) {
+        Timer timer = findKafkaMetric(name, tags)
+                .map(metric -> (Timer) metric)
+                .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
 
         double value = timer.getSnapshot().getValue(quantile);
         assertTrue(assertion.test(value), "Timer quantile check failed for " + name);
@@ -1102,18 +1125,22 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     private Optional<Metric> findKafkaMetric(String name) {
-        return KafkaYammerMetrics.defaultRegistry().allMetrics()
-            .entrySet()
-            .stream()
-            .filter(entry -> {
-                MetricName metricName = entry.getKey();
-                return metricName.getGroup().equals(HDFSRemoteStorageManager.class.getPackage().getName()) &&
-                    metricName.getType().equals(HDFSRemoteStorageManager.class.getSimpleName()) &&
-                    metricName.getName().equals(name);
+        return findKafkaMetric(name, Collections.emptyMap());
+    }
 
-            })
-            .findFirst()
-            .map(Map.Entry::getValue);
+    private Optional<Metric> findKafkaMetric(String name, Map<String, String> tags) {
+        String scope = tags.entrySet().stream().map(e -> e.getKey() + "." + e.getValue()).collect(Collectors.joining(","));
+        return KafkaYammerMetrics.defaultRegistry().allMetrics()
+                .entrySet()
+                .stream()
+                .filter(entry -> {
+                    MetricName metricName = entry.getKey();
+                    return metricName.getGroup().equals(HDFSRemoteStorageManager.class.getPackage().getName()) &&
+                            metricName.getType().equals(HDFSRemoteStorageManager.class.getSimpleName()) &&
+                            metricName.getName().equals(name) && (!metricName.hasScope() || metricName.getScope().equals(scope));
+                })
+                .findFirst()
+                .map(Map.Entry::getValue);
     }
 
     private void verifyFetchLogSegmentDefaultPrefetch(RemoteStorageManager rsm,
