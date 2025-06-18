@@ -495,25 +495,28 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         final RemoteStorageProvider provider = segmentData.storageProvider();
         final Path dirPath = new Path(getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         final String bucket = findBucket(provider, metadata.remoteLogSegmentId());
-        openOutputStreamCount.incrementAndGet();
-        try (final FSDataOutputStream fsOut = getFS(bucket).create(dirPath)) {
-            final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
-            byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
-            fsOut.write(serializedHeader, 0, serializedHeader.length);
-            uploadFile(segmentData.offsetIndex(), fsOut);
-            uploadFile(segmentData.timeIndex(), fsOut);
-            uploadData(segmentData.leaderEpochIndex(), fsOut);
-            uploadFile(segmentData.producerSnapshotIndex(), fsOut);
-            if (segmentData.transactionIndex().isPresent()) {
-                uploadFile(segmentData.transactionIndex().get(), fsOut);
+        metrics.timeSegmentWrite(provider, () -> {
+            openOutputStreamCount.incrementAndGet();
+            try (final FSDataOutputStream fsOut = getFS(bucket).create(dirPath)) {
+                final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
+                byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
+                fsOut.write(serializedHeader, 0, serializedHeader.length);
+                uploadFile(segmentData.offsetIndex(), fsOut);
+                uploadFile(segmentData.timeIndex(), fsOut);
+                uploadData(segmentData.leaderEpochIndex(), fsOut);
+                uploadFile(segmentData.producerSnapshotIndex(), fsOut);
+                if (segmentData.transactionIndex().isPresent()) {
+                    uploadFile(segmentData.transactionIndex().get(), fsOut);
+                }
+                uploadFile(segmentData.logSegment(), fsOut);
+                fsOut.flush();
+            } catch (Exception e) {
+                throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
+            } finally {
+                openOutputStreamCount.decrementAndGet();
             }
-            uploadFile(segmentData.logSegment(), fsOut);
-            fsOut.flush();
-        } catch (Exception e) {
-            throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
-        } finally {
-            openOutputStreamCount.decrementAndGet();
-        }
+        });
+        metrics.recordSegmentWriteSize(provider, metadata.segmentSizeInBytes());
         return Optional.of(createCustomMetadata(bucket));
     }
 

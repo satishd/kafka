@@ -107,6 +107,8 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THR
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_BYTES_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_RATE_AND_TIME_MS;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -1021,6 +1023,49 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
+    @Test
+    public void testCopyLogSegmentDataMetrics() throws IOException, RemoteStorageException {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            // Clear previously registered metrics during object creation
+            clearKafkaMetrics();
+            rsm.registerHDFSReadMetrics();
+
+            Map<String, String> hdfsTags = Collections.singletonMap(
+                    HDFSRemoteStorageManagerMetrics.PROVIDER, RemoteStorageProvider.HDFS.toString());
+            Map<String, String> ociTags = Collections.singletonMap(
+                    HDFSRemoteStorageManagerMetrics.PROVIDER, RemoteStorageProvider.OCI.toString());
+
+            // Verify initial metrics are zero
+            verifyTimerCount(SEGMENT_WRITE_RATE_AND_TIME_MS, hdfsTags, 0L);
+            verifyTimerQuantile(SEGMENT_WRITE_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value == 0);
+            verifyMeter(SEGMENT_WRITE_BYTES_PER_SEC, hdfsTags, 0L);
+            verifyTimerCount(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerQuantile(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
+            verifyMeter(SEGMENT_WRITE_BYTES_PER_SEC, ociTags, 0L);
+
+            Uuid uuid = Uuid.randomUuid();
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
+                    0, 100, 0, 0, 1L, 1024, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, 1024, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+
+            // Verify the hdfs metrics
+            verifyTimerCount(SEGMENT_WRITE_RATE_AND_TIME_MS, hdfsTags, 1L);
+            verifyTimerQuantile(SEGMENT_WRITE_RATE_AND_TIME_MS, hdfsTags, 0.5, value -> value > 0);
+            verifyMeter(SEGMENT_WRITE_BYTES_PER_SEC, hdfsTags, 1024L);
+
+            // verify oci metrics are zero
+            verifyTimerCount(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0L);
+            verifyTimerQuantile(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
+            verifyMeter(SEGMENT_WRITE_BYTES_PER_SEC, ociTags, 0L);
+        }
+    }
+
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
         Uuid segmentId = Uuid.fromString("pQpAc9OvTGaxywm8JnN9IQ");
         Uuid topicId = Uuid.fromString("hHJfD_slRkGCrDPSvJsMtA");
@@ -1051,6 +1096,13 @@ public class HDFSRemoteStorageManagerTest {
 
         double value = timer.getSnapshot().getValue(quantile);
         assertTrue(assertion.test(value), "Timer quantile check failed for " + name);
+    }
+
+    private void verifyMeter(String name, Map<String, String> tags, long expectedCount) {
+        Meter meter = findKafkaMetric(name, tags)
+                .map(metric -> (Meter) metric)
+                .orElseThrow(() -> new AssertionError("Meter " + name + " with tags " + tags + " not found"));
+        assertEquals(expectedCount, meter.count(), "Meter count check failed for " + name + " with tags " + tags);
     }
 
     private <T> void verifyGauge(String name, T expectedValue) {
