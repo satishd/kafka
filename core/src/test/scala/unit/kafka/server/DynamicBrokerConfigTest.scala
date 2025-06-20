@@ -39,7 +39,7 @@ import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoderConfigs
 import org.apache.kafka.server.authorizer._
 import org.apache.kafka.server.config.{KRaftConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
-import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
+import org.apache.kafka.server.log.remote.storage.{RemoteLogManagerConfig, RemoteStorageProvider}
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.util.KafkaScheduler
 import org.apache.kafka.storage.internals.log.{CleanerConfig, LogConfig, ProducerStateManagerConfig}
@@ -1084,6 +1084,36 @@ class DynamicBrokerConfigTest {
     verify(remoteLogManager).updateFetchQuota(400)
 
     verifyNoMoreInteractions(remoteLogManager)
+  }
+
+  @Test
+  def testDynamicLogRemoteStorageProviderConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 8181)
+    val config = KafkaConfig(props)
+    config.dynamicConfig.initialize(None, None)
+
+    // default should be 'hdfs'
+    assertEquals(RemoteStorageProvider.HDFS.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
+
+    val dynamicLogConfig = new DynamicLogConfig(mock(classOf[LogManager]), mock(classOf[KafkaServer]))
+    config.dynamicConfig.addBrokerReconfigurable(dynamicLogConfig)
+
+    val newProps = new Properties()
+    // update with invalid-value
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, "invalid_provider")
+    assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(newProps, perBrokerConfig = false))
+
+    // update default config
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, RemoteStorageProvider.OCI.toString)
+    config.dynamicConfig.validate(newProps, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(newProps)
+    assertEquals(RemoteStorageProvider.OCI.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
+
+    // update per broker config
+    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, RemoteStorageProvider.HDFS.toString)
+    config.dynamicConfig.updateBrokerConfig(0, newProps)
+    assertEquals(RemoteStorageProvider.HDFS.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
   }
 
   @Test

@@ -38,6 +38,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.{TopicPartition, Uuid}
 import org.apache.kafka.server.common.MetadataVersion.IBP_3_0_IV1
 import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ServerLogConfigs, ZooKeeperInternals}
+import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.storage.internals.log.LogConfig
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{Test, Timeout}
@@ -565,6 +566,49 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
         assertEquals(value, b.quotaManagers.alterLogDirs.upperBound)
       }
     }
+  }
+
+  @Test
+  def testCreateRemoteTopicWithStorageProvider(): Unit = {
+    // default remote storage provider is hdfs
+    assertEquals("hdfs", this.servers.head.config.remoteLogManagerConfig.logRemoteStorageProvider)
+
+    def assertStorageProvider(partition: TopicPartition, provider: String): Unit = {
+      TestUtils.retry(10000) {
+        val logOpt = this.servers.head.logManager.getLog(partition)
+        assertTrue(logOpt.isDefined)
+        assertEquals(provider, logOpt.get.config.remoteStorageProvider)
+      }
+    }
+
+    val tp = new TopicPartition("test", 0)
+    createTopic(tp.topic, 1, 1, new Properties())
+    assertStorageProvider(partition = tp, provider = "hdfs")
+
+    val tp1 = new TopicPartition("test1", 0)
+    val logProps = new Properties()
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs")
+    createTopic(tp1.topic, 1, 1, logProps)
+    assertStorageProvider(partition = tp1, provider = "hdfs")
+
+    val serverProps = new Properties()
+    serverProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, "oci")
+    adminZkClient.changeBrokerConfig(Seq(0), serverProps)
+    TestUtils.retry(10000) {
+      assertEquals("oci", this.servers.head.config.remoteLogManagerConfig.logRemoteStorageProvider)
+    }
+
+    val tp2 = new TopicPartition("test2", 0)
+    createTopic(tp2.topic, 1, 1, new Properties())
+    assertStorageProvider(partition = tp2, provider = "oci")
+    // test-0 topic does not overwrite the `remote.storage.provider` at topic-level.
+    assertStorageProvider(partition = tp, provider = "oci")
+    assertStorageProvider(partition = tp1, provider = "hdfs")
+
+    val tp3 = new TopicPartition("test3", 0)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs")
+    createTopic(tp3.topic, 1, 1, logProps)
+    assertStorageProvider(partition = tp3, provider = "hdfs")
   }
 
   private def createAdminClient(): Admin = {

@@ -150,6 +150,11 @@ public final class RemoteLogManagerConfig {
             "less than or equal to `log.retention.bytes` value.";
     public static final Long DEFAULT_LOG_LOCAL_RETENTION_BYTES = -2L;
 
+    public static final String LOG_REMOTE_STORAGE_PROVIDER_PROP = "log.remote.storage.provider";
+    public static final String LOG_REMOTE_STORAGE_PROVIDER_DOC = "The remote storage provider to be used for storing remote logs. " +
+            "The supported providers are 'hdfs' and 'oci'.";
+    public static final String DEFAULT_LOG_REMOTE_STORAGE_PROVIDER = RemoteStorageProvider.HDFS.toString();
+
     public static final String REMOTE_LOG_MANAGER_COPY_MAX_BYTES_PER_SECOND_PROP = "remote.log.manager.copy.max.bytes.per.second";
     public static final String REMOTE_LOG_MANAGER_COPY_MAX_BYTES_PER_SECOND_DOC = "The maximum number of bytes that can be copied from local storage to remote storage per second. " +
             "This is a global limit for all the partitions that are being copied from local storage to remote storage. " +
@@ -386,7 +391,13 @@ public final class RemoteLogManagerConfig {
                         DEFAULT_REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS,
                         atLeast(1),
                         MEDIUM,
-                        REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_DOC);
+                        REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_DOC)
+                .defineInternal(LOG_REMOTE_STORAGE_PROVIDER_PROP,
+                        STRING,
+                        DEFAULT_LOG_REMOTE_STORAGE_PROVIDER,
+                        ConfigDef.CaseInsensitiveValidString.in(RemoteStorageProvider.HDFS.toString(), RemoteStorageProvider.OCI.toString()),
+                        MEDIUM,
+                        LOG_REMOTE_STORAGE_PROVIDER_DOC);
     }
     
     public RemoteLogManagerConfig(AbstractConfig config) {
@@ -530,6 +541,10 @@ public final class RemoteLogManagerConfig {
 
     public int remoteLogOffsetReaderMaxPendingTasks() {
         return config.getInt(REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS_PROP);
+    }
+
+    public String logRemoteStorageProvider() {
+        return config.getString(LOG_REMOTE_STORAGE_PROVIDER_PROP);
     }
 
     public static void main(String[] args) {
