@@ -20,6 +20,14 @@ import java.nio.charset.StandardCharsets
 
 buildscript {
   repositories {
+    maven {
+      url "http://artifactory.uber.internal:4587/artifactory/java-repo/"
+      allowInsecureProtocol = true
+    }
+    maven {
+      url "http://artifactory.uber.internal:4587/artifactory/repo/"
+      allowInsecureProtocol = true
+    }
     mavenCentral()
   }
   apply from: "$rootDir/gradle/dependencies.gradle"
@@ -129,7 +137,14 @@ ext {
 allprojects {
 
   repositories {
-    mavenCentral()
+    maven {
+      url "http://artifactory.uber.internal:4587/artifactory/java-repo/"
+      allowInsecureProtocol = true
+    }
+    maven {
+      url "http://artifactory.uber.internal:4587/artifactory/repo/"
+      allowInsecureProtocol = true
+    }
     maven {
       url 'http://artifactory.uber.internal:4587/artifactory/libs-release-local/'
       allowInsecureProtocol = true
@@ -138,6 +153,7 @@ allprojects {
         artifact()
       }
     }
+    mavenCentral()
   }
 
   dependencyUpdates {
