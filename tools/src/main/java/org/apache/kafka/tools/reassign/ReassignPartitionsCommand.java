@@ -1234,7 +1234,7 @@ public class ReassignPartitionsCommand {
         Set<TopicPartition> targetPartsSet = targetParts.stream().map(t -> t.getKey()).collect(Collectors.toSet());
         Set<TopicPartition> curReassigningParts = new HashSet<>();
         adminClient.listPartitionReassignments(targetPartsSet).reassignments().get().forEach((part, reassignment) -> {
-            if (reassignment.addingReplicas().isEmpty() || !reassignment.removingReplicas().isEmpty())
+            if (!reassignment.addingReplicas().isEmpty() || !reassignment.removingReplicas().isEmpty())
                 curReassigningParts.add(part);
         });
         if (!curReassigningParts.isEmpty()) {
