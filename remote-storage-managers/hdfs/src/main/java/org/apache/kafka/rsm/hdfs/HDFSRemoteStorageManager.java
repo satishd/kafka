@@ -701,11 +701,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                                          int endPosition) throws RemoteStorageException {
         try {
             String bucket = getBucket(metadata);
-            if (readContext.isPrefetchEnabled()) {
-                boolean enableHedgedReads = readContext.isHedgedReadsEnabled();
-                return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition, enableHedgedReads);
+            RemoteStorageProvider storageProvider = getRemoteStorageProvider(bucket);
+            boolean isHedgedReadsEnabled = storageProvider == RemoteStorageProvider.HDFS && readContext.isHedgedReadsEnabled();
+            if (readContext.isPrefetchEnabled() || isHedgedReadsEnabled) {
+                return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
+                        startPosition, endPosition, isHedgedReadsEnabled);
             } else {
-                return new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, startPosition, endPosition);
+                return new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider, startPosition, endPosition);
             }
         } catch (Exception e) {
             throw new RemoteStorageException(
@@ -904,10 +906,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    private class CachedInputStream extends InputStream {
+    class CachedInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
         private final String bucket;
-        private final RemoteStorageProvider remoteStorageProvider;
+        private final RemoteStorageProvider storageProvider;
         private final boolean enableHedgedReads;
         private final Path dataPath;
         private final LogSegmentDataHeader.DataPosition dataPosition;
@@ -923,18 +925,20 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
          * Input Stream which caches the SEGMENT data to serve them locally on repeated reads.
          * @param segmentId  remote log segment id
          * @param bucket     bucket name
+         * @param storageProvider remote storage provider
          * @param currentPos current position to read from the stream, inclusive.
          * @param endPos     to read upto the end position, inclusive.
          * @throws IOException IO problems
          */
         CachedInputStream(RemoteLogSegmentId segmentId,
                           String bucket,
+                          RemoteStorageProvider storageProvider,
                           int currentPos,
                           int endPos,
                           boolean enableHedgedReads) throws IOException {
             this.segmentId = segmentId;
             this.bucket = bucket;
-            this.remoteStorageProvider = getRemoteStorageProvider(bucket);
+            this.storageProvider = storageProvider;
             this.enableHedgedReads = enableHedgedReads;
             this.dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             try {
@@ -979,7 +983,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // Sends a remote fetch to read the file header.
             long currentTimeMs = time.milliseconds();
             byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            metrics.timeSegmentHeaderRead(remoteStorageProvider, () -> inputStream.readFully(0, buffer));
+            metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
 
             FileSystem fileSystem = getFS(bucket);
@@ -1114,8 +1118,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             wrapper = byteBufferPool.acquire().retain();
 
             ByteBuffer byteBuffer = wrapper.getByteBuffer();
-            metrics.timeSegmentRead(remoteStorageProvider,
-                    () -> inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength));
+            metrics.timeSegmentRead(storageProvider,
+                () -> inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength));
             // Explicitly set the position to 0 since we wrote to the buffer from the beginning.
             byteBuffer.position(0);
             // We have to explicitly set the limit to the dataLength as the buffer is borrowed from the pool. The
@@ -1152,7 +1156,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private class SimpleInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
         private final String bucket;
-        private final RemoteStorageProvider remoteStorageProvider;
+        private final RemoteStorageProvider storageProvider;
         private final Path dataPath;
         // Represents the length of the segment file that is readable
         private final long readableSegmentLen;
@@ -1174,6 +1178,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
          * for all the offsets.
          *
          * @param segmentId  remote log segment id
+         * @param storageProvider remote storage provider
          * @param bucket     bucket name
          * @param startPos   starting position to read from the stream, inclusive.
          * @param endPos     to read upto the end position, inclusive.
@@ -1181,11 +1186,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
          */
         SimpleInputStream(RemoteLogSegmentId segmentId,
                           String bucket,
+                          RemoteStorageProvider storageProvider,
                           int startPos,
                           int endPos) throws IOException {
             this.segmentId = segmentId;
             this.bucket = bucket;
-            this.remoteStorageProvider = getRemoteStorageProvider(bucket);
+            this.storageProvider = storageProvider;
             this.dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
@@ -1237,7 +1243,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             }
 
             // Then fallback to source
-            return metrics.timeSegmentRead(remoteStorageProvider, () -> inputStream.read());
+            return metrics.timeSegmentRead(storageProvider, () -> inputStream.read());
         }
 
         @Override
@@ -1265,7 +1271,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             if (len > 0) {
                 final int finalOff = off;
                 final int finalLen = len;
-                metrics.timeSegmentRead(remoteStorageProvider, () -> inputStream.readFully(b, finalOff, finalLen));
+                metrics.timeSegmentRead(storageProvider, () -> inputStream.readFully(b, finalOff, finalLen));
                 bytesRead += len;
             }
             position += bytesRead;
@@ -1297,7 +1303,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         private void loadCache() throws IOException {
             cache = bufferWrapper.getByteBuffer().array();
             int readLen = Math.min(cacheLineSize, (int) (readableSegmentLen - position));
-            metrics.timeSegmentRead(remoteStorageProvider, () -> inputStream.readFully(cache, 0, readLen));
+            metrics.timeSegmentRead(storageProvider, () -> inputStream.readFully(cache, 0, readLen));
             cacheLimit = readLen;
             cacheLoaded = true;
         }
@@ -1316,7 +1322,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // Sends a remote fetch to read the file header.
             long currentTimeMs = time.milliseconds();
             byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            metrics.timeSegmentHeaderRead(remoteStorageProvider, () -> inputStream.readFully(0, buffer));
+            metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
             LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
 
             FileSystem fileSystem = getFS(bucket);

@@ -1297,6 +1297,9 @@ public class HDFSRemoteStorageManagerTest {
             buffer.rewind();
             assertDataEquals(buffer, stream);
             byteChannel.close();
+            if (readContext.isHedgedReadsEnabled()) {
+                assertTrue(stream instanceof HDFSRemoteStorageManager.CachedInputStream);
+            }
         }
     }
 
