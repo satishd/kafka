@@ -494,7 +494,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 .collect(Collectors.toSet());
     }
 
-    static RemoteLogSegmentMetadata.CustomMetadata createCustomMetadata(String bucket) {
+    public static RemoteLogSegmentMetadata.CustomMetadata createCustomMetadata(String bucket) {
         ConnectorCustomMetadata connectorCustomMetadata = new ConnectorCustomMetadata();
         connectorCustomMetadata.setUri(bucket);
         ByteBuffer byteBuffer = MessageUtil.toByteBuffer(connectorCustomMetadata, ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);

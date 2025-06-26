@@ -24,6 +24,8 @@ import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.storage.internals.log.LogFileUtils;
@@ -40,6 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class DumpHDFSRemoteLogSegment {
@@ -73,11 +76,17 @@ public class DumpHDFSRemoteLogSegment {
         Uuid segmentUuid = Uuid.fromString(namespace.getString("segment_uuid"));
         String outputDir = namespace.get("output_dir").toString();
         long endOffset = baseOffset + 1; // dummy field, required only to skip the validation (endOffset > baseOffset)
+        String bucket = namespace.getString("bucket");
+        boolean prefetch = namespace.getBoolean("prefetch");
+
+        Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadata = Optional.of(
+                HDFSRemoteStorageManager.createCustomMetadata(bucket));
 
         TopicIdPartition topicIdPartition = new TopicIdPartition(topicUuid, partition, topic);
         RemoteLogSegmentId segmentId = new RemoteLogSegmentId(topicIdPartition, segmentUuid);
         RemoteLogSegmentMetadata metadata = new RemoteLogSegmentMetadata(segmentId, baseOffset,
-                endOffset, -1, -1, -1, -1, Collections.singletonMap(0, 0L));
+                endOffset, -1, -1, -1, -1, customMetadata,
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED, Collections.singletonMap(0, 0L));
         String filename = LogFileUtils.filenamePrefixFromOffset(baseOffset);
 
         Map<String, String> configs = Utils.propsToStringMap(Utils.loadProps(serverPropsFilename));
@@ -106,7 +115,8 @@ public class DumpHDFSRemoteLogSegment {
             // Fetch the log segment
             File segmentFile = new File(outputDir, filename + LogFileUtils.LOG_FILE_SUFFIX);
             System.out.println("Fetching segment " + segmentFile);
-            try (InputStream stream = manager.fetchLogSegment(metadata, 0)) {
+            RemoteReadContext readContext = new RemoteReadContext(prefetch, false);
+            try (InputStream stream = manager.fetchLogSegment(metadata, readContext, 0)) {
                 Files.copy(stream, segmentFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
             System.out.println("Done");
@@ -142,6 +152,14 @@ public class DumpHDFSRemoteLogSegment {
                 .type(String.class)
                 .required(true)
                 .help("REQUIRED: The topic name");
+        parser.addArgument("--bucket")
+                .type(String.class)
+                .required(true)
+                .help("REQUIRED: The topic name");
+        parser.addArgument("--prefetch")
+                .type(Boolean.class)
+                .action(Arguments.storeTrue())
+                .help("Enable prefetch");
         parser.addArgument("--partition")
                 .type(Integer.class)
                 .required(true)
