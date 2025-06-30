@@ -1575,6 +1575,7 @@ public class RemoteLogManager implements Closeable {
 
                 int sizePercentage = retentionSize > 0 ?
                         (int) ((totalSize * 100.0) / retentionSize) : 0;
+                logger.trace("Partition size metric::value: {}, totalSize: {}, retentionSize: {}", sizePercentage, totalSize, retentionSize);
                 sizeInPercentValue.set(sizePercentage);
 
                 if (totalSize > retentionSize) {
@@ -2261,6 +2262,10 @@ public class RemoteLogManager implements Closeable {
             brokerTopicStats.removeRemoteLogSizeComputationTime(topic, partition);
             brokerTopicStats.removeRemoteLogSizeBytes(topic, partition);
         }
+        Map<String, String> tags = new HashMap<>();
+        tags.put("topic", topicIdPartition.topic());
+        tags.put("partition", Integer.toString(topicIdPartition.partition()));
+        metricsGroup.removeMetric(LogMetricNames.SizeInPercent(), tags);
     }
 
     //Visible for testing

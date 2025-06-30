@@ -3830,6 +3830,29 @@ public class RemoteLogManagerTest {
         remoteLogManager.close();
     }
 
+    private Object yammerMetricValueWithTags(String nameSuffix, Map<String, String> metricTags) {
+        return KafkaYammerMetrics.defaultRegistry().allMetrics().entrySet().stream()
+                .filter(entry -> {
+                    MetricName metricName = entry.getKey();
+
+                    // 1. Check if MBean name ends with the given suffix
+                    if (!metricName.getMBeanName().endsWith(nameSuffix)) {
+                        return false;
+                    }
+
+                    // 2. Check if all required tags are present and match
+                    boolean allTagsMatch = metricTags.entrySet().stream()
+                            .allMatch(tag -> metricName.getMBeanName().contains(tag.getKey() + "=" + tag.getValue()));
+
+                    return allTagsMatch;
+                })
+                .map(Map.Entry::getValue)
+                .filter(metric -> metric instanceof Gauge)
+                .map(metric -> ((Gauge<?>) metric).value())
+                .findFirst()
+                .orElse(null); // Return null if no matching metric is found
+    }
+
     @Test
     public void testSizeInPercentMetric() throws RemoteStorageException {
         remoteLogManager.startup();
@@ -3847,6 +3870,14 @@ public class RemoteLogManagerTest {
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
         task.buildRetentionSizeData(12288, 100, 1000, epochEntries);
         assertEquals(84, task.sizeInPercentValue.get());
+
+        TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("Leader", 1));
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(newLeaderTopicIdPartition)), Collections.singleton(mockPartition(leaderTopicIdPartition)), topicIds);
+        Map<String, String> metricTags = new HashMap<>();
+        metricTags.put("topic", leaderTopicIdPartition.topic());
+        metricTags.put("partition", Integer.toString(leaderTopicIdPartition.partition()));
+        assertNull(yammerMetricValueWithTags(LogMetricNames.SizeInPercent(), metricTags));
     }
 
     @Test
