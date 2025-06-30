@@ -106,8 +106,6 @@ object ControllerState {
 
   case object UpdateMetadataResponseReceived extends ControllerState {
     def value = 16
-
-    override protected def hasRateAndTimeMetric: Boolean = false
   }
 
   case object UpdateFeatures extends ControllerState {

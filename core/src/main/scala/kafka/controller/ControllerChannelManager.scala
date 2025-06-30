@@ -635,7 +635,9 @@ abstract class AbstractControllerBrokerRequestBatch(config: KafkaConfig,
       )
       sendRequest(broker, updateMetadataRequestBuilder, (r: AbstractResponse) => {
         val updateMetadataResponse = r.asInstanceOf[UpdateMetadataResponse]
-        handleUpdateMetadataResponse(updateMetadataResponse, broker)
+        if (updateMetadataResponse.error() != Errors.NONE) {
+          handleUpdateMetadataResponse(updateMetadataResponse, broker)
+        }
       })
 
     }

@@ -280,6 +280,10 @@ class ControllerChannelManagerTest {
     val UpdateMetadataResponseReceived(updateMetadataResponse, brokerId) = batch.sentEvents.head
     assertEquals(2, brokerId)
     assertEquals(Errors.STALE_BROKER_EPOCH, updateMetadataResponse.error)
+
+    batch.sentEvents.clear()
+    applyUpdateMetadataResponseCallbacks(Errors.NONE, batch.sentRequests(2).toList)
+    assertEquals(0, batch.sentEvents.size)
   }
 
   @Test
