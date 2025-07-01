@@ -272,6 +272,7 @@ if (repo != null) {
         '.buildkite/udj/sonarw-commit-job.yaml',
         '.jenkins/**',
         '**/*.properties',
+        'RELEASE_NOTES.md'
     ])
   }
 } else {
