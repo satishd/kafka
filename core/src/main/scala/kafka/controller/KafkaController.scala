@@ -1530,7 +1530,7 @@ class KafkaController(val config: KafkaConfig,
     elect()
   }
 
-  private def updateMetrics(): Unit = {
+  private[controller] def updateMetrics(): Unit = {
     if (isActive) {
       offlinePartitionCount = controllerContext.offlinePartitionCount
       preferredReplicaImbalanceCount = controllerContext.preferredReplicaImbalanceCount
@@ -2678,6 +2678,7 @@ class KafkaController(val config: KafkaConfig,
 
 
   override def process(event: ControllerEvent): Unit = {
+    var refreshMetrics = true
     try {
       event match {
         case event: MockEvent =>
@@ -2699,6 +2700,7 @@ class KafkaController(val config: KafkaConfig,
           processLeaderAndIsrResponseReceived(response, brokerId)
         case UpdateMetadataResponseReceived(response, brokerId) =>
           processUpdateMetadataResponseReceived(response, brokerId)
+          refreshMetrics = false
         case TopicDeletionStopReplicaResponseReceived(replicaId, requestError, partitionErrors) =>
           processTopicDeletionStopReplicaResponseReceived(replicaId, requestError, partitionErrors)
         case BrokerChange =>
@@ -2727,6 +2729,7 @@ class KafkaController(val config: KafkaConfig,
           processZkPartitionReassignment()
         case ListPartitionReassignments(partitions, callback) =>
           processListPartitionReassignments(partitions, callback)
+          refreshMetrics = false
         case UpdateFeatures(request, callback) =>
           processFeatureUpdates(request, callback)
         case PartitionReassignmentIsrChange(partition) =>
@@ -2747,7 +2750,8 @@ class KafkaController(val config: KafkaConfig,
       case e: Throwable =>
         error(s"Error processing event $event", e)
     } finally {
-      updateMetrics()
+      if (refreshMetrics)
+        updateMetrics()
     }
   }
 

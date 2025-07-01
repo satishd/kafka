@@ -181,6 +181,12 @@ class ControllerEventManagerTest {
       BrokerChange, () => throw new NullPointerException)
   }
 
+  @Test
+  def testUpdateMetadataResponseReceivedEvent(): Unit = {
+    check("kafka.controller:type=ControllerStats,name=UpdateMetadataResponseReceivedRateAndTimeMs",
+      UpdateMetadataResponseReceived(new UpdateMetadataResponse(new UpdateMetadataResponseData()), 0), () => ())
+  }
+
   private def check(metricName: String,
                     event: ControllerEvent,
                     func: () => Unit): Unit = {

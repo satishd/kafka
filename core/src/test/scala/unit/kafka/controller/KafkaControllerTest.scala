@@ -21,13 +21,15 @@ import kafka.server.metadata.ZkMetadataCache
 import kafka.server.{BrokerFeatures, DelegationTokenManager, KafkaConfig}
 import kafka.utils.TestUtils
 import kafka.zk.{BrokerInfo, KafkaZkClient}
+import org.apache.kafka.common.message.UpdateMetadataResponseData
 import org.apache.kafka.common.metrics.Metrics
+import org.apache.kafka.common.requests.UpdateMetadataResponse
 import org.apache.kafka.server.metrics.KafkaMetricsGroup
 import org.apache.kafka.server.util.MockTime
 import org.junit.jupiter.api.{BeforeEach, Test}
 import org.mockito.ArgumentMatchers
 import org.mockito.ArgumentMatchers.{any, anyString}
-import org.mockito.Mockito.{mock, mockConstruction, times, verify, verifyNoMoreInteractions}
+import org.mockito.Mockito.{mock, mockConstruction, never, spy, times, verify, verifyNoMoreInteractions, when}
 
 class KafkaControllerTest {
   var config: KafkaConfig = _
@@ -72,4 +74,38 @@ class KafkaControllerTest {
     }
   }
 
+  @Test
+  def testReadOnlyEventsDoesNotUpdateMetrics(): Unit = {
+    val mockMetricsGroupCtor = mockConstruction(classOf[KafkaMetricsGroup])
+    try {
+      val kafkaController = spy(new KafkaController(
+        config = config,
+        zkClient = mock(classOf[KafkaZkClient]),
+        time = new MockTime(),
+        metrics = mock(classOf[Metrics]),
+        initialBrokerInfo = mock(classOf[BrokerInfo]),
+        initialBrokerEpoch = 0,
+        tokenManager = mock(classOf[DelegationTokenManager]),
+        brokerFeatures = mock(classOf[BrokerFeatures]),
+        featureCache = mock(classOf[ZkMetadataCache])
+      ))
+      when(kafkaController.isActive).thenReturn(true)
+
+      // read-only controller events
+      val listPartitionReassignmentsEvent = ListPartitionReassignments(None, _ => {})
+      val updateMetadataResponseReceivedEvent = UpdateMetadataResponseReceived(
+        new UpdateMetadataResponse(new UpdateMetadataResponseData()), 0)
+      for (event <- Seq(listPartitionReassignmentsEvent, updateMetadataResponseReceivedEvent)) {
+        kafkaController.process(event)
+      }
+      verify(kafkaController, never).updateMetrics()
+
+      // Event that mutates the controller state
+      kafkaController.process(BrokerChange)
+      verify(kafkaController, times(1)).updateMetrics()
+      kafkaController.shutdown()
+    } finally {
+      mockMetricsGroupCtor.close()
+    }
+  }
 }
