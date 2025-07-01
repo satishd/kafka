@@ -25,11 +25,7 @@ bash udeploy/config.sh
 
 # Copy the offline-rebuild logic to a shared path which can be used by kafka container
 # OFFLINE_REBUILD_ROOT_PATH_OVERRIDE is same as SHARED_RSYNC_PYTHON3_PATH/partition_moving_tools
-rm -rf ${OFFLINE_REBUILD_ROOT_PATH_OVERRIDE} ${SHARED_RSYNC_PATH}/partition_moving_tools && mkdir -p ${SHARED_RSYNC_PATH} && mkdir -p ${SHARED_RSYNC_PYTHON3_PATH}
-# copy python2 compatible uber-streaming-tools to /opt/python2-scripts
-# This will be removed once all the services are migrated to debian11
-tar -xzvf /opt/uber-streaming-tools-1.4.1.custombuild.gbpcf6e421.tar.gz -C /opt/python2-scripts
-cp -r /opt/python2-scripts/uber-streaming-tools-1.4.1.custombuild.gbpcf6e421/partition_moving_tools ${SHARED_RSYNC_PATH}
+rm -rf ${OFFLINE_REBUILD_ROOT_PATH_OVERRIDE} /shared/rsync && mkdir -p ${SHARED_RSYNC_PYTHON3_PATH}
 cp -r ${OFFLINE_REBUILD_ROOT_PATH} ${SHARED_RSYNC_PYTHON3_PATH}
 
 # By convention, can hardcode RSYNC_DIR=/data1/data. but better set by the odin-kafka-worker
