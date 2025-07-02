@@ -22,7 +22,10 @@ import kafka.test.annotation.ClusterTestDefaults;
 import kafka.test.junit.ClusterTestExtensions;
 
 import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
@@ -47,9 +50,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(ClusterTestExtensions.class)
 @ClusterTestDefaults(brokers = 3)
@@ -91,12 +97,32 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     }
 
     @ClusterTest
-    public void testTopicDoesNotExist() {
+    public void testTopicDoesNotExist() throws ExecutionException, InterruptedException {
         try (Admin admin = clusterInstance.createAdminClient()) {
             String topic = "dummy-test-topic";
             boolean doesTopicExist = topicBasedRlmm().doesTopicExist(admin, topic);
             assertFalse(doesTopicExist);
         }
+    }
+
+    @ClusterTest
+    @SuppressWarnings("unchecked")
+    public void testDoesTopicExistWithAdminClientExecutionError() throws ExecutionException, InterruptedException {
+        // Create a mock Admin client that throws an ExecutionException (not UnknownTopicOrPartitionException)
+        Admin mockAdmin = mock(Admin.class);
+        DescribeTopicsResult mockDescribeTopicsResult = mock(DescribeTopicsResult.class);
+        KafkaFuture<TopicDescription> mockFuture = mock(KafkaFuture.class);
+
+        String topic = "test-topic";
+
+        // Set up the mock to throw a RuntimeException wrapped in ExecutionException
+        when(mockAdmin.describeTopics(anySet())).thenReturn(mockDescribeTopicsResult);
+        when(mockDescribeTopicsResult.topicNameValues()).thenReturn(Collections.singletonMap(topic, mockFuture));
+        when(mockFuture.get()).thenThrow(new ExecutionException("Admin client connection error", new RuntimeException("Connection failed")));
+
+        // The method should re-throw the ExecutionException since it's not an UnknownTopicOrPartitionException
+        TopicBasedRemoteLogMetadataManager rlmm = topicBasedRlmm();
+        assertThrows(ExecutionException.class, () -> rlmm.doesTopicExist(mockAdmin, topic));
     }
 
     @ClusterTest
