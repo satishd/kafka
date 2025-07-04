@@ -17,6 +17,7 @@
 
 package kafka.server
 
+import com.yammer.metrics.core.Timer
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests.FetchResponse
@@ -33,7 +34,8 @@ class ReplicaFetcherThread(name: String,
                            replicaMgr: ReplicaManager,
                            quota: ReplicaQuota,
                            logPrefix: String,
-                           metadataVersionSupplier: () => MetadataVersion)
+                           metadataVersionSupplier: () => MetadataVersion,
+                           followerLogAppendTimer: KafkaTimer = NoOpTimer)
   extends AbstractFetcherThread(name = name,
                                 clientId = name,
                                 leader = leader,
@@ -123,7 +125,9 @@ class ReplicaFetcherThread(name: String,
         .format(log.logEndOffset, topicPartition, records.sizeInBytes, partitionData.highWatermark))
 
     // Append the leader's messages to the log
-    val logAppendInfo = partition.appendRecordsToFollowerOrFutureReplica(records, isFuture = false, partitionLeaderEpoch)
+    val logAppendInfo = followerLogAppendTimer.time {
+      partition.appendRecordsToFollowerOrFutureReplica(records, isFuture = false, partitionLeaderEpoch)
+    }
 
     if (logTrace)
       trace("Follower has replica log end offset %d after appending %d bytes of messages for partition %s"
@@ -218,4 +222,17 @@ class ReplicaFetcherThread(name: String,
       0
     }
   }
+}
+
+class KafkaTimer(metric: Timer) {
+
+  def time[A](f: => A): A = {
+    val ctx = metric.time
+    try f
+    finally ctx.stop()
+  }
+}
+
+object NoOpTimer extends KafkaTimer(null) {
+  override def time[A](block: => A): A = block
 }

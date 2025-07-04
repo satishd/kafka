@@ -321,7 +321,9 @@ abstract class AbstractFetcherThread(name: String,
 
     try {
       trace(s"Sending fetch request $fetchRequest")
-      responseData = leader.fetch(fetchRequest)
+      responseData = fetcherStats.followerFetchFromLeaderTimer.time {
+        () => leader.fetch(fetchRequest)
+      }
     } catch {
       case t: Throwable =>
         if (isRunning) {
@@ -913,6 +915,7 @@ object FetcherMetrics {
   val ConsumerLag = "ConsumerLag"
   val RequestsPerSec = "RequestsPerSec"
   val BytesPerSec = "BytesPerSec"
+  val FollowerFetchFromLeaderRateAndTimeMs = "FollowerFetchFromLeaderRateAndTimeMs"
 }
 
 class FetcherLagMetrics(metricId: ClientIdTopicPartition) {
@@ -964,13 +967,18 @@ class FetcherStats(metricId: ClientIdAndBroker) {
     "brokerHost" -> metricId.brokerHost,
     "brokerPort" -> metricId.brokerPort.toString).asJava
 
+  private val leaderBrokerTags = Map("leaderBrokerHost" -> metricId.brokerHost).asJava
+
   val requestRate: Meter = metricsGroup.newMeter(FetcherMetrics.RequestsPerSec, "requests", TimeUnit.SECONDS, tags)
 
   val byteRate: Meter = metricsGroup.newMeter(FetcherMetrics.BytesPerSec, "bytes", TimeUnit.SECONDS, tags)
 
+  val followerFetchFromLeaderTimer = metricsGroup.newTimer(FetcherMetrics.FollowerFetchFromLeaderRateAndTimeMs, TimeUnit.MILLISECONDS, TimeUnit.SECONDS, leaderBrokerTags)
+
   def unregister(): Unit = {
     metricsGroup.removeMetric(FetcherMetrics.RequestsPerSec, tags)
     metricsGroup.removeMetric(FetcherMetrics.BytesPerSec, tags)
+    metricsGroup.removeMetric(FetcherMetrics.FollowerFetchFromLeaderRateAndTimeMs, leaderBrokerTags)
   }
 
 }

@@ -16,10 +16,12 @@
   */
 package kafka.server
 
+import com.yammer.metrics.core.{Timer, TimerContext}
 import kafka.cluster.{BrokerEndPoint, Partition}
 import kafka.log.{LogManager, UnifiedLog}
 import kafka.server.AbstractFetcherThread.ResultWithPartitions
 import kafka.server.QuotaFactory.UnboundedQuota
+import kafka.server.{KafkaTimer, NoOpTimer}
 import kafka.server.epoch.util.MockBlockingSender
 import kafka.server.metadata.ZkMetadataCache
 import kafka.utils.TestUtils
@@ -29,6 +31,7 @@ import org.apache.kafka.common.{TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.common.message.{FetchResponseData, UpdateMetadataRequestData}
 import org.apache.kafka.common.message.OffsetForLeaderEpochRequestData.OffsetForLeaderPartition
 import org.apache.kafka.common.message.OffsetForLeaderEpochResponseData.EpochEndOffset
+
 import org.apache.kafka.common.protocol.Errors._
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.{CompressionType, MemoryRecords, RecordBatch, RecordValidationStats, SimpleRecord}
@@ -104,7 +107,8 @@ class ReplicaFetcherThreadTest {
                                          failedPartitions: FailedPartitions,
                                          replicaMgr: ReplicaManager,
                                          quota: ReplicaQuota,
-                                         leaderEndpointBlockingSend: BlockingSend): ReplicaFetcherThread = {
+                                         leaderEndpointBlockingSend: BlockingSend,
+                                         followerLogAppendTimer: KafkaTimer = NoOpTimer): ReplicaFetcherThread = {
     val logContext = new LogContext(s"[ReplicaFetcher replicaId=${brokerConfig.brokerId}, leaderId=${leaderEndpointBlockingSend.brokerEndPoint().id}, fetcherId=$fetcherId] ")
     val fetchSessionHandler = new FetchSessionHandler(logContext, leaderEndpointBlockingSend.brokerEndPoint().id)
     val leader = new RemoteLeaderEndPoint(logContext.logPrefix, leaderEndpointBlockingSend, fetchSessionHandler,
@@ -116,7 +120,8 @@ class ReplicaFetcherThreadTest {
       replicaMgr,
       quota,
       logContext.logPrefix,
-      () => brokerConfig.interBrokerProtocolVersion)
+      () => brokerConfig.interBrokerProtocolVersion,
+      followerLogAppendTimer)
   }
 
   @Test
@@ -1398,6 +1403,11 @@ class ReplicaFetcherThreadTest {
     val mockBlockingSend: BlockingSend = mock(classOf[BlockingSend])
     when(mockBlockingSend.brokerEndPoint()).thenReturn(brokerEndPoint)
 
+    val mockTimerContext = mock(classOf[TimerContext])
+    val mockTimer = mock(classOf[Timer])
+    when(mockTimer.time()).thenReturn(mockTimerContext)
+    val appendTimer: KafkaTimer = new KafkaTimer(mockTimer)
+
     val log: UnifiedLog = mock(classOf[UnifiedLog])
     val records = MemoryRecords.withRecords(Compression.NONE,
       new SimpleRecord(1000, "foo".getBytes(StandardCharsets.UTF_8)))
@@ -1423,7 +1433,8 @@ class ReplicaFetcherThreadTest {
       failedPartitions,
       replicaManager,
       replicaQuota,
-      mockBlockingSend
+      mockBlockingSend,
+      appendTimer
     )
 
     val partitionData: thread.FetchData = new FetchResponseData.PartitionData()
@@ -1439,6 +1450,8 @@ class ReplicaFetcherThreadTest {
       assertEquals(0, brokerTopicStats.allTopicsStats.reassignmentBytesInPerSec.get.count())
 
     assertEquals(records.sizeInBytes(), brokerTopicStats.allTopicsStats.replicationBytesInRate.get.count())
+    verify(mockTimer).time()
+    verify(mockTimerContext).stop()
   }
 
   def stub(partition: Partition, replicaManager: ReplicaManager, log: UnifiedLog): Unit = {

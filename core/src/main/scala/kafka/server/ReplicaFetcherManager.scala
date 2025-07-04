@@ -18,10 +18,13 @@
 package kafka.server
 
 import kafka.cluster.BrokerEndPoint
+import kafka.server.KafkaTimer
 import org.apache.kafka.clients.FetchSessionHandler
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.utils.{LogContext, Time}
 import org.apache.kafka.server.common.MetadataVersion
+
+import java.util.concurrent.TimeUnit
 
 class ReplicaFetcherManager(brokerConfig: KafkaConfig,
                             protected val replicaManager: ReplicaManager,
@@ -37,6 +40,10 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
         clientId = "Replica",
         numFetchers = brokerConfig.numReplicaFetchers) {
 
+  private val FollowerLogAppendRateAndTimeMs: String = "FollowerLogAppendRateAndTimeMs"
+  private val followerLogAppendTimer: KafkaTimer =
+    new KafkaTimer(metricsGroup.newTimer(FollowerLogAppendRateAndTimeMs, TimeUnit.MILLISECONDS, TimeUnit.SECONDS))
+
   override def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): ReplicaFetcherThread = {
     val prefix = threadNamePrefix.map(tp => s"$tp:").getOrElse("")
     val threadName = s"${prefix}ReplicaFetcherThread-$fetcherId-${sourceBroker.id}"
@@ -48,12 +55,13 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
     val leader = new RemoteLeaderEndPoint(logContext.logPrefix, endpoint, fetchSessionHandler, brokerConfig,
       replicaManager, quotaManager, metadataVersionSupplier, brokerEpochSupplier)
     new ReplicaFetcherThread(threadName, leader, brokerConfig, failedPartitions, replicaManager,
-      quotaManager, logContext.logPrefix, metadataVersionSupplier)
+      quotaManager, logContext.logPrefix, metadataVersionSupplier, followerLogAppendTimer = followerLogAppendTimer)
   }
 
   def shutdown(): Unit = {
     info("shutting down")
     closeAllFetchers()
+    metricsGroup.removeMetric(FollowerLogAppendRateAndTimeMs)
     info("shutdown completed")
   }
 }

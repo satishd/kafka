@@ -55,6 +55,13 @@ class AbstractFetcherThreadTest {
 
   private def allMetricsNames: Set[String] = KafkaYammerMetrics.defaultRegistry().allMetrics().asScala.keySet.map(_.getName)
 
+  private def getYammerTimerMetricCount(metricName: String): Long = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala
+      .find { case (k, _) => k.getName == metricName }
+      .map { case (_, metric) => metric.asInstanceOf[com.yammer.metrics.core.Timer].count() }
+      .getOrElse(throw new AssertionError(s"Yammer metric $metricName not found"))
+  }
+
   @Test
   def testMetricsRemovedOnShutdown(): Unit = {
     val partition = new TopicPartition("topic", 0)
@@ -71,7 +78,7 @@ class AbstractFetcherThreadTest {
     fetcher.start()
 
     val brokerTopicStatsMetrics = fetcher.brokerTopicStats.allTopicsStats.metricMapKeySet().asScala
-    val fetcherMetrics = Set(FetcherMetrics.BytesPerSec, FetcherMetrics.RequestsPerSec, FetcherMetrics.ConsumerLag)
+    val fetcherMetrics = Set(FetcherMetrics.BytesPerSec, FetcherMetrics.RequestsPerSec, FetcherMetrics.ConsumerLag, FetcherMetrics.FollowerFetchFromLeaderRateAndTimeMs)
 
     // wait until all fetcher metrics are present
     TestUtils.waitUntilTrue(() => allMetricsNames == brokerTopicStatsMetrics ++ fetcherMetrics,
@@ -131,6 +138,8 @@ class AbstractFetcherThreadTest {
     val replicaState = fetcher.replicaPartitionState(partition)
     assertEquals(2L, replicaState.logEndOffset)
     assertEquals(2L, replicaState.highWatermark)
+
+    assertTrue(getYammerTimerMetricCount(FetcherMetrics.FollowerFetchFromLeaderRateAndTimeMs) > 0)
   }
 
   @Test

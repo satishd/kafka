@@ -29,7 +29,7 @@ import scala.jdk.CollectionConverters._
 
 abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: String, val brokerId: Int, clientId: String, numFetchers: Int)
   extends Logging {
-  private val metricsGroup = new KafkaMetricsGroup(this.getClass)
+  private[server] val metricsGroup = new KafkaMetricsGroup(this.getClass)
 
   // map of (source broker_id, fetcher_id per source broker) => fetcher.
   // package private for test

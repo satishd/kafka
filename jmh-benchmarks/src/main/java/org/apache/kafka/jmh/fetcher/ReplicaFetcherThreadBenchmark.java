@@ -30,6 +30,7 @@ import kafka.server.FailedPartitions;
 import kafka.server.InitialFetchState;
 import kafka.server.KafkaConfig;
 import kafka.server.MetadataCache;
+import kafka.server.NoOpTimer$;
 import kafka.server.OffsetTruncationState;
 import kafka.server.QuotaFactory;
 import kafka.server.RemoteLeaderEndPoint;
@@ -349,7 +350,8 @@ public class ReplicaFetcherThreadBenchmark {
                     replicaManager,
                     replicaQuota,
                     String.format("[ReplicaFetcher replicaId=%d, leaderId=%d, fetcherId=%d", config.brokerId(), 3, 3),
-                    config::interBrokerProtocolVersion
+                    config::interBrokerProtocolVersion,
+                    NoOpTimer$.MODULE$
             );
 
             pool = partitions;

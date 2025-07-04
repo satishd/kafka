@@ -26,6 +26,7 @@ import kafka.log.remote.RemoteLogManager
 import kafka.log.remote.quota.RLMQuotaManagerConfig.INACTIVE_SENSOR_EXPIRATION_TIME_SECONDS
 import kafka.log.remote.quota.RLMQuotaMetrics
 import kafka.server.QuotaFactory.{QuotaManagers, UnboundedQuota}
+import kafka.server.ReplicaManager.LeaderLogAppendTimerMetricName
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile}
 import kafka.server.epoch.util.MockBlockingSender
 import kafka.utils.TestUtils.waitUntilTrue
@@ -34,7 +35,7 @@ import kafka.zk.KafkaZkClient
 import org.apache.kafka.clients.FetchSessionHandler
 import org.apache.kafka.common.{DirectoryId, IsolationLevel, Node, TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.common.compress.Compression
-import org.apache.kafka.common.config.{TopicConfig}
+import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.errors.{InvalidPidMappingException, KafkaStorageException}
 import org.apache.kafka.common.message.LeaderAndIsrRequestData
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState
@@ -244,6 +245,8 @@ class ReplicaManagerTest {
         entriesPerPartition = Map(new TopicPartition("test1", 0) -> MemoryRecords.withRecords(Compression.NONE,
           new SimpleRecord("first message".getBytes))),
         responseCallback = callback)
+      val metricValue = getYammerTimerMetricCount(LeaderLogAppendTimerMetricName)
+      assertTrue(metricValue == 0, "LeaderLogAppendRateAndTimeMs metric should be 0")
     } finally {
       rm.shutdown(checkpointHW = false)
     }
@@ -502,6 +505,7 @@ class ReplicaManagerTest {
       val mockMetricsGroup = mockMetricsGroupCtor.constructed.get(1)
       ReplicaManager.GaugeMetricNames.foreach(metricName => verify(mockMetricsGroup).newGauge(ArgumentMatchers.eq(metricName), any()))
       ReplicaManager.MeterMetricNames.foreach(metricName => verify(mockMetricsGroup).newMeter(ArgumentMatchers.eq(metricName), anyString(), any(classOf[TimeUnit])))
+      ReplicaManager.TimerMetricNames.foreach(metricName => verify(mockMetricsGroup).newTimer(ArgumentMatchers.eq(metricName), any(classOf[TimeUnit]), any(classOf[TimeUnit])))
       ReplicaManager.MetricNames.foreach(verify(mockMetricsGroup).removeMetric(_))
 
       // assert that we have verified all invocations on
@@ -831,6 +835,9 @@ class ReplicaManagerTest {
           assertEquals(Errors.NONE, response.error)
         }
       }
+
+      val metricValue = getYammerTimerMetricCount(LeaderLogAppendTimerMetricName)
+      assertTrue(metricValue > 0, "LeaderLogAppendRateAndTimeMs metric should be greater than 0")
 
       // fetch as follower to advance the high watermark
       fetchPartitionAsFollower(
@@ -6843,6 +6850,13 @@ class ReplicaManagerTest {
       .headOption
       .map(_.asInstanceOf[Gauge[T]])
       .map(_.value)
+  }
+
+  private def getYammerTimerMetricCount(metricName: String): Long = {
+    KafkaYammerMetrics.defaultRegistry.allMetrics.asScala
+      .find { case (k, _) => k.getName == metricName }
+      .map { case (_, metric) => metric.asInstanceOf[com.yammer.metrics.core.Timer].count() }
+      .getOrElse(throw new AssertionError(s"Yammer metric $metricName not found"))
   }
 
   private def clearYammerMetricsExcept(names: Set[String]): Unit = {

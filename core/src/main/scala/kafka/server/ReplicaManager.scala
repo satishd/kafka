@@ -24,7 +24,7 @@ import kafka.log.remote.RemoteLogManager
 import kafka.log.{LogManager, OffsetResultHolder, UnifiedLog}
 import kafka.server.HostedPartition.Online
 import kafka.server.QuotaFactory.QuotaManagers
-import kafka.server.ReplicaManager.{AtMinIsrPartitionCountMetricName, FailedIsrUpdatesPerSecMetricName, IsrExpandsPerSecMetricName, IsrShrinksPerSecMetricName, LeaderCountMetricName, OfflineReplicaCountMetricName, PartitionCountMetricName, PartitionsWithLateTransactionsCountMetricName, ProducerIdCountMetricName, ReassigningPartitionsMetricName, UnderMinIsrPartitionCountMetricName, UnderReplicatedPartitionsMetricName, createLogReadResult, isListOffsetsTimestampUnsupported}
+import kafka.server.ReplicaManager.{AtMinIsrPartitionCountMetricName, FailedIsrUpdatesPerSecMetricName, IsrExpandsPerSecMetricName, IsrShrinksPerSecMetricName, LeaderCountMetricName, LeaderLogAppendTimerMetricName, OfflineReplicaCountMetricName, PartitionCountMetricName, PartitionsWithLateTransactionsCountMetricName, ProducerIdCountMetricName, ReassigningPartitionsMetricName, UnderMinIsrPartitionCountMetricName, UnderReplicatedPartitionsMetricName, createLogReadResult, isListOffsetsTimestampUnsupported}
 import kafka.server.checkpoints.{LazyOffsetCheckpoints, OffsetCheckpointFile, OffsetCheckpoints}
 import kafka.server.metadata.ZkMetadataCache
 import kafka.utils.Implicits._
@@ -218,6 +218,7 @@ object ReplicaManager {
   private val IsrExpandsPerSecMetricName = "IsrExpandsPerSec"
   private val IsrShrinksPerSecMetricName = "IsrShrinksPerSec"
   private val FailedIsrUpdatesPerSecMetricName = "FailedIsrUpdatesPerSec"
+  val LeaderLogAppendTimerMetricName = "LeaderLogAppendRateAndTimeMs"
 
   private[server] val GaugeMetricNames = Set(
     LeaderCountMetricName,
@@ -237,7 +238,11 @@ object ReplicaManager {
     FailedIsrUpdatesPerSecMetricName
   )
 
-  private[server] val MetricNames = GaugeMetricNames.union(MeterMetricNames)
+  private[server] val TimerMetricNames = Set(
+    LeaderLogAppendTimerMetricName
+  )
+
+  private[server] val MetricNames = GaugeMetricNames.union(MeterMetricNames).union(TimerMetricNames)
 
   private val timestampMinSupportedVersion: immutable.Map[Long, Short] = immutable.Map[Long, Short](
     ListOffsetsRequest.EARLIEST_TIMESTAMP -> 1.toShort,
@@ -386,6 +391,11 @@ class ReplicaManager(val config: KafkaConfig,
   val isrShrinkRate: Meter = metricsGroup.newMeter(IsrShrinksPerSecMetricName, "shrinks", TimeUnit.SECONDS)
   val failedIsrUpdatesRate: Meter = metricsGroup.newMeter(FailedIsrUpdatesPerSecMetricName, "failedUpdates", TimeUnit.SECONDS)
 
+  private val leaderLogAppendTimer = metricsGroup.newTimer(
+    LeaderLogAppendTimerMetricName,
+    TimeUnit.MILLISECONDS,
+    TimeUnit.SECONDS
+  )
   private val isrBlacklistHandler = new IsrBlacklistHandler(this)
 
   // A list of broker ids that are blacklisted from becoming ISR.
@@ -818,8 +828,11 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     val sTime = time.milliseconds
-    val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
-      origin, entriesPerPartition, requiredAcks, requestLocal, verificationGuards.toMap)
+    val localProduceResults = leaderLogAppendTimer.time {
+      () =>
+        appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
+          origin, entriesPerPartition, requiredAcks, requestLocal, verificationGuards.toMap)
+    }
     debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
 
     val produceStatus = buildProducePartitionStatus(localProduceResults)
