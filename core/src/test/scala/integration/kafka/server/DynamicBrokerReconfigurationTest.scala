@@ -1764,7 +1764,7 @@ class DynamicBrokerReconfigurationTest extends QuorumTestHarness with SaslSetup 
         "--alter", "--add-config", props.asScala.map { case (k, v) => s"$k=$v" }.mkString(","),
         "--entity-type", "brokers",
         "--entity-name", server.config.brokerId.toString)
-      ConfigCommand.main(args)
+      ConfigCommand.mainNoExit(args)
     }
   }
 

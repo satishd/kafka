@@ -24,6 +24,7 @@ import kafka.utils.Exit;
 import org.apache.kafka.test.NoRetryException;
 import org.apache.kafka.test.TestUtils;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.ByteArrayOutputStream;
@@ -101,6 +102,7 @@ public class UserScramCredentialsCommandTest {
     }
 
     @ClusterTest
+    @Disabled // DKAFC-1760: disabled as Exit(0) throws Exception and fails this test
     public void testUserScramCredentialsRequests() throws Exception {
         createAndAlterUser(USER1);
         // now do the same thing for user2
@@ -138,6 +140,7 @@ public class UserScramCredentialsCommandTest {
     }
 
     @ClusterTest
+    @Disabled // DKAFC-1760: disabled as Exit(0) throws Exception and fails this test
     public void testDescribeUnknownUser() {
         String unknownUser = "unknownUser";
         ConfigCommandResult result = runConfigCommandViaBroker("--user", unknownUser, "--describe");

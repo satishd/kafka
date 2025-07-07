@@ -122,7 +122,7 @@ public class ReassignPartitionsCommand {
 
     public static void main(String[] args) {
         ReassignPartitionsCommandOptions opts = validateAndParseArgs(args);
-        boolean failed = true;
+        int exitCode = 0;
         Admin adminClient = null;
 
         try {
@@ -133,10 +133,11 @@ public class ReassignPartitionsCommand {
             props.putIfAbsent(AdminClientConfig.CLIENT_ID_CONFIG, "reassign-partitions-tool");
             adminClient = Admin.create(props);
             handleAction(adminClient, opts);
-            failed = false;
         } catch (TerseException e) {
+            exitCode = 1;
             System.out.println(e.getMessage());
         } catch (Throwable e) {
+            exitCode = 1;
             System.out.println("Error: " + e.getMessage());
             System.out.println(Utils.stackTrace(e));
         } finally {
@@ -144,10 +145,7 @@ public class ReassignPartitionsCommand {
             if (adminClient != null) {
                 adminClient.close();
             }
-        }
-        // If the command failed, exit with a non-zero exit code.
-        if (failed) {
-            Exit.exit(1);
+            Exit.exit(exitCode);
         }
     }
 

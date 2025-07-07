@@ -83,6 +83,10 @@ object ConfigCommand extends Logging {
   private val DefaultScramIterations = 4096
 
   def main(args: Array[String]): Unit = {
+    Exit.exit(mainNoExit(args))
+  }
+
+  def mainNoExit(args: Array[String]): Int = {
     try {
       val opts = new ConfigCommandOptions(args)
 
@@ -97,17 +101,18 @@ object ConfigCommand extends Logging {
       } else {
         processCommand(opts)
       }
+      return 0
     } catch {
       case e @ (_: IllegalArgumentException | _: InvalidConfigurationException | _: OptionException) =>
         logger.debug(s"Failed config command with args '${args.mkString(" ")}'", e)
         System.err.println(e.getMessage)
-        Exit.exit(1)
+        return 1
 
       case t: Throwable =>
         logger.debug(s"Error while executing config command with args '${args.mkString(" ")}'", t)
         System.err.println(s"Error while executing config command with args '${args.mkString(" ")}'")
         t.printStackTrace(System.err)
-        Exit.exit(1)
+        return 1
     }
   }
 
