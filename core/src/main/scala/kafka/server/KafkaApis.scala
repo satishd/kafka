@@ -1281,7 +1281,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             val currentTimestamp = time.milliseconds
             if (!topicMetadata.isEmpty && !(currentTimestamp > config.recentlyDeletedTopicsRetentionMs + topicMetadata.get.deleteEpochTimestampMs)
               && (currentTimestamp >= config.recreateRecentlyDeletedTopicsDelayMs + topicMetadata.get.deleteEpochTimestampMs())) {
-              info(s"Attempting to recreate topic with the following Topic Metadata : ${topicMetadata} by client id : ${request.header.clientId}")
+              info(s"Attempting to recreate topic with the following topicMetadata: $topicMetadata by " +
+                s"clientId: ${request.header.clientId} from: ${request.context.clientAddress} with principal: ${request.context.principal}")
               val topicConfigs = new CreatableTopicConfigCollection()
               topicMetadata.get.configs.forEach { (k, v) => topicConfigs.add(new CreatableTopicConfig().setName(k.toString).setValue(v.toString)) }
               val createableTopic = new CreatableTopic().setName(topic).setNumPartitions(topicMetadata.get.numPartitions).setReplicationFactor(topicMetadata.get.replicationFactor)
@@ -2079,6 +2080,8 @@ class KafkaApis(val requestChannel: RequestChannel,
           toCreate += topic.name -> topic
         }
       }
+      info(s"Creating topics ${toCreate.keys} by clientId: ${request.header.clientId} from: ${request.context.clientAddress} " +
+        s"with principal: ${request.context.principal}")
       def handleCreateTopicsResults(errors: Map[String, ApiError]): Unit = {
         errors.foreach { case (topicName, error) =>
           val result = results.find(topicName)
