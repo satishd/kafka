@@ -833,19 +833,17 @@ public class RemoteLogManager implements Closeable {
      * Returns the remote log size for the given topic partition.
      * @param tp the topic partition for which the remote log size is to be calculated.
      * @return the remote log size in bytes, or empty if the remote log size is not available.
-     * @throws RemoteStorageException if an error occurs while fetching the remote log size.
      */
     public Optional<Long> remoteLogSize(TopicPartition tp) throws RemoteStorageException {
         Uuid topicId = topicIdByPartitionMap.get(tp);
         if (topicId == null) {
-            throw new KafkaException("Topic id does not exist for topic partition: " + tp);
+            return Optional.empty();
         }
         Optional<UnifiedLog> unifiedLogOptional = fetchLog.apply(tp);
         if (!unifiedLogOptional.isPresent()) {
-            throw new KafkaException("UnifiedLog does not exist for topic partition: " + tp);
+            return Optional.empty();
         }
         UnifiedLog unifiedLog = unifiedLogOptional.get();
-
         Option<LeaderEpochFileCache> leaderEpochFileCacheOpt = unifiedLog.leaderEpochCache();
         if (leaderEpochFileCacheOpt.isEmpty()) {
             return Optional.empty();

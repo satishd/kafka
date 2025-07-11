@@ -3905,6 +3905,11 @@ public class RemoteLogManagerTest {
         assertEquals(10240, remoteLogManager.remoteLogSize(leaderTopicIdPartition.topicPartition()).get());
     }
 
+    @Test
+    public void testComputeRemoteLogSizeForStrayReplica() throws RemoteStorageException {
+        assertFalse(remoteLogManager.remoteLogSize(new TopicPartition("stray-topic", 0)).isPresent());
+    }
+
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {
         byte magic = RecordBatch.CURRENT_MAGIC_VALUE;
         Compression compression = Compression.NONE;

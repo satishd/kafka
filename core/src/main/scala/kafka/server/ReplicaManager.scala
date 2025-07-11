@@ -1333,10 +1333,15 @@ class ReplicaManager(val config: KafkaConfig,
                     .setIsFutureKey(log.isFuture)
 
                   if (remoteLogManager.isDefined && log.remoteLogEnabled()) {
-                    remoteLogManager.get.remoteLogSize(log.topicPartition).asScala.map { remoteLogSize =>
-                      describeLogDirsPartition.setURemoteLogSize(remoteLogSize)
+                    try {
+                      remoteLogManager.get.remoteLogSize(log.topicPartition).asScala.map { remoteLogSize =>
+                        describeLogDirsPartition.setURemoteLogSize(remoteLogSize)
+                      }
+                      describeLogDirsPartition.setUOnlyLocalLogSize(log.onlyLocalLogSegmentsSize)
+                    } catch {
+                      case e: Exception =>
+                        warn(s"Failed to compute remoteLogSize and onlyLocalLogSize for partition ${log.topicPartition}", e)
                     }
-                    describeLogDirsPartition.setUOnlyLocalLogSize(log.onlyLocalLogSegmentsSize)
                   }
                   describeLogDirsPartition
                 }.toList.asJava)
