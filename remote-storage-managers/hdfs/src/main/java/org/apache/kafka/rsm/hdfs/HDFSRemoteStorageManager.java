@@ -98,11 +98,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final FileSystemManager fileSystemManager;
 
     public HDFSRemoteStorageManager() {
-        this(new FileSystemManager());
+        this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
     }
 
-    public HDFSRemoteStorageManager(FileSystemManager fileSystemManager) {
-        this.metrics = new HDFSRemoteStorageManagerMetrics();
+    public HDFSRemoteStorageManager(HDFSRemoteStorageManagerMetrics metrics, FileSystemManager fileSystemManager) {
+        this.metrics = metrics;
         this.fileSystemManager = fileSystemManager;
     }
 

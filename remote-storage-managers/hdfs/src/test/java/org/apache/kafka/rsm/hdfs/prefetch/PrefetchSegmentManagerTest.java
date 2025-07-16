@@ -21,6 +21,8 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
+import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
+import org.apache.kafka.rsm.hdfs.PrefetchEnabledHDFSRemoteStorageManager;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -38,6 +40,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -48,14 +51,25 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_FAILURE_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_SUCCESS_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +81,7 @@ public class PrefetchSegmentManagerTest {
     private RemoteLogSegmentMetadata metadata;
     private RemoteLogSegmentId segmentId;
     private Map<String, Object> configs;
+    private HDFSRemoteStorageManagerMetrics metrics;
 
     @TempDir
     Path tempDir;
@@ -74,7 +89,8 @@ public class PrefetchSegmentManagerTest {
     @BeforeEach
     public void setup() {
         mockDataFetcher = mock(DataFetcher.class);
-        segmentManager = new PrefetchSegmentManager(new FileSystemManager());
+        metrics = new HDFSRemoteStorageManagerMetrics();
+        segmentManager = new PrefetchSegmentManager(new FileSystemManager(), metrics);
         segmentManager.setDataFetcher(mockDataFetcher);
 
         // Create test metadata
@@ -162,7 +178,11 @@ public class PrefetchSegmentManagerTest {
 
     @Test
     public void testDownloadSegment() throws Exception {
+        clearKafkaMetrics();
         segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 0);
 
         Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
         segmentManager.setSegmentCache(cache);
@@ -180,6 +200,9 @@ public class PrefetchSegmentManagerTest {
         CacheValue cacheValue = cache.getIfPresent(segmentId);
         assertNotNull(cacheValue, "Segment should be added to cache");
         assertEquals(PrefetchStatus.IN_PROGRESS, cacheValue.status(), "Status should be IN_PROGRESS");
+
+        // Verify the metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 1);
     }
 
     @Test
@@ -228,7 +251,13 @@ public class PrefetchSegmentManagerTest {
 
     @Test
     public void testDownloadSegmentWithException() throws Exception {
+        clearKafkaMetrics();
         segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 0);
 
         Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
         segmentManager.setSegmentCache(cache);
@@ -267,5 +296,203 @@ public class PrefetchSegmentManagerTest {
                 Thread.sleep(10);
             }
         });
+
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 1);
+        verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 1);
+    }
+
+    @Test
+    public void testDownloadSegmentSuccess() throws Exception {
+        clearKafkaMetrics();
+        segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 0);
+
+        Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
+        segmentManager.setSegmentCache(cache);
+
+        // Set up the mock data fetcher to return a test input stream
+        FSDataInputStream mockFSDataInputStream = mock(FSDataInputStream.class);
+        when(mockDataFetcher.fetchSegmentData(any())).thenReturn(mockFSDataInputStream);
+        when(mockDataFetcher.fileLength(any())).thenReturn(4L);
+
+        // Mock read behavior to return EOF immediately
+        when(mockFSDataInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenReturn(-1);
+
+        // Create a custom ThreadPoolExecutor that will execute the task immediately in the current thread
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>()) {
+            @Override
+            public void execute(Runnable command) {
+                command.run();
+            }
+        };
+        segmentManager.setThreadPoolExecutor(executor);
+        segmentManager.setDataFetcher(mockDataFetcher);
+
+        // Call the method under test
+        segmentManager.downloadSegment(metadata);
+
+        // Verify that the segment was added to the cache with SUCCESS status
+        CacheValue cacheValue = cache.getIfPresent(segmentId);
+        assertNotNull(cacheValue, "Segment should be added to cache");
+        assertEquals(PrefetchStatus.SUCCESS, cacheValue.status(), "Status should be SUCCESS");
+
+        // Verify the metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 1);
+        verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 1);
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 0);
+    }
+
+    @Test
+    public void testRejectedExecution() throws IOException, InterruptedException {
+        clearKafkaMetrics();
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG, 1);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG, 1);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG, 1);
+        segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC, 0L);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 0);
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 0);
+
+        Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
+        segmentManager.setSegmentCache(cache);
+
+        // Set up the mock data fetcher to block indefinitely
+        when(mockDataFetcher.fileLength(any())).thenReturn(1024L);
+
+        // Create a latch to signal when the first task has started executing
+        CountDownLatch taskStartedLatch = new CountDownLatch(1);
+        
+        // Submit a task that blocks the executor
+        CountDownLatch blockingLatch = new CountDownLatch(1);
+        FSDataInputStream mockFSDataInputStream = mock(FSDataInputStream.class);
+        when(mockDataFetcher.fetchSegmentData(any())).thenAnswer(invocation -> {
+            // Signal that the task has started executing
+            taskStartedLatch.countDown();
+            try {
+                blockingLatch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return mockFSDataInputStream;
+        });
+        segmentManager.setDataFetcher(mockDataFetcher);
+
+        // Call the method under test, this should use up the only thread of threadpool
+        segmentManager.downloadSegment(metadata);
+
+        // Wait for the first task to start executing
+        assertTrue(taskStartedLatch.await(5, TimeUnit.SECONDS), "First task did not start executing within timeout");
+
+        // Verify the metrics is still 0
+        verifyMeter(PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC, 0L);
+
+        // Submit a second task that will go into the queue
+        RemoteLogSegmentId secondSegment = new RemoteLogSegmentId(segmentId.topicIdPartition(), Uuid.randomUuid());
+        Map<Integer, Long> secondSegmentLeaderEpochs = Collections.singletonMap(5, 100L);
+        RemoteLogSegmentMetadata secondMetadata = new RemoteLogSegmentMetadata(
+            secondSegment,
+            0L,
+            100L,
+            1000L,
+            1,
+            System.currentTimeMillis(),
+            1024,
+            Optional.empty(),
+            RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
+            secondSegmentLeaderEpochs
+        );
+        segmentManager.downloadSegment(secondMetadata);
+
+        // Verify the metrics is still 0 after the second task (it should be queued, not rejected)
+        verifyMeter(PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC, 0L);
+
+        // Submit a third task that should be rejected since both the thread and queue are full
+        RemoteLogSegmentId thirdSegment = new RemoteLogSegmentId(segmentId.topicIdPartition(), Uuid.randomUuid());
+        Map<Integer, Long> thirdSegmentLeaderEpochs = Collections.singletonMap(5, 100L);
+        RemoteLogSegmentMetadata thirdMetadata = new RemoteLogSegmentMetadata(
+            thirdSegment,
+            0L,
+            100L,
+            1000L,
+            1,
+            System.currentTimeMillis(),
+            1024,
+            Optional.empty(),
+            RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
+            thirdSegmentLeaderEpochs
+        );
+        segmentManager.downloadSegment(thirdMetadata);
+        
+        // Verify the rejection count metric is incremented after the third task
+        verifyMeter(PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC, 1L);
+
+        // Clean up
+        blockingLatch.countDown();
+    }
+
+    @Test
+    public void testDirectoryFileCountAndSizeMetrics() throws IOException {
+        // Clear Kafka metrics
+        clearKafkaMetrics();
+
+        // Configure the segment manager
+        segmentManager.configure(configs);
+
+        // Verify initial metrics (should be 0 since the directory is empty)
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 0);
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 0L);
+
+        // Create test files in the download directory
+        File downloadDir = new File(tempDir.toString());
+
+        // Create first test file with known content
+        File file1 = new File(downloadDir, "test-file-1.txt");
+        byte[] content1 = new byte[100]; // 100 bytes
+        for (int i = 0; i < content1.length; i++) {
+            content1[i] = (byte) i;
+        }
+        Files.write(file1.toPath(), content1);
+
+        // Verify metrics after adding one file
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 1);
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 100L);
+
+        // Create second test file with different content
+        File file2 = new File(downloadDir, "test-file-2.txt");
+        byte[] content2 = new byte[200]; // 200 bytes
+        for (int i = 0; i < content2.length; i++) {
+            content2[i] = (byte) (i % 256);
+        }
+        Files.write(file2.toPath(), content2);
+
+        // Verify metrics after adding second file
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 2);
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 300L);
+
+        // Delete first file
+        file1.delete();
+
+        // Verify metrics after deleting first file
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 1);
+        verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 200L);
+    }
+
+    private void verifyMeter(String name, long expectedCount) {
+        RSMTestUtils.verifyMeter(PrefetchEnabledHDFSRemoteStorageManager.class, name, Collections.emptyMap(), expectedCount);
+    }
+
+    private <T> void verifyGauge(String name, T expectedValue) {
+        RSMTestUtils.verifyGauge(PrefetchEnabledHDFSRemoteStorageManager.class, name, expectedValue);
     }
 }

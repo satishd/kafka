@@ -21,11 +21,16 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
+import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.LogSegmentDataHeader;
+import org.apache.kafka.rsm.hdfs.PrefetchEnabledHDFSRemoteStorageManager;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,7 +45,12 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -58,6 +68,7 @@ public class DownloadTaskTest {
     private RemoteLogSegmentMetadata metadata;
     private RemoteLogSegmentId segmentId;
     private FSDataInputStream mockInputStream;
+    private HDFSRemoteStorageManagerMetrics metrics;
 
     @TempDir
     Path tempDir;
@@ -92,6 +103,12 @@ public class DownloadTaskTest {
 
         // Mock FSDataInputStream
         mockInputStream = mock(FSDataInputStream.class);
+
+        metrics = new HDFSRemoteStorageManagerMetrics();
+        clearKafkaMetrics();
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
+        metrics.registerPrefetchMetrics(executor, cache, tempDir.toAbsolutePath().toString());
     }
 
     @Test
@@ -120,8 +137,12 @@ public class DownloadTaskTest {
             return bytesToCopy;
         });
 
+        // Verify initial metric values
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+
         // Create and execute the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
         FileChannel result = task.call();
 
         // Verify results
@@ -142,6 +163,10 @@ public class DownloadTaskTest {
         for (int i = 0; i < testData.length; i++) {
             assertEquals(testData[i], fileContent[i], "File content should match test data at position " + i);
         }
+
+        // Verify the metrics
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 1);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value > 0);
     }
 
     @Test
@@ -150,18 +175,26 @@ public class DownloadTaskTest {
         IOException testException = new IOException("Test exception");
         when(mockDataFetcher.fetchSegmentData(metadata)).thenThrow(testException);
 
+        // Verify initial metric values
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
-        
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+
         // Execute the task and verify that the exception is propagated
         IOException thrown = assertThrows(
             IOException.class,
             task::call,
             "DownloadTask should propagate IOException"
         );
-        
+
         // Verify it's the same exception
         assertEquals(testException, thrown, "The thrown exception should be the same as the original exception");
+
+        // Verify the metrics
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 1);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value > 0);
     }
 
     @Test
@@ -170,18 +203,26 @@ public class DownloadTaskTest {
         RuntimeException testException = new RuntimeException("Test exception");
         when(mockDataFetcher.fetchSegmentData(metadata)).thenThrow(testException);
 
+        // Verify initial metric values
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
-        
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+
         // Execute the task and verify that the exception is propagated
         RuntimeException thrown = assertThrows(
             RuntimeException.class,
             task::call,
             "DownloadTask should propagate RuntimeException"
         );
-        
+
         // Verify it's the same exception
         assertEquals(testException, thrown, "The thrown exception should be the same as the original exception");
+
+        // Verify the metrics
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 1);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value > 0);
     }
 
     @Test
@@ -190,18 +231,34 @@ public class DownloadTaskTest {
         when(mockDataFetcher.fetchSegmentData(metadata)).thenReturn(mockInputStream);
         when(mockDataFetcher.fileLength(metadata)).thenReturn(0L);
 
+        // Verify initial metric values
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
+
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
-        
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+
         // Execute the task and verify that an IOException is thrown
         IOException thrown = assertThrows(
             IOException.class,
             task::call,
             "DownloadTask should throw IOException when file length is zero"
         );
-        
+
         // Verify the exception message
         String expectedMessage = "File size for segmentId: " + segmentId + " is not a positive number";
         assertEquals(expectedMessage, thrown.getMessage(), "The exception message should indicate zero file length");
+
+        // Verify the metrics
+        verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 1);
+        verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+    }
+
+    private void verifyTimerCount(String name, long expectedValue) {
+        RSMTestUtils.verifyTimerCount(PrefetchEnabledHDFSRemoteStorageManager.class, name, expectedValue);
+    }
+
+    private void verifyTimerQuantile(String name, double quantile, Predicate<Double> assertion) {
+        RSMTestUtils.verifyTimerQuantile(PrefetchEnabledHDFSRemoteStorageManager.class, name, Collections.emptyMap(), quantile, assertion);
     }
 }

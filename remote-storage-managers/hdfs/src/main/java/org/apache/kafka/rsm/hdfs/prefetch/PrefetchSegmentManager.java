@@ -23,6 +23,7 @@ import org.apache.kafka.rsm.hdfs.DataFetcher;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSDataFetcher;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
+import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -42,6 +43,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -59,14 +61,16 @@ public class PrefetchSegmentManager {
 
     private final Time time = Time.SYSTEM;
     private final FileSystemManager fileSystemManager;
+    private final HDFSRemoteStorageManagerMetrics metrics;
 
     private DataFetcher dataFetcher;
     private String localBaseDir;
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
 
-    public PrefetchSegmentManager(FileSystemManager fileSystemManager) {
+    public PrefetchSegmentManager(FileSystemManager fileSystemManager, HDFSRemoteStorageManagerMetrics metrics) {
         this.fileSystemManager = fileSystemManager;
+        this.metrics = metrics;
     }
 
     public void configure(Map<String, ?> configs) {
@@ -86,9 +90,9 @@ public class PrefetchSegmentManager {
         int maxPoolSize = conf.getInt(PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG);
         int queueCapacity = conf.getInt(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG);
         this.threadPoolExecutor = new ThreadPoolExecutor(corePoolSize, maxPoolSize, 0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(queueCapacity),
-                ThreadUtils.createThreadFactory("remote-log-prefetch", false,
-                        (t, e) -> LOGGER.error("Uncaught exception in thread '{}':", t.getName(), e)));
+            new LinkedBlockingQueue<>(queueCapacity),
+            ThreadUtils.createThreadFactory("remote-log-prefetch", false,
+                (t, e) -> LOGGER.error("Uncaught exception in thread '{}':", t.getName(), e)));
 
         int maxCacheSize = conf.getInt(PREFETCH_CACHE_MAX_SIZE_CONFIG);
         int expireAfterAccessMinutes = conf.getInt(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG);
@@ -96,7 +100,10 @@ public class PrefetchSegmentManager {
                 .maximumSize(maxCacheSize)
                 .expireAfterAccess(expireAfterAccessMinutes, TimeUnit.MINUTES)
                 .removalListener(new CacheRemovalListener())
+                .recordStats()
                 .build();
+
+        metrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.localBaseDir);
     }
 
     @VisibleForTesting
@@ -147,18 +154,26 @@ public class PrefetchSegmentManager {
         try {
             Task task = new Task(segmentMetadata);
             threadPoolExecutor.submit(task);
+            metrics.markPrefetchRequests();
+        } catch (RejectedExecutionException e) {
+            metrics.markPrefetchThreadPoolExecutorRejection();
+            LOGGER.error("Task rejected by thread pool for segment: {}", segmentMetadata.remoteLogSegmentId(), e);
+            signalDownloadFailure(segmentMetadata);
         } catch (Exception e) {
             LOGGER.error("Failed to submit download task for segment: {}", segmentMetadata.remoteLogSegmentId(), e);
+            signalDownloadFailure(segmentMetadata);
         }
     }
 
     private void signalDownloadSuccess(RemoteLogSegmentMetadata segmentMetadata, FileChannel fileChannel) {
         Path filePath = Paths.get(RSMUtils.segmentPrefetchPath(localBaseDir, segmentMetadata));
         segmentCache.put(segmentMetadata.remoteLogSegmentId(), new CacheValue(PrefetchStatus.SUCCESS, filePath, fileChannel));
+        metrics.markPrefetchRequestSuccess();
     }
 
     private void signalDownloadFailure(RemoteLogSegmentMetadata segmentMetadata) {
         segmentCache.invalidate(segmentMetadata.remoteLogSegmentId());
+        metrics.markPrefetchRequestFailure();
     }
 
     private class Task implements Runnable {
@@ -167,7 +182,7 @@ public class PrefetchSegmentManager {
 
         public Task(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
             this.remoteLogSegmentMetadata = remoteLogSegmentMetadata;
-            this.downloadTask = new DownloadTask(time, localBaseDir, dataFetcher, remoteLogSegmentMetadata);
+            this.downloadTask = new DownloadTask(time, localBaseDir, dataFetcher, metrics, remoteLogSegmentMetadata);
         }
 
         @Override

@@ -44,11 +44,13 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
     private final RemoteDataPrefetcher remoteDataPrefetcher;
 
     public PrefetchEnabledHDFSRemoteStorageManager() {
+        HDFSRemoteStorageManagerMetrics metrics = new HDFSRemoteStorageManagerMetrics();
         FileSystemManager fileSystemManager = new FileSystemManager();
-        this.hdfsRemoteStorageManager = new HDFSRemoteStorageManager(fileSystemManager);
+        this.hdfsRemoteStorageManager = new HDFSRemoteStorageManager(metrics, fileSystemManager);
         this.remoteDataPrefetcher = new RemoteDataPrefetcherImpl(
             new DefaultPrefetchEvaluator(),
-            fileSystemManager
+            fileSystemManager,
+            metrics
         );
     }
 

@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
+import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -42,16 +43,18 @@ public class DownloadTask implements Callable<FileChannel> {
     private final Time time;
     private final String downloadDirectory;
     private final DataFetcher dataFetcher;
+    private final HDFSRemoteStorageManagerMetrics metrics;
     private final RemoteLogSegmentMetadata remoteLogSegmentMetadata;
 
     // Using a direct ByteBuffer to avoid an extra memory copy between user space buffers during data transfer from tempBuffer to fileChannel
     private final ThreadLocal<ByteBuffer> threadLocalBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(BUFFER_SIZE));
     private final ThreadLocal<byte[]> threadLocalTempBuffer = ThreadLocal.withInitial(() -> new byte[BUFFER_SIZE]);
 
-    public DownloadTask(Time time, String downloadDirectory, DataFetcher dataFetcher, RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+    public DownloadTask(Time time, String downloadDirectory, DataFetcher dataFetcher, HDFSRemoteStorageManagerMetrics metrics, RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
         this.time = time;
         this.downloadDirectory = downloadDirectory;
         this.dataFetcher = dataFetcher;
+        this.metrics = metrics;
         this.remoteLogSegmentMetadata = remoteLogSegmentMetadata;
     }
 
@@ -61,7 +64,7 @@ public class DownloadTask implements Callable<FileChannel> {
 
     @Override
     public FileChannel call() throws IOException {
-        return downloadSegment();
+        return metrics.timeSegmentDownload(this::downloadSegment);
     }
 
     private FileChannel downloadSegment() throws IOException {

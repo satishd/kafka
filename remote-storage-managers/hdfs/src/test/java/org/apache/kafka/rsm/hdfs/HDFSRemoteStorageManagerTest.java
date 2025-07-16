@@ -25,6 +25,7 @@ import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
+import org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -33,14 +34,11 @@ import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
-import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import org.apache.kafka.test.TestUtils;
 
 import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
-import com.yammer.metrics.core.MetricName;
-import com.yammer.metrics.core.Timer;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -78,7 +76,6 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
@@ -104,6 +101,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_BYTES_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -866,43 +864,27 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     private void verifyTimerCount(String name, long expectedValue) {
-        verifyTimerCount(name, Collections.emptyMap(), expectedValue);
+        RSMTestUtils.verifyTimerCount(HDFSRemoteStorageManager.class, name, expectedValue);
     }
 
     private void verifyTimerCount(String name, Map<String, String> tags, long expectedValue) {
-        Timer timer = findKafkaMetric(name, tags)
-                .map(metric -> (Timer) metric)
-                .orElseThrow(() -> new AssertionError("Metric " + name + " with tags " + tags + " not found"));
-        assertEquals(expectedValue, timer.count(), "Timer count check failed for " + name + " with tags " + tags);
+        RSMTestUtils.verifyTimerCount(HDFSRemoteStorageManager.class, name, tags, expectedValue);
     }
 
     private void verifyTimerQuantile(String name, double quantile, Predicate<Double> assertion) {
-        verifyTimerQuantile(name, Collections.emptyMap(), quantile, assertion);
+        RSMTestUtils.verifyTimerQuantile(HDFSRemoteStorageManager.class, name, Collections.emptyMap(), quantile, assertion);
     }
 
     private void verifyTimerQuantile(String name, Map<String, String> tags, double quantile, Predicate<Double> assertion) {
-        Timer timer = findKafkaMetric(name, tags)
-                .map(metric -> (Timer) metric)
-                .orElseThrow(() -> new AssertionError("Metric " + name + " not found"));
-
-        double value = timer.getSnapshot().getValue(quantile);
-        assertTrue(assertion.test(value), "Timer quantile check failed for " + name);
+        RSMTestUtils.verifyTimerQuantile(HDFSRemoteStorageManager.class, name, tags, quantile, assertion);
     }
 
     private void verifyMeter(String name, Map<String, String> tags, long expectedCount) {
-        Meter meter = findKafkaMetric(name, tags)
-                .map(metric -> (Meter) metric)
-                .orElseThrow(() -> new AssertionError("Meter " + name + " with tags " + tags + " not found"));
-        assertEquals(expectedCount, meter.count(), "Meter count check failed for " + name + " with tags " + tags);
+        RSMTestUtils.verifyMeter(HDFSRemoteStorageManager.class, name, tags, expectedCount);
     }
 
     private <T> void verifyGauge(String name, T expectedValue) {
-        Optional<Metric> metric = findKafkaMetric(name)
-                .filter(m -> m instanceof Gauge<?>);
-
-        assertTrue(metric.isPresent(), "Metric " + name + " not found or not a Gauge");
-        Object actualValue = ((Gauge<?>) metric.get()).value();
-        assertEquals(expectedValue, actualValue, "Gauge value mismatch for " + name);
+        RSMTestUtils.verifyGauge(HDFSRemoteStorageManager.class, name, expectedValue);
     }
 
     private List<RemoteLogSegmentMetadata> listRemoteLogSegmentMetadata(int segmentCount,
@@ -962,28 +944,8 @@ public class HDFSRemoteStorageManagerTest {
         }
     }
 
-    private void clearKafkaMetrics() {
-        KafkaYammerMetrics.defaultRegistry().allMetrics().forEach(
-            (metricName, metric) -> KafkaYammerMetrics.defaultRegistry().removeMetric(metricName));
-    }
-
     private Optional<Metric> findKafkaMetric(String name) {
-        return findKafkaMetric(name, Collections.emptyMap());
-    }
-
-    private Optional<Metric> findKafkaMetric(String name, Map<String, String> tags) {
-        String scope = tags.entrySet().stream().map(e -> e.getKey() + "." + e.getValue()).collect(Collectors.joining(","));
-        return KafkaYammerMetrics.defaultRegistry().allMetrics()
-                .entrySet()
-                .stream()
-                .filter(entry -> {
-                    MetricName metricName = entry.getKey();
-                    return metricName.getGroup().equals(HDFSRemoteStorageManager.class.getPackage().getName()) &&
-                            metricName.getType().equals(HDFSRemoteStorageManager.class.getSimpleName()) &&
-                            metricName.getName().equals(name) && (!metricName.hasScope() || metricName.getScope().equals(scope));
-                })
-                .findFirst()
-                .map(Map.Entry::getValue);
+        return RSMTestUtils.findKafkaMetric(HDFSRemoteStorageManager.class, name);
     }
 
     private void verifyFetchLogSegmentDefaultPrefetch(RemoteStorageManager rsm,
