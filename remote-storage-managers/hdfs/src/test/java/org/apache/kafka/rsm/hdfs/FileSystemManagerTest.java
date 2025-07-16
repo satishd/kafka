@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig;
@@ -26,6 +27,8 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+
+import com.oracle.bmc.hdfs.BmcConstants;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -39,6 +42,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -57,9 +61,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -77,6 +87,7 @@ import static org.mockito.Mockito.verify;
  * Tests for {@link FileSystemManager}.
  */
 public class FileSystemManagerTest {
+    private static final String OCI_BUCKET = "oci://uber@abc/lwrka";
     private MiniDFSCluster cluster;
     private FileSystem hdfs;
     private Configuration hadoopConf;
@@ -135,6 +146,7 @@ public class FileSystemManagerTest {
         assertEquals("60", config.get(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY));
         assertEquals("true", config.get(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY));
     }
+
 
     @Test
     public void testGetFSDefaultConfiguration() throws IOException {
@@ -272,9 +284,10 @@ public class FileSystemManagerTest {
             rsm.configure(configs);
 
             assertEquals(allBuckets, rsm.ociBuckets());
-            // verify that the FileSystem instance is called 5 times
-            // once for the default filesystem, once for the hedged reads enabled filesystem and 3 times for the OCI buckets
-            assertEquals(5, instanceCount.get());
+            // verify that the FileSystem instance is called 8 times
+            // once for the default filesystem, once for the hedged reads enabled filesystem and 3 times for the OCI
+            // buckets with and without read ahead
+            assertEquals(8, instanceCount.get());
 
             Uuid topicId = Uuid.fromString("p9egHc6hSBGpCXzSk59d7g");
             String topic = "topicA";
@@ -300,7 +313,7 @@ public class FileSystemManagerTest {
             configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
             rsm.reconfigure(configs);
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket4)));
-            assertEquals(6, instanceCount.get());
+            assertEquals(9, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
 
             // Reconfigure the OCI Buckets -- remove some buckets
@@ -310,7 +323,7 @@ public class FileSystemManagerTest {
             rsm.reconfigure(configs);
             // removed bucket should still be accessible for reads.
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket2)));
-            assertEquals(6, instanceCount.get());
+            assertEquals(9, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
         }
     }
@@ -373,5 +386,158 @@ public class FileSystemManagerTest {
         // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
         assertEquals(expectedBucket, FileSystemManager.getBucket(
                 new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void testSetOCIReadAheadConfigurationWithDefaultValues() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
+        HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
+
+        Configuration config = new Configuration();
+        FileSystemManager fileSystemManager = new FileSystemManager();
+        fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
+
+        assertEquals("2", config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
+        assertEquals("4194304", config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
+        assertEquals("10", config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+    }
+
+    @Test
+    public void testSetOCIReadAheadConfiguration() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, 1);
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, 1048576);
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, 2);
+        HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
+
+        Configuration config = new Configuration();
+        FileSystemManager fileSystemManager = new FileSystemManager();
+        fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
+
+        assertEquals("1", config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
+        assertEquals("1048576", config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
+        assertEquals("2", config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "0, 1048576, 5",
+        "4, 512, 5",
+        "4, 1048576, 0"
+    })
+    public void testSetOCIReadAheadConfigurationWithInvalidValues(int blockCount, int blockSize, int numThreads) {
+        Map<String, Object> props = new HashMap<>();
+        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, blockCount);
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, blockSize);
+        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, numThreads);
+
+        assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(props, false));
+    }
+
+    /**
+     * Test that the readAheadHadoopConf is correctly configured with the values from HDFSRemoteStorageManagerConfig.
+     */
+    @Test
+    public void testReadAheadConfiguration() throws Exception {
+        // Initialize mock FileSystem
+        FileSystem mockFileSystem = mock(FileSystem.class);
+        
+        // Create a new configs map for this test
+        Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
+        testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        
+        // Capture the Configuration object passed to FileSystem.get
+        ArgumentCaptor<Configuration> configCaptor = ArgumentCaptor.forClass(Configuration.class);
+        
+        try (MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // Mock FileSystem.get to return our mock FileSystem and capture the Configuration
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), configCaptor.capture()))
+                    .thenReturn(mockFileSystem);
+            
+            // Create and configure the FileSystemManager
+            FileSystemManager fileSystemManager = new FileSystemManager();
+            fileSystemManager.configure(testConfigs);
+            
+            // Get a FileSystem with read-ahead enabled
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            fileSystemManager.getFS(readAheadOptions);
+            
+            // Get the captured Configuration
+            Configuration readAheadConf = configCaptor.getValue();
+            
+            // Verify that the read-ahead configuration values are set correctly
+            assertEquals(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT, 
+                    readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, -1));
+            assertEquals(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE, 
+                    readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY, -1));
+            assertEquals(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS,
+                    readAheadConf.getInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, -1));
+            assertTrue(readAheadConf.getBoolean("fs.oci.impl.disable.cache", false));
+        }
+    }
+
+    /**
+     * Test that the getFS method correctly uses readAheadHadoopConf when readAheadEnabled is true.
+     */
+    @Test
+    public void testGetFSWithReadAheadEnabled() throws Exception {
+        // Initialize mock FileSystem
+        FileSystem mockFileSystem = mock(FileSystem.class);
+        
+        // Create a new configs map for this test
+        Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
+        testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+        
+        // Set custom values for read-ahead configuration
+        int customBlockCount = 5;
+        int customBlockSize = 8388608; // 8MB
+        int customNumThreads = 20;
+        
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, customBlockCount);
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, customBlockSize);
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, customNumThreads);
+        
+        // Capture the Configuration object passed to FileSystem.get
+        ArgumentCaptor<Configuration> configCaptor = ArgumentCaptor.forClass(Configuration.class);
+        ArgumentCaptor<URI> uriCaptor = ArgumentCaptor.forClass(URI.class);
+        
+        try (MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // Mock FileSystem.get to return our mock FileSystem and capture the Configuration
+            mockedFileSystem.when(() -> FileSystem.get(uriCaptor.capture(), configCaptor.capture()))
+                    .thenReturn(mockFileSystem);
+            
+            // Create and configure the FileSystemManager
+            FileSystemManager fileSystemManager = new FileSystemManager();
+            fileSystemManager.configure(testConfigs);
+            
+            // Get a FileSystem with read-ahead enabled
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            FileSystem fs = fileSystemManager.getFS(readAheadOptions);
+            
+            // Verify that the correct FileSystem was returned
+            assertNotNull(fs);
+            assertEquals(mockFileSystem, fs);
+            
+            // Verify that the correct URI was used
+            assertEquals(new URI(OCI_BUCKET), uriCaptor.getValue());
+            
+            // Get the captured Configuration
+            Configuration readAheadConf = configCaptor.getValue();
+            
+            // Verify that the read-ahead configuration values are set correctly
+            assertEquals(customBlockCount, 
+                    readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, -1));
+            assertEquals(customBlockSize, 
+                    readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY, -1));
+            assertEquals(customNumThreads, 
+                    readAheadConf.getInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, -1));
+        }
     }
 }

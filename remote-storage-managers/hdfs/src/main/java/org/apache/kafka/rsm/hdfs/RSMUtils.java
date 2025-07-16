@@ -30,6 +30,7 @@ import java.nio.channels.FileChannel;
 
 public final class RSMUtils {
 
+    public static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
     static final String DELIMITER = "_";
 
     public static String segmentPrefetchPath(String downloadDirectory, RemoteLogSegmentMetadata remoteLogSegmentMetadata) {

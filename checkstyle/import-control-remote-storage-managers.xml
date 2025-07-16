@@ -35,6 +35,7 @@
     <subpackage name="hdfs">
         <allow pkg="org.apache.kafka.rsm.hdfs"/>
         <allow pkg="com.github.benmanes.caffeine.cache"/>
+        <allow pkg="com.oracle.bmc.hdfs"/>
 
         <!-- tests -->
         <allow pkg="com.google.common.annotations"/>

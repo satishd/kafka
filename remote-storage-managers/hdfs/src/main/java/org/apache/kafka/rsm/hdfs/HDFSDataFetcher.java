@@ -42,15 +42,19 @@ public class HDFSDataFetcher implements DataFetcher {
     }
 
     public long fileLength(RemoteLogSegmentMetadata metadata) throws IOException {
-        String filePath = getSegmentRemoteDir(metadata.remoteLogSegmentId());
-        return getFS(metadata).getFileStatus(new Path(filePath)).getLen();
+        Path dataPath = getDataPath(metadata);
+        return getFS(metadata).getFileStatus(dataPath).getLen();
     }
 
     @Override
     public FSDataInputStream fetchSegmentData(RemoteLogSegmentMetadata metadata) throws IOException {
-        RemoteLogSegmentId segmentId = metadata.remoteLogSegmentId();
-        String filePath = getSegmentRemoteDir(segmentId);
-        return getFS(metadata).open(new Path(filePath));
+        Path dataPath = getDataPath(metadata);
+        return getFS(metadata).open(dataPath);
+    }
+
+    private Path getDataPath(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+        String bucket = fileSystemManager.getBucket(remoteLogSegmentMetadata);
+        return new Path(bucket + getSegmentRemoteDir(remoteLogSegmentMetadata.remoteLogSegmentId()));
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {

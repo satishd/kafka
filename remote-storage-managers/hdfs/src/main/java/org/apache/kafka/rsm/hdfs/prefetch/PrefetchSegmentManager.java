@@ -52,6 +52,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG;
+import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
 
 public class PrefetchSegmentManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
@@ -71,7 +72,7 @@ public class PrefetchSegmentManager {
     public void configure(Map<String, ?> configs) {
         HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
 
-        String hadoopBaseDir = conf.getString(HDFS_BASE_DIR_PROP);
+        String hadoopBaseDir = KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
         this.dataFetcher = new HDFSDataFetcher(hadoopBaseDir, fileSystemManager);
 
         this.localBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_CONFIG);

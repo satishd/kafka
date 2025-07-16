@@ -25,6 +25,8 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
+import com.oracle.bmc.hdfs.BmcConstants;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
@@ -46,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
@@ -67,6 +71,9 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
 
 /**
  * This class manages FileSystem instances by bucket.
@@ -134,13 +141,22 @@ public class FileSystemManager {
                 throw new RuntimeException(String.format("Unable to login as user: %s", user), ex);
             }
         }
+        LOGGER.info("Default Hadoop Configuration: {}", confToString(defaultHadoopConf));
 
         if (hedgedReadsHadoopConf == null) {
             Configuration hadoopConf = new Configuration(defaultHadoopConf);
             setHedgedReadsConfiguration(hadoopConf, conf);
-            // Disable cache, otherwise FileSystem get will return the same filesystem for HDFS without hedged reads enabled
+            // Disable cache for HDFS, otherwise FileSystem get will return the same filesystem for HDFS without hedged reads enabled
             hadoopConf.setBoolean("fs.hdfs.impl.disable.cache", true);
             hedgedReadsHadoopConf = hadoopConf;
+        }
+
+        if (readAheadHadoopConf == null) {
+            Configuration hadoopConf = new Configuration(defaultHadoopConf);
+            setOCIReadAheadConfiguration(hadoopConf, conf);
+            // Disable cache for oci, otherwise FileSystem get will return the default filesystem for OCI
+            hadoopConf.setBoolean("fs.oci.impl.disable.cache", true);
+            readAheadHadoopConf = hadoopConf;
         }
 
         hdfsBucket = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP);
@@ -157,11 +173,40 @@ public class FileSystemManager {
             validateScheme(ociBucket, RemoteStorageProvider.OCI);
             FileSystemOptions defaultOciOpts = new FileSystemOptions(ociBucket);
             getFS(defaultOciOpts);
+
+            FileSystemOptions readAheadOciOpts = new FileSystemOptions(ociBucket, false, true);
+            getFS(readAheadOciOpts);
         }
 
         // Schedule periodic tasks
         executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
         executor.scheduleWithFixedDelay(this::handleDynamicHedgedReadsConfigUpdates, 0, 1, TimeUnit.MINUTES);
+    }
+
+    /**
+     * Configures the OCI-specific read ahead settings in the given Hadoop configuration.
+     * <p>
+     * This method sets the read ahead block count, block size, and number of threads
+     * in the Hadoop configuration based on the values specified in the provided
+     * HDFS remote storage manager configuration.
+     *
+     * @param conf                           the Hadoop configuration object to be updated
+     * @param hdfsRemoteStorageManagerConfig the configuration object containing OCI-specific read ahead settings
+     */
+    public void setOCIReadAheadConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
+        Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
+        Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
+        Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
+        conf.setInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
+        conf.setInt(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
+        conf.setInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
+        LOGGER.info("Hadoop configuration after setting read ahead properties for OCI : {}", confToString(conf));
+    }
+
+    private static String confToString(Configuration conf) {
+        SortedMap<String, String> map = new TreeMap<>();
+        conf.iterator().forEachRemaining(entry -> map.put(entry.getKey(), entry.getValue()));
+        return map.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue()).collect(Collectors.joining("\n"));
     }
 
     /**
@@ -329,7 +374,7 @@ public class FileSystemManager {
         conf.set(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, clientReadThreadPoolMaxSize.toString());
         conf.set(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY, clientReadThreadPoolKeepAliveTime.toString());
         conf.set(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY, isClientReadThreadPoolCoreThreadTimeoutAllowed.toString());
-        LOGGER.debug("Hadoop configuration after setting hedged read properties: {}", conf);
+        LOGGER.info("Hadoop configuration after setting hedged read properties: {}", confToString(conf));
     }
 
     /**

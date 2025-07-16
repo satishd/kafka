@@ -74,11 +74,11 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.PRODUCER_S
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.SEGMENT;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TIMESTAMP_INDEX;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTION_INDEX;
+import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
 
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
     private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);

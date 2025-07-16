@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,10 +59,10 @@ public class HDFSDataFetcherTest {
         // Create mocks
         mockFileSystemManager = mock(FileSystemManager.class);
         mockFileSystem = mock(FileSystem.class);
-        
+
         // Create the data fetcher
         dataFetcher = new HDFSDataFetcher(HADOOP_BASE_DIR, mockFileSystemManager);
-        
+
         // Create test metadata
         TopicIdPartition topicIdPartition = new TopicIdPartition(
             Uuid.randomUuid(), 
@@ -80,10 +81,11 @@ public class HDFSDataFetcherTest {
             RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
             Collections.singletonMap(0, 0L)
         );
-        
+
         // Set up the expected file path
-        expectedFilePath = RSMUtils.getSegmentRemoteDir(HADOOP_BASE_DIR, segmentId);
-        
+        String bucket = "hdfs://localhost:9000";
+        expectedFilePath = bucket + RSMUtils.getSegmentRemoteDir(HADOOP_BASE_DIR, segmentId);
+
         // Set up the mock FileSystemManager to return our mock FileSystem
         when(mockFileSystemManager.getBucket(metadata)).thenReturn("hdfs://localhost:9000");
         fileSystemOptionsCapture = ArgumentCaptor.forClass(FileSystemOptions.class);
@@ -95,16 +97,16 @@ public class HDFSDataFetcherTest {
         // Set up the mock FileSystem to return a mock FSDataInputStream
         FSDataInputStream mockInputStream = mock(FSDataInputStream.class);
         when(mockFileSystem.open(new Path(expectedFilePath))).thenReturn(mockInputStream);
-        
+
         // Call the method under test
         FSDataInputStream result = dataFetcher.fetchSegmentData(metadata);
-        
+
         // Verify the result
         assertNotNull(result);
         assertEquals(mockInputStream, result);
-        
+
         // Verify that the correct methods were called on the mocks
-        verify(mockFileSystemManager).getBucket(metadata);
+        verify(mockFileSystemManager, times(2)).getBucket(metadata);
         verify(mockFileSystemManager).getFS(fileSystemOptionsCapture.capture());
         verify(mockFileSystem).open(new Path(expectedFilePath));
 
@@ -121,15 +123,15 @@ public class HDFSDataFetcherTest {
         FileStatus mockFileStatus = mock(FileStatus.class);
         when(mockFileStatus.getLen()).thenReturn(1024L);
         when(mockFileSystem.getFileStatus(new Path(expectedFilePath))).thenReturn(mockFileStatus);
-        
+
         // Call the method under test
         long result = dataFetcher.fileLength(metadata);
-        
+
         // Verify the result
         assertEquals(1024L, result);
-        
+
         // Verify that the correct methods were called on the mocks
-        verify(mockFileSystemManager).getBucket(metadata);
+        verify(mockFileSystemManager, times(2)).getBucket(metadata);
         verify(mockFileSystemManager).getFS(fileSystemOptionsCapture.capture());
         verify(mockFileSystem).getFileStatus(new Path(expectedFilePath));
         verify(mockFileStatus).getLen();
@@ -137,5 +139,7 @@ public class HDFSDataFetcherTest {
         // Verify FileSystemOptions had the right configurations
         FileSystemOptions fileSystemOptions = fileSystemOptionsCapture.getValue();
         assertEquals("hdfs://localhost:9000", fileSystemOptions.bucket());
+        assertTrue(fileSystemOptions.hedgedReadsEnabled());
+        assertTrue(fileSystemOptions.readAheadEnabled());
     }
 }
