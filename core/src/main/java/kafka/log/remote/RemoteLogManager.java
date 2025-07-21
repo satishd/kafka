@@ -1113,6 +1113,8 @@ public class RemoteLogManager implements Closeable {
                     brokerTopicStats.allTopicsStats().failedRemoteCopyRequestRate().mark();
                     logger.error("Error occurred while copying log segments of partition: {}", topicIdPartition, ex);
                 }
+            } finally {
+                recordLagStats(log);
             }
         }
 
@@ -1198,7 +1200,10 @@ public class RemoteLogManager implements Closeable {
             log.updateHighestOffsetInRemoteStorage(endOffset);
             logger.info("Copied {} to remote storage with segment-id: {}",
                     logFileName, copySegmentFinishedRlsm.remoteLogSegmentId());
+            recordLagStats(log);
+        }
 
+        private void recordLagStats(UnifiedLog log) {
             long bytesLag = log.onlyLocalLogSegmentsSize() - log.activeSegment().size();
             long segmentsLag = log.onlyLocalLogSegmentsCount() - 1;
             recordLagStats(bytesLag, segmentsLag);

@@ -743,6 +743,10 @@ public class RemoteLogManagerTest {
         when(mockLog.logStartOffset()).thenReturn(oldSegmentStartOffset);
         when(mockLog.logSegments(anyLong(), anyLong())).thenReturn(JavaConverters.collectionAsScalaIterable(Arrays.asList(oldSegment, activeSegment)));
 
+        when(mockLog.onlyLocalLogSegmentsSize()).thenReturn(110L);
+        when(activeSegment.size()).thenReturn(100);
+        when(mockLog.onlyLocalLogSegmentsCount()).thenReturn(2L);
+
         ProducerStateManager mockStateManager = mock(ProducerStateManager.class);
         when(mockLog.producerStateManager()).thenReturn(mockStateManager);
         when(mockStateManager.fetchSnapshot(anyLong())).thenReturn(Optional.of(mockProducerSnapshotIndex));
@@ -769,6 +773,9 @@ public class RemoteLogManagerTest {
                 .thenThrow(new RemoteStorageException("test"));
         RemoteLogManager.RLMCopyTask task = remoteLogManager.new RLMCopyTask(leaderTopicIdPartition, 128);
         task.copyLogSegmentsToRemote(mockLog);
+        // assert that bytesLag and segmentsLag are emitted during error
+        assertEquals(10, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagBytes());
+        assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagSegments());
 
         ArgumentCaptor<RemoteLogSegmentMetadata> remoteLogSegmentMetadataArg = ArgumentCaptor.forClass(RemoteLogSegmentMetadata.class);
         verify(remoteLogMetadataManager).addRemoteLogSegmentMetadata(remoteLogSegmentMetadataArg.capture());
@@ -2291,6 +2298,10 @@ public class RemoteLogManagerTest {
 
         LeaderEpochFileCache cache = new LeaderEpochFileCache(leaderTopicIdPartition.topicPartition(), checkpoint, scheduler);
         when(mockLog.leaderEpochCache()).thenReturn(Option.apply(cache));
+
+        LogSegment activeSegment = mock(LogSegment.class);
+        when(activeSegment.baseOffset()).thenReturn(1000L);
+        when(mockLog.activeSegment()).thenReturn(activeSegment);
 
         RemoteLogSegmentMetadata metadata = mock(RemoteLogSegmentMetadata.class);
         when(metadata.startOffset()).thenReturn(600L);
