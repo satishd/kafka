@@ -33,6 +33,7 @@ import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.log.EpochEntry;
 import org.apache.kafka.storage.internals.log.LogFileUtils;
@@ -187,7 +188,7 @@ public class TierStateMachine {
                                         Long leaderLogStartOffset,
                                         UnifiedLog unifiedLog) throws IOException, RemoteStorageException {
 
-        if (!unifiedLog.remoteStorageSystemEnable() || !unifiedLog.config().remoteStorageEnable()) {
+        if (!unifiedLog.remoteLogEnabled()) {
             // If the tiered storage is not enabled throw an exception back so that it will retry until the tiered storage
             // is set as expected.
             throw new RemoteStorageException("Couldn't build the state from remote store for partition " + topicPartition + ", as remote log storage is not yet enabled");
@@ -227,6 +228,10 @@ public class TierStateMachine {
             } else {
                 targetEpoch = epochForLeaderLocalLogStartOffset;
             }
+        }
+
+        if (!rlm.isPartitionReady(topicPartition)) {
+            throw new RetriableRemoteStorageException("RemoteLogManager is not ready for partition: " + topicPartition);
         }
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = rlm.fetchRemoteLogSegmentMetadata(topicPartition, targetEpoch, previousOffsetToLeaderLocalLogStartOffset)

@@ -861,6 +861,15 @@ public class RemoteLogManager implements Closeable {
         return Optional.of(remoteLogSize);
     }
 
+    public boolean isPartitionReady(TopicPartition tp) {
+        Uuid topicId = topicIdByPartitionMap.get(tp);
+        if (topicId == null) {
+            return false;
+        }
+        TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, tp);
+        return remoteLogMetadataManager.isReady(topicIdPartition);
+    }
+
     private abstract static class CancellableRunnable implements Runnable {
         private volatile boolean cancelled = false;
 

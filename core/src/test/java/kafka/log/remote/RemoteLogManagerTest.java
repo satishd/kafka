@@ -3932,6 +3932,19 @@ public class RemoteLogManagerTest {
     }
 
     @Test
+    void testIsPartitionReady() {
+        assertFalse(remoteLogManager.isPartitionReady(leaderTopicIdPartition.topicPartition()));
+        remoteLogManager.startup();
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(leaderTopicIdPartition)),
+                Collections.emptySet(),
+                topicIds
+        );
+        when(remoteLogMetadataManager.isReady(leaderTopicIdPartition)).thenReturn(true);
+        assertTrue(remoteLogManager.isPartitionReady(leaderTopicIdPartition.topicPartition()));
+    }
+
+    @Test
     public void testRlmTaskCountMatchesWithAssignedPartitions() {
         String topic = "sample";
         Uuid topicId = Uuid.randomUuid();
