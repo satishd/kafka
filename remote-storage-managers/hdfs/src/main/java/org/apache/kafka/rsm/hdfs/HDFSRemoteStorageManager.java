@@ -124,7 +124,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, Integer::parseInt),
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt)
     );
-    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false);
+    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;

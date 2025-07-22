@@ -1798,7 +1798,7 @@ public class RemoteLogManager implements Closeable {
                 .map(UnifiedLog::config)
                 .map(LogConfig::remoteHedgedReadsEnable)
                 .orElse(false);
-        RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads);
+        RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads, null);
 
         Optional<UnifiedLog> logOptional = fetchLog.apply(tp);
         OptionalInt epoch = OptionalInt.empty();

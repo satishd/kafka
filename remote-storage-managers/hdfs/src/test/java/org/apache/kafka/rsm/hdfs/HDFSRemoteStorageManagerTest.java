@@ -1246,7 +1246,7 @@ public class HDFSRemoteStorageManagerTest {
                                                       int startPosition,
                                                       int endPosition,
                                                       int size) throws Exception {
-        RemoteReadContext readContext = new RemoteReadContext(true, false);
+        RemoteReadContext readContext = new RemoteReadContext(true, false, null);
         verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 
@@ -1256,7 +1256,7 @@ public class HDFSRemoteStorageManagerTest {
                                                                     int startPosition,
                                                                     int endPosition,
                                                                     int size) throws Exception {
-        RemoteReadContext readContext = new RemoteReadContext(true, true);
+        RemoteReadContext readContext = new RemoteReadContext(true, true, null);
         verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 
@@ -1267,7 +1267,7 @@ public class HDFSRemoteStorageManagerTest {
                                                            int endPosition,
                                                            int size) throws Exception {
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false);
+            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false, null);
             verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
         }
     }
@@ -1392,7 +1392,7 @@ public class HDFSRemoteStorageManagerTest {
         }
         // Fetch the segment with and without LRU cache.
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false);
+            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false, null);
             try (InputStream actualStream = rsm.fetchLogSegment(metadata, readContext, 0)) {
                 assertFileEquals(segmentData.logSegment().toFile(), actualStream);
             }

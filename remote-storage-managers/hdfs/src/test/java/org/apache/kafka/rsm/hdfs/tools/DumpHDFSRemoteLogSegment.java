@@ -115,7 +115,7 @@ public class DumpHDFSRemoteLogSegment {
             // Fetch the log segment
             File segmentFile = new File(outputDir, filename + LogFileUtils.LOG_FILE_SUFFIX);
             System.out.println("Fetching segment " + segmentFile);
-            RemoteReadContext readContext = new RemoteReadContext(prefetch, false);
+            RemoteReadContext readContext = new RemoteReadContext(prefetch, false, null);
             try (InputStream stream = manager.fetchLogSegment(metadata, readContext, 0)) {
                 Files.copy(stream, segmentFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }

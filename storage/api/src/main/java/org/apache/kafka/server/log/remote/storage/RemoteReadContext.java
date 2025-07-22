@@ -16,15 +16,19 @@
  */
 package org.apache.kafka.server.log.remote.storage;
 
+import org.apache.kafka.server.common.OffsetAndEpoch;
+
 import java.util.Objects;
 
 public class RemoteReadContext {
     private final boolean prefetchEnabled;
     private final boolean hedgedReadsEnabled;
+    private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
 
-    public RemoteReadContext(boolean prefetchEnabled, boolean hedgedReadsEnabled) {
+    public RemoteReadContext(boolean prefetchEnabled, boolean hedgedReadsEnabled, OffsetAndEpoch nextSegmentOffsetAndEpoch) {
         this.prefetchEnabled = prefetchEnabled;
         this.hedgedReadsEnabled = hedgedReadsEnabled;
+        this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
     }
 
     public boolean isPrefetchEnabled() {
@@ -35,11 +39,16 @@ public class RemoteReadContext {
         return hedgedReadsEnabled;
     }
 
+    public OffsetAndEpoch getNextSegmentOffsetAndEpoch() {
+        return nextSegmentOffsetAndEpoch;
+    }
+
     @Override
     public String toString() {
         return "RemoteReadContext{" +
                 "prefetchEnabled=" + prefetchEnabled +
                 ", hedgedReadsEnabled=" + hedgedReadsEnabled +
+                ", nextSegmentOffsetAndEpoch=" + nextSegmentOffsetAndEpoch +
                 '}';
     }
 
@@ -48,11 +57,11 @@ public class RemoteReadContext {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteReadContext that = (RemoteReadContext) o;
-        return prefetchEnabled == that.prefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled;
+        return prefetchEnabled == that.prefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(prefetchEnabled, hedgedReadsEnabled);
+        return Objects.hash(prefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch);
     }
 }
