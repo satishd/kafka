@@ -20,10 +20,8 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
-import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.MessageUtil;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
-import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.generated.ConnectorCustomMetadata;
@@ -48,59 +46,28 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BYTES_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.OFFSET_INDEX;
 import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT;
@@ -111,25 +78,11 @@ import static org.apache.kafka.rsm.hdfs.LogSegmentDataHeader.FileType.TRANSACTIO
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    private static final String HDFS_BUCKET_PREFIX = RemoteStorageProvider.HDFS + "://";
-    private static final String OCI_BUCKET_PREFIX = RemoteStorageProvider.OCI + "://";
     static final String KLOAK_USER = Path.SEPARATOR + "user" + Path.SEPARATOR + "kloak" + Path.SEPARATOR;
-    static final Map<String, String> DYNAMIC_HEDGED_READS_CONFIG_MAP = Utils.mkMap(
-        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, THRESHOLD_MILLIS_KEY),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, CORE_SIZE_KEY),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, MAX_SIZE_KEY)
-    );
-    private static final Map<String, Function<String, Number>> CONFIG_PARSERS = Utils.mkMap(
-        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, Long::parseLong),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, Integer::parseInt),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt)
-    );
     private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
-    private Configuration defaultHadoopConf;
-    private volatile Configuration hedgedReadsHadoopConf;
     private int cacheLineSize;
     private LRUCache readCache;
     private ByteBufferPool byteBufferPool;
@@ -142,24 +95,15 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final HDFSRemoteStorageManagerMetrics metrics;
     private final AtomicInteger openInputStreamCount = new AtomicInteger();
     private final AtomicInteger openOutputStreamCount = new AtomicInteger();
-    private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
-            ThreadUtils.createThreadFactory("hdfs-rsm-scheduler", false));
-
-    private String hdfsBucket;
-    private final List<String> ociBuckets = new CopyOnWriteArrayList<>();
-    private final Map<FileSystemKey, FileSystem> fileSystemByBucket = new ConcurrentHashMap<>();
-    private final AtomicBoolean isHedgedReadsThresholdChanged = new AtomicBoolean();
-    private final AtomicBoolean isHedgedReadsThreadConfigChanged = new AtomicBoolean();
-
-    private static final Map<String, String> BUCKET_MAPPING = new HashMap<>();
-
-    static {
-        // deprecated buckets
-        BUCKET_MAPPING.put("oci://uber-prod-ea6bj@ax9estk6tuja/jwj42", "oci://uber-prod-ea6bj@ax9estk6tuja");
-    }
+    private final FileSystemManager fileSystemManager;
 
     public HDFSRemoteStorageManager() {
+        this(new FileSystemManager());
+    }
+
+    public HDFSRemoteStorageManager(FileSystemManager fileSystemManager) {
         this.metrics = new HDFSRemoteStorageManagerMetrics();
+        this.fileSystemManager = fileSystemManager;
     }
 
     /**
@@ -180,43 +124,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         int bufferPoolMaxSize = conf.getInt(HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP);
         byteBufferPool = new ByteBufferPoolImpl(cacheLineSize, bufferPoolMaxSize);
 
-        if (defaultHadoopConf == null) {
-            // Loads configuration from hadoop configuration files in class path
-            defaultHadoopConf = new Configuration();
-        }
-
-        String authentication = defaultHadoopConf.get(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION);
-        if (authentication.equalsIgnoreCase("kerberos")) {
-            String user = conf.getString(HDFS_USER_PROP);
-            String keytabPath = conf.getString(HDFS_KEYTAB_PATH_PROP);
-            try {
-                UserGroupInformation.setConfiguration(defaultHadoopConf);
-                UserGroupInformation.loginUserFromKeytab(user, keytabPath);
-            } catch (final Exception ex) {
-                throw new RuntimeException(String.format("Unable to login as user: %s", user), ex);
-            }
-        }
-
-        if (hedgedReadsHadoopConf == null) {
-            Configuration hadoopConf = new Configuration(defaultHadoopConf);
-            setHedgedReadsConfiguration(hadoopConf, conf);
-            // Disable cache, otherwise FileSystem get will return the same filesystem for HDFS without hedged reads enabled
-            hadoopConf.setBoolean("fs.hdfs.impl.disable.cache", true);
-            hedgedReadsHadoopConf = hadoopConf;
-        }
-
-        hdfsBucket = conf.getString(HDFS_DEFAULT_FS_URI_PROP);
-        validateScheme(hdfsBucket, RemoteStorageProvider.HDFS);
-        // FileSystem for HDFS without hedged reads enabled
-        getFS(hdfsBucket);
-        // FileSystem for HDFS with hedged reads enabled
-        getFS(hdfsBucket, true);
-
-        ociBuckets.addAll(conf.getList(HDFS_OCI_BUCKETS_PROP));
-        for (String ociBucket : ociBuckets) {
-            validateScheme(ociBucket, RemoteStorageProvider.OCI);
-            getFS(ociBucket);
-        }
+        // Configure the FileSystemManager
+        fileSystemManager.configure(configs);
 
         registerMetrics(readCache);
         registerBufferPoolMetrics();
@@ -224,183 +133,28 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerHDFSReadMetrics();
         registerStreamMetrics();
 
-        executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
-        executor.scheduleWithFixedDelay(this::handleDynamicHedgedReadsConfigUpdates, 0, 1, TimeUnit.MINUTES);
         LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, ociBuckets: {}",
-                baseDir, cacheLineSize, cacheSize, hdfsBucket, ociBuckets);
+                baseDir, cacheLineSize, cacheSize, fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets());
     }
 
-    private void validateScheme(String bucket, RemoteStorageProvider provider) {
-        if (!bucket.startsWith(provider.toString() + "://")) {
-            throw new IllegalArgumentException(String.format("Invalid bucket URI: %s. It should start with %s://", bucket, provider));
-        }
-    }
-
-    void relogin() {
-        try {
-            UserGroupInformation currentUser = UserGroupInformation.getCurrentUser();
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug(
-                        "relogin: currentUser={}, loginUser={}",
-                        currentUser,
-                        UserGroupInformation.getLoginUser());
-            }
-            currentUser.checkTGTAndReloginFromKeytab();
-        } catch (IOException e) {
-            LOGGER.error("relogin: failed", e);
-        }
-    }
-
-    void handleDynamicHedgedReadsConfigUpdates() {
-        try {
-            if (isHedgedReadsThresholdChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hdfsBucket, true);
-                if (shouldHandleHedgedReadsThresholdMsChange(hedgedReadsEnabledFs)) {
-                    FileSystemKey fileSystemKey = new FileSystemKey(hdfsBucket, true);
-                    FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(hdfsBucket, hedgedReadsHadoopConf));
-                    Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + hdfsBucket + " with hedged reads enabled");
-                }
-                LOGGER.info("Dynamic hedged reads thresholdMs config change handled");
-            }
-            if (isHedgedReadsThreadConfigChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hdfsBucket, true);
-                handleReadThreadPoolCoreSizeChange(hedgedReadsEnabledFs);
-                handleReadThreadPoolMaxSizeChange(hedgedReadsEnabledFs);
-                LOGGER.info("Dynamic hedged reads thread pool configuration change handled");
-            }
-        } catch (Exception ex) {
-            LOGGER.error("Failed to handle dynamic hedged reads config updates", ex);
-        }
-    }
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        Set<String> reconfigurableConfigs = new HashSet<>(DYNAMIC_HEDGED_READS_CONFIG_MAP.keySet());
-        reconfigurableConfigs.add(HDFS_OCI_BUCKETS_PROP);
-        LOGGER.debug("Reconfigurable configs: {}", reconfigurableConfigs);
-        return reconfigurableConfigs;
+        return fileSystemManager.reconfigurableConfigs();
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-        LOGGER.debug("Validating dynamic configuration update: {}", configs);
-        for (Map.Entry<String, Function<String, Number>> entry : CONFIG_PARSERS.entrySet()) {
-            String prop = entry.getKey();
-            Function<String, Number> parserFunc = entry.getValue();
-            if (configs.containsKey(prop)) {
-                String hdfsConfig = DYNAMIC_HEDGED_READS_CONFIG_MAP.get(prop);
-                Number oldValue = parserFunc.apply(hedgedReadsHadoopConf.get(hdfsConfig));
-                Number newValue = parserFunc.apply((String) configs.get(prop));
-                validate(prop, oldValue.longValue(), newValue.longValue());
-            }
-        }
-        if (configs.containsKey(HDFS_OCI_BUCKETS_PROP)) {
-            String newOciBuckets = (String) configs.get(HDFS_OCI_BUCKETS_PROP);
-            if (newOciBuckets == null || newOciBuckets.isEmpty()) {
-                throw new ConfigException(String.format("Dynamic config update validation failed for %s, value cannot be null or empty", HDFS_OCI_BUCKETS_PROP));
-            }
-            String[] ociBucketsArray = newOciBuckets.split(",");
-            for (String ociBucket : ociBucketsArray) {
-                validateScheme(ociBucket.trim(), RemoteStorageProvider.OCI);
-            }
-        }
-    }
-
-    private void validate(String prop, long currentValue, long newValue) {
-        String errorMsg = String.format("Dynamic config update validation failed for %s=%s", prop, newValue);
-        if (newValue != currentValue) {
-            if (newValue < currentValue / 2) {
-                throw new ConfigException(String.format("%s, value should be at least half the current value: %d",
-                        errorMsg, currentValue));
-            }
-            if (newValue > currentValue * 2) {
-                throw new ConfigException(String.format("%s, value should not be greater than double the current value: %d",
-                        errorMsg, currentValue));
-            }
-        }
+        fileSystemManager.validateReconfiguration(configs);
     }
 
     @Override
     public void reconfigure(Map<String, ?> configs) {
-        LOGGER.info("Reconfiguring with configs: {}", configs);
-        String thresholdMillis = (String) configs.get(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP);
-        if (thresholdMillis != null) {
-            setHedgedReadThresholdMillis(Long.parseLong(thresholdMillis));
-        }
-        String coreSize = (String) configs.get(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP);
-        if (coreSize != null) {
-            setReadThreadPoolCoreSize(Integer.parseInt(coreSize));
-        }
-        String maxSize = (String) configs.get(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP);
-        if (maxSize != null) {
-            setReadThreadPoolMaxSize(Integer.parseInt(maxSize));
-        }
-        String newOciBucketsStr = (String) configs.get(HDFS_OCI_BUCKETS_PROP);
-        if (newOciBucketsStr != null) {
-            reconfigureBuckets(newOciBucketsStr);
-        }
+        fileSystemManager.reconfigure(configs);
     }
 
-    void setHedgedReadsConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
-        LOGGER.debug("Hadoop configuration before setting hedged read properties: {}", conf);
-        Long hedgedReadThresholdMillis = hdfsRemoteStorageManagerConfig.getLong(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP);
-        Integer clientReadThreadPoolCoreSize = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP);
-        Integer clientReadThreadPoolMaxSize = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP);
-        Integer clientReadThreadPoolKeepAliveTime = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP);
-        Boolean isClientReadThreadPoolCoreThreadTimeoutAllowed = hdfsRemoteStorageManagerConfig.getBoolean(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP);
-
-        conf.set(HdfsClientConfigKeys.HedgedRead.ENABLED, Boolean.TRUE.toString());
-        conf.set(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, hedgedReadThresholdMillis.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY, clientReadThreadPoolCoreSize.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, clientReadThreadPoolMaxSize.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY, clientReadThreadPoolKeepAliveTime.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY, isClientReadThreadPoolCoreThreadTimeoutAllowed.toString());
-        LOGGER.debug("Hadoop configuration after setting hedged read properties: {}", conf);
-    }
-
-    void setHedgedReadThresholdMillis(long hedgedReadThresholdMillis) {
-        LOGGER.info("Setting hedged read threshold millis to: {}", hedgedReadThresholdMillis);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, String.valueOf(hedgedReadThresholdMillis));
-        isHedgedReadsThresholdChanged.set(true);
-    }
-
-    void setReadThreadPoolCoreSize(int coreSize) {
-        LOGGER.info("Setting read thread pool core size to: {}", coreSize);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY, String.valueOf(coreSize));
-        isHedgedReadsThreadConfigChanged.set(true);
-    }
-
-    void setReadThreadPoolMaxSize(int maxSize) {
-        LOGGER.info("Setting read thread pool max size to: {}", maxSize);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, String.valueOf(maxSize));
-        isHedgedReadsThreadConfigChanged.set(true);
-    }
-
-    private void reconfigureBuckets(String newOciBucketsStr) {
-        Set<String> newOciBuckets = Arrays.stream(newOciBucketsStr.split(","))
-                .map(String::trim)
-                .collect(Collectors.toSet());
-        Set<String> bucketsToRemove = ociBuckets.stream()
-                .filter(bucket -> !newOciBuckets.contains(bucket))
-                .collect(Collectors.toSet());
-        Set<String> bucketsToAdd = newOciBuckets.stream()
-                .filter(bucket -> !ociBuckets.contains(bucket))
-                .collect(Collectors.toSet());
-        String previousBuckets = String.join(", ", ociBuckets);
-        ociBuckets.addAll(bucketsToAdd);
-        ociBuckets.removeAll(bucketsToRemove);
-        LOGGER.info("Updated the OCI buckets. previousBuckets: [{}], bucketsToAdd: {}, bucketsToRemove: {}. " +
-                        "updatedBuckets: {}", previousBuckets, bucketsToAdd, bucketsToRemove, ociBuckets);
-    }
-
-    private void updateHedgedReadsHadoopConf(String key, String value) {
-        if (!DYNAMIC_HEDGED_READS_CONFIG_MAP.containsValue(key)) {
-            throw new IllegalArgumentException(String.format("Hedged reads configuration: %s is not allowed for updates", key));
-        }
-
-        Configuration hadoopConf = new Configuration(hedgedReadsHadoopConf);
-        hadoopConf.set(key, value);
-        this.hedgedReadsHadoopConf = hadoopConf;
+    FileSystemManager fileSystemManager() {
+        return fileSystemManager;
     }
 
     void registerMetrics(LRUCache cache) {
@@ -419,7 +173,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             // since those metrics are captured at the JVM level and not at FS instance level.
             // When using `getFS(bucket, true)`, then it might create another FileSystem instance for Hedged reads,
             // even though none of the topics are enabled with Hedged reads.
-            return getFS(hdfsBucket);
+            return getFS(fileSystemManager.getHdfsBucket());
         });
     }
 
@@ -431,66 +185,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         metrics.registerStreamMetrics(openInputStreamCount, openOutputStreamCount);
     }
 
-    /**
-     * Finds the bucket name for the given provider. This should be used only for writing data.
-     * If multiple OCI buckets are configured, then it returns the bucket in round-robin fashion.
-     * @param provider storage provider
-     * @return bucket name
-     */
-    String findBucket(RemoteStorageProvider provider, RemoteLogSegmentId segmentId) {
-        if (provider == RemoteStorageProvider.HDFS) {
-            return hdfsBucket;
-        } else if (provider == RemoteStorageProvider.OCI) {
-            if (ociBuckets.isEmpty()) {
-                throw new IllegalArgumentException("No OCI buckets are configured for writing");
-            }
-            int idx = Math.abs(segmentId.topicIdPartition().hashCode() % ociBuckets.size());
-            String bucket = ociBuckets.get(idx);
-            return BUCKET_MAPPING.getOrDefault(bucket, bucket);
-        } else {
-            throw new IllegalArgumentException("Unknown remote storage provider: " + provider);
-        }
-    }
-
-    /**
-     * Returns the bucket name for the given metadata.
-     * @param metadata metadata
-     * @return bucket name
-     */
-    private String getBucket(RemoteLogSegmentMetadata metadata) {
-        return metadata.customMetadata()
-                .map(HDFSRemoteStorageManager::getBucket)
-                .orElse(hdfsBucket);
-    }
-
-    static String getBucket(RemoteLogSegmentMetadata.CustomMetadata customMetadata) {
-        String bucket;
-        try {
-            ByteBuffer byteBuffer = ByteBuffer.wrap(customMetadata.value());
-            ConnectorCustomMetadata connectorCustomMetadata =
-                    new ConnectorCustomMetadata(new ByteBufferAccessor(byteBuffer), ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);
-            bucket = connectorCustomMetadata.uri();
-        } catch (Exception e) {
-            // Backward compatibility
-            // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
-            bucket = new String(customMetadata.value(), StandardCharsets.UTF_8);
-        }
-        return BUCKET_MAPPING.getOrDefault(bucket, bucket);
-    }
-
-    private RemoteStorageProvider getRemoteStorageProvider(String bucket) {
-        if (bucket.startsWith(HDFS_BUCKET_PREFIX)) {
-            return RemoteStorageProvider.HDFS;
-        } else if (bucket.startsWith(OCI_BUCKET_PREFIX)) {
-            return RemoteStorageProvider.OCI;
-        } else {
-            throw new IllegalArgumentException("Unknown remote storage provider for bucket: " + bucket);
-        }
-    }
-
     Set<String> getBuckets(List<RemoteLogSegmentMetadata> metadataList) {
         return metadataList.stream()
-                .map(this::getBucket)
+                .map(fileSystemManager::getBucket)
                 .collect(Collectors.toSet());
     }
 
@@ -504,7 +201,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
         final RemoteStorageProvider provider = segmentData.storageProvider();
-        final String bucket = findBucket(provider, metadata.remoteLogSegmentId());
+        final String bucket = fileSystemManager.findBucket(provider, metadata.remoteLogSegmentId());
         final Path path = new Path(bucket + getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         metrics.timeSegmentWrite(provider, () -> {
             openOutputStreamCount.incrementAndGet();
@@ -582,7 +279,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         boolean delete;
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
-            String bucket = getBucket(segmentMetadata);
+            String bucket = fileSystemManager.getBucket(segmentMetadata);
             Path path = new Path(bucket + getSegmentRemoteDir(segmentMetadata.remoteLogSegmentId()));
             FileSystem fs = getFS(bucket);
             if (fs.exists(path)) {
@@ -608,7 +305,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         // Even-though the exact buckets are known to issue the delete-partition request, sending the request to all
         // buckets to ensure that the *empty* partition directories are also deleted.
         Set<String> allBuckets = getBuckets(metadataList);
-        fileSystemByBucket.keySet().forEach(key -> allBuckets.add(key.bucket));
+        allBuckets.addAll(fileSystemManager.getAllBucketNames());
         boolean status = false;
         try {
             String partitionRemoteDir = getPartitionRemoteDir(partition);
@@ -632,15 +329,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void close() {
-        fileSystemByBucket.forEach((fileSystemKey, fs) -> {
-                if (fileSystemKey.bucket.equals(hdfsBucket)) {
-                    Utils.closeQuietly(fs, "Closed FileSystem for bucket: " + fileSystemKey.bucket + " with hedged reads enabled: " + fileSystemKey.hedgedReadsEnabled);
-                } else {
-                    Utils.closeQuietly(fs, "Closed FileSystem for bucket: " + fileSystemKey.bucket);
-                }
-            }
-        );
-        ThreadUtils.shutdownExecutorServiceQuietly(executor, 5, TimeUnit.SECONDS);
+        fileSystemManager.close();
     }
 
     void setLRUCache(final LRUCache cache) {
@@ -648,12 +337,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     void setDefaultHadoopConfiguration(final Configuration configuration) {
-        this.defaultHadoopConf = configuration;
+        fileSystemManager.setDefaultHadoopConfiguration(configuration);
     }
 
     private void uploadFile(final java.nio.file.Path localSrc,
                             final FSDataOutputStream out) throws IOException {
         if (localSrc != null && localSrc.toFile().exists()) {
+            Configuration defaultHadoopConf = fileSystemManager.getDefaultHadoopConf();
             final int bufferSize = defaultHadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                     CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
             final byte[] buf = new byte[bufferSize];
@@ -670,6 +360,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private void uploadData(final ByteBuffer localSrc,
                             final FSDataOutputStream out) throws IOException {
         if (localSrc != null) {
+            Configuration defaultHadoopConf = fileSystemManager.getDefaultHadoopConf();
             final int bufferSize = defaultHadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                                                      CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
 
@@ -687,7 +378,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private InputStream fetchAuxFile(RemoteLogSegmentMetadata metadata,
                                      LogSegmentDataHeader.FileType fileType) throws RemoteStorageException {
         try {
-            String bucket = getBucket(metadata);
+            String bucket = fileSystemManager.getBucket(metadata);
             return new AuxiliaryDataInputStream(metadata.remoteLogSegmentId(), bucket, fileType);
         } catch (Exception e) {
             throw new RemoteStorageException(
@@ -700,8 +391,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                                          int startPosition,
                                          int endPosition) throws RemoteStorageException {
         try {
-            String bucket = getBucket(metadata);
-            RemoteStorageProvider storageProvider = getRemoteStorageProvider(bucket);
+            String bucket = fileSystemManager.getBucket(metadata);
+            RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
             boolean isHedgedReadsEnabled = storageProvider == RemoteStorageProvider.HDFS && readContext.isHedgedReadsEnabled();
             if (readContext.isPrefetchEnabled() || isHedgedReadsEnabled) {
                 return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
@@ -716,63 +407,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     FileSystem getFS(String bucket) {
-        return getFS(bucket, false);
+        return fileSystemManager.getFS(bucket);
     }
 
     FileSystem getFS(String bucket, boolean enableHedgedReads) {
-        // Only use hedged reads for the HDFS bucket when explicitly enabled
-        boolean useHedgedReads = bucket.equals(hdfsBucket) && enableHedgedReads;
-        Configuration conf = useHedgedReads ? hedgedReadsHadoopConf : defaultHadoopConf;
-        FileSystemKey key = new FileSystemKey(bucket, useHedgedReads);
-        return fileSystemByBucket.computeIfAbsent(key, k -> createFileSystem(bucket, conf));
+        return fileSystemManager.getFS(bucket, enableHedgedReads);
     }
 
-    private FileSystem createFileSystem(String bucket, Configuration conf) {
-        try {
-            FileSystem fs = FileSystem.get(new URI(bucket), conf);
-            LOGGER.info("FileSystem created for uri: {}", bucket);
-            return fs;
-        } catch (URISyntaxException | IOException e) {
-            throw new RuntimeException("Unable to create file system instance for uri: " + bucket, e);
-        }
-    }
-
-    private boolean shouldHandleHedgedReadsThresholdMsChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
-        long defaultValue = DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS;
-
-        long currentThreshold = hedgedReadsEnabledFs.getConf().getLong(key, defaultValue);
-        long newThreshold = hedgedReadsHadoopConf.getLong(key, defaultValue);
-        if (currentThreshold != newThreshold) {
-            LOGGER.debug("Hedged reads thresholdMs changed from {} ms to {} ms", currentThreshold, newThreshold);
-            return true;
-        }
-        return false;
-    }
-
-    private void handleReadThreadPoolCoreSizeChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
-        int defaultValue = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
-
-        int currentCoreSize = hedgedReadsEnabledFs.getConf().getInt(key, defaultValue);
-        int newCoreSize = hedgedReadsHadoopConf.getInt(key, defaultValue);
-        if (currentCoreSize != newCoreSize) {
-            LOGGER.debug("Core pool size changed from {} to {}", currentCoreSize, newCoreSize);
-            ((DistributedFileSystem) hedgedReadsEnabledFs).setDFSClientReaderThreadPoolCoreSize(newCoreSize);
-        }
-    }
-
-    private void handleReadThreadPoolMaxSizeChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
-        int defaultValue = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
-
-        int currentMaxSize = hedgedReadsEnabledFs.getConf().getInt(key, defaultValue);
-        int newMaxSize = hedgedReadsHadoopConf.getInt(key, defaultValue);
-        if (currentMaxSize != newMaxSize) {
-            LOGGER.debug("Max pool size changed from {} to {}", currentMaxSize, newMaxSize);
-            ((DistributedFileSystem) hedgedReadsEnabledFs).setDFSClientReaderThreadPoolMaxSize(newMaxSize);
-        }
-    }
 
     long bytesReadFromRemote() {
         return auxBytesReadFromRemote.get();
@@ -787,7 +428,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     List<String> ociBuckets() {
-        return ociBuckets;
+        return fileSystemManager.getOciBuckets();
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
@@ -1328,34 +969,4 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    static class FileSystemKey {
-        final String bucket;
-        final boolean hedgedReadsEnabled;
-
-        public FileSystemKey(String bucket, boolean hedgedReadsEnabled) {
-            this.bucket = bucket;
-            this.hedgedReadsEnabled = hedgedReadsEnabled;
-        }
-
-        @Override
-        public String toString() {
-            return "FileSystemKey{" +
-                    "bucket='" + bucket + '\'' +
-                    ", hedgedReadsEnabled=" + hedgedReadsEnabled +
-                    '}';
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            FileSystemKey that = (FileSystemKey) o;
-            return hedgedReadsEnabled == that.hedgedReadsEnabled && Objects.equals(bucket, that.bucket);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(bucket, hedgedReadsEnabled);
-        }
-    }
 }
