@@ -337,7 +337,7 @@ public class HDFSRemoteStorageManagerTest {
         for (RemoteLogSegmentMetadata metadata: metadataList) {
             rsm.copyLogSegmentData(metadata, TestLogSegmentUtils.createLogSegmentData(logDir, metadata.startOffset(), segmentSize, false));
         }
-        Path path = new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp));
+        Path path = new Path(RSMUtils.getPartitionRemoteDir(baseDir, tp));
         assertTrue(hdfs.exists(path));
         assertEquals(segmentCount, hdfs.listStatus(path).length);
         rsm.deletePartition(tp, metadataList);
@@ -831,14 +831,14 @@ public class HDFSRemoteStorageManagerTest {
     @Test
     public void testGetPartitionRemoteDir() {
         RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
-        String partitionRemoteDir = HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, segmentId.topicIdPartition());
+        String partitionRemoteDir = RSMUtils.getPartitionRemoteDir(baseDir, segmentId.topicIdPartition());
         assertEquals("/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA", partitionRemoteDir);
     }
 
     @Test
     public void testGetSegmentRemoteDir() {
         RemoteLogSegmentId segmentId = generateRemoteLogSegmentId();
-        String segmentRemoteDir = HDFSRemoteStorageManager.getSegmentRemoteDir(baseDir, segmentId);
+        String segmentRemoteDir = RSMUtils.getSegmentRemoteDir(baseDir, segmentId);
         assertEquals("/user/kloak/kafka-remote-logs/test-0-hHJfD_slRkGCrDPSvJsMtA/pQpAc9OvTGaxywm8JnN9IQ", segmentRemoteDir);
     }
 
@@ -1318,7 +1318,7 @@ public class HDFSRemoteStorageManagerTest {
         Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadataOpt = rsm.copyLogSegmentData(segmentMetadata, segmentData);
         checkFileExistence(uuid);
         checkAssociatedFileContents(rsm, segmentMetadata, segmentData);
-        assertTrue(hdfs.exists(new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp) + Path.SEPARATOR + uuid)));
+        assertTrue(hdfs.exists(new Path(RSMUtils.getPartitionRemoteDir(baseDir, tp) + Path.SEPARATOR + uuid)));
         long expectedBytesRead = TestLogSegmentUtils.OFFSET_INDEX_FILE_SIZE + TestLogSegmentUtils.TIME_INDEX_FILE_SIZE +
                 TestLogSegmentUtils.LEADER_EPOCH_INDEX_FILE_SIZE + TestLogSegmentUtils.PRODUCER_SNAPSHOT_FILE_SIZE;
         long expectedBytesReadWithTxnIndex = expectedBytesRead + TestLogSegmentUtils.TXN_INDEX_FILE_SIZE;
@@ -1350,7 +1350,7 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     private void checkFileExistence(Uuid uuid) throws IOException {
-        Path path = new Path(HDFSRemoteStorageManager.getPartitionRemoteDir(baseDir, tp));
+        Path path = new Path(RSMUtils.getPartitionRemoteDir(baseDir, tp));
         assertTrue(hdfs.exists(path));
 
         Path filePath = new Path(path, uuid.toString());

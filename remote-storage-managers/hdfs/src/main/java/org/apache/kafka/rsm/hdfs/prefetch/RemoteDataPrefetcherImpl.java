@@ -17,6 +17,7 @@
 
 package org.apache.kafka.rsm.hdfs.prefetch;
 
+import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
@@ -40,6 +41,12 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
 
     public RemoteDataPrefetcherImpl(PrefetchEvaluator prefetchEvaluator,
                                     Supplier<RemoteLogMetadataManager> rlmmSupplier,
+                                    Time time) {
+        this(prefetchEvaluator, rlmmSupplier, new PrefetchSegmentManager(time));
+    }
+
+    public RemoteDataPrefetcherImpl(PrefetchEvaluator prefetchEvaluator,
+                                    Supplier<RemoteLogMetadataManager> rlmmSupplier,
                                     PrefetchSegmentManager prefetchSegmentManager) {
         this.prefetchEvaluator = prefetchEvaluator;
         this.rlmmSupplier = rlmmSupplier;
@@ -48,7 +55,7 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
 
     @Override
     public void configure(Map<String, ?> configs) {
-
+        this.prefetchSegmentManager.configure(configs);
     }
 
     @Override

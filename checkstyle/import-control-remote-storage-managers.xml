@@ -20,6 +20,7 @@
 
 <import-control pkg="org.apache.kafka.rsm">
     <allow pkg="java"/>
+    <allow pkg="org.apache.commons.io" />
     <allow pkg="org.apache.hadoop" />
     <allow pkg="org.apache.kafka.common"/>
     <allow pkg="org.apache.kafka.server.common"/>

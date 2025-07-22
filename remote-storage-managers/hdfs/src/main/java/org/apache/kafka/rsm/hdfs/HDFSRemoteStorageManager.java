@@ -791,19 +791,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
-        return getSegmentRemoteDir(baseDir, remoteLogSegmentId);
+        return RSMUtils.getSegmentRemoteDir(baseDir, remoteLogSegmentId);
     }
 
     private String getPartitionRemoteDir(TopicIdPartition partition) {
-        return getPartitionRemoteDir(baseDir, partition);
-    }
-
-    static String getSegmentRemoteDir(final String baseDir, final RemoteLogSegmentId segmentId) {
-        return getPartitionRemoteDir(baseDir, segmentId.topicIdPartition()) + Path.SEPARATOR + segmentId.id();
-    }
-
-    static String getPartitionRemoteDir(final String baseDir, final TopicIdPartition partition) {
-        return baseDir + Path.SEPARATOR + partition.topicPartition() + "-" + partition.topicId();
+        return RSMUtils.getPartitionRemoteDir(baseDir, partition);
     }
 
     /**

@@ -1,0 +1,207 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.rsm.hdfs.prefetch;
+
+import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.rsm.hdfs.DataFetcher;
+import org.apache.kafka.rsm.hdfs.LogSegmentDataHeader;
+import org.apache.kafka.rsm.hdfs.RSMUtils;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+public class DownloadTaskTest {
+
+    private Time mockTime;
+    private DataFetcher mockDataFetcher;
+    private RemoteLogSegmentMetadata metadata;
+    private RemoteLogSegmentId segmentId;
+    private FSDataInputStream mockInputStream;
+
+    @TempDir
+    Path tempDir;
+
+    @BeforeEach
+    public void setup() throws IOException {
+        mockTime = new MockTime();
+        mockDataFetcher = mock(DataFetcher.class);
+
+        // Create test metadata
+        TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), 0, "test-topic");
+        segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
+        Map<Integer, Long> segmentLeaderEpochs = Collections.singletonMap(5, 100L);
+
+        metadata = new RemoteLogSegmentMetadata(
+            segmentId,
+            0L,
+            100L,
+            1000L,
+            1,
+            System.currentTimeMillis(),
+            1024,
+            Optional.empty(),
+            RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
+            segmentLeaderEpochs
+        );
+
+        // Create directory structure for download
+        String downloadPath = RSMUtils.segmentPrefetchPath(tempDir.toString(), metadata);
+        File downloadDir = new File(downloadPath).getParentFile();
+        downloadDir.mkdirs();
+
+        // Mock FSDataInputStream
+        mockInputStream = mock(FSDataInputStream.class);
+    }
+
+    @Test
+    public void testSuccessfulDownload() throws Exception {
+        // Mock data content
+        byte[] testData = new byte[1024];
+        for (int i = 0; i < testData.length; i++) {
+            testData[i] = (byte) (i % 256);
+        }
+
+        // Set up mock behavior
+        when(mockDataFetcher.fetchSegmentData(metadata)).thenReturn(mockInputStream);
+        when(mockDataFetcher.fileLength(metadata)).thenReturn((long) (LogSegmentDataHeader.LENGTH + testData.length));
+
+        // Mock read behavior for data
+        when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
+            long pos = invocation.getArgument(0);
+            byte[] buffer = invocation.getArgument(1);
+            int offset = invocation.getArgument(2);
+            int length = invocation.getArgument(3);
+
+            int bytesToCopy = Math.min(length, (int) (testData.length - pos));
+            if (bytesToCopy <= 0) return -1; // EOF
+
+            System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+            return bytesToCopy;
+        });
+
+        // Create and execute the task
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
+        FileChannel result = task.call();
+
+        // Verify results
+        assertNotNull(result, "FileChannel should not be null");
+        assertTrue(result.isOpen(), "FileChannel should be open");
+        assertEquals(testData.length, result.size(), "File size should match test data size");
+
+        // Verify file content
+        ByteBuffer readBuffer = ByteBuffer.allocate((int) result.size());
+        result.position(0);
+        result.read(readBuffer);
+        readBuffer.flip();
+
+        byte[] fileContent = new byte[readBuffer.remaining()];
+        readBuffer.get(fileContent);
+
+        // Compare content
+        for (int i = 0; i < testData.length; i++) {
+            assertEquals(testData[i], fileContent[i], "File content should match test data at position " + i);
+        }
+    }
+
+    @Test
+    public void testDownloadWithIOException() throws IOException {
+        // Set up mock to throw IOException
+        IOException testException = new IOException("Test exception");
+        when(mockDataFetcher.fetchSegmentData(metadata)).thenThrow(testException);
+
+        // Create the task
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
+        
+        // Execute the task and verify that the exception is propagated
+        IOException thrown = assertThrows(
+            IOException.class,
+            task::call,
+            "DownloadTask should propagate IOException"
+        );
+        
+        // Verify it's the same exception
+        assertEquals(testException, thrown, "The thrown exception should be the same as the original exception");
+    }
+
+    @Test
+    public void testDownloadWithRuntimeException() throws IOException {
+        // Set up mock to throw RuntimeException
+        RuntimeException testException = new RuntimeException("Test exception");
+        when(mockDataFetcher.fetchSegmentData(metadata)).thenThrow(testException);
+
+        // Create the task
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
+        
+        // Execute the task and verify that the exception is propagated
+        RuntimeException thrown = assertThrows(
+            RuntimeException.class,
+            task::call,
+            "DownloadTask should propagate RuntimeException"
+        );
+        
+        // Verify it's the same exception
+        assertEquals(testException, thrown, "The thrown exception should be the same as the original exception");
+    }
+
+    @Test
+    public void testDownloadWithZeroFileLength() throws IOException {
+        // Set up mock behavior
+        when(mockDataFetcher.fetchSegmentData(metadata)).thenReturn(mockInputStream);
+        when(mockDataFetcher.fileLength(metadata)).thenReturn(0L);
+
+        // Create the task
+        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metadata);
+        
+        // Execute the task and verify that an IOException is thrown
+        IOException thrown = assertThrows(
+            IOException.class,
+            task::call,
+            "DownloadTask should throw IOException when file length is zero"
+        );
+        
+        // Verify the exception message
+        String expectedMessage = "File size for segmentId: " + segmentId + " is not a positive number";
+        assertEquals(expectedMessage, thrown.getMessage(), "The exception message should indicate zero file length");
+    }
+}
