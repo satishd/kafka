@@ -137,17 +137,44 @@ public class FileSystemManagerTest {
     }
 
     @Test
+    public void testGetFSDefaultConfiguration() throws IOException {
+        FileSystemManager fileSystemManager = rsm.fileSystemManager();
+        FileSystem fs = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
+        assertNotNull(fs);
+        assertNull(fs.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+    }
+
+    @Test
+    public void testGetFSHedgedReads() throws IOException {
+        FileSystemManager fileSystemManager = rsm.fileSystemManager();
+        FileSystem fs = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
+        assertNotNull(fs);
+        assertEquals("true", fs.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+    }
+
+    @Test
+    public void testGetFSUsesCache() throws IOException {
+        FileSystemManager fileSystemManager = rsm.fileSystemManager();
+        FileSystem fs1 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
+        FileSystem fs2 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
+        assertSame(fs1, fs2);
+
+        FileSystem fs3 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
+        assertNotSame(fs1, fs3);
+    }
+
+    @Test
     public void testGetFileSystemWithHedgedReads() throws IOException {
         FileSystemManager fileSystemManager = rsm.fileSystemManager();
 
         // Verify hedged reads is disabled by default
-        assertNull(fileSystemManager.getFS(defaultFsUri).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
 
         // Verify the configuration of the returned FileSystem when hedged reads is enabled
-        assertEquals("true", fileSystemManager.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        assertEquals("true", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
 
         // Verify the configuration of returned FileSystem when hedged reads is disabled
-        assertNull(fileSystemManager.getFS(defaultFsUri, false).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, false)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
     }
 
     @Test
@@ -155,12 +182,12 @@ public class FileSystemManagerTest {
         FileSystemManager fileSystemManager = rsm.fileSystemManager();
 
         // Verify hedged reads is enabled in the FileSystem configuration
-        FileSystem originalFS = fileSystemManager.getFS(defaultFsUri, true);
+        FileSystem originalFS = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
         assertEquals("true", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
         assertEquals("200", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
 
         // Without updates, the returned FileSystem should be the same as the original one
-        FileSystem fsPreUpdate = fileSystemManager.getFS(defaultFsUri, true);
+        FileSystem fsPreUpdate = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
         assertEquals("true", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
         assertEquals("200", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
         assertSame(originalFS, fsPreUpdate);
@@ -168,7 +195,7 @@ public class FileSystemManagerTest {
         // Update the hedged reads threshold and verify the returned FileSystem has the updated configuration
         fileSystemManager.setHedgedReadThresholdMillis(100);
         fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        FileSystem fsPostUpdate = fileSystemManager.getFS(defaultFsUri, true);
+        FileSystem fsPostUpdate = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
         assertEquals("true", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
         assertEquals("100", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
         assertNotSame(originalFS, fsPostUpdate);
@@ -176,11 +203,11 @@ public class FileSystemManagerTest {
         // Verify updates to the configuration does not affect the returned FileSystem when hedged reads is disabled
         fileSystemManager.setHedgedReadThresholdMillis(500);
         fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertNull(fileSystemManager.getFS(defaultFsUri, false).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, false)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
 
         // Verify the previous update takes affect for the filesystem with hedged reads enabled
-        assertEquals("true", fileSystemManager.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("500", fileSystemManager.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
+        assertEquals("true", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
+        assertEquals("500", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
     }
 
     @Test
@@ -189,13 +216,13 @@ public class FileSystemManagerTest {
 
         // Verify the read thread pool core size before the update
         assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE,
-                ((DistributedFileSystem) fileSystemManager.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolSize());
+                ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolSize());
 
         // Update the read thread pool core size and verify the returned FileSystem has the updated configuration
         int newCoreSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE + 1;
         fileSystemManager.setReadThreadPoolCoreSize(newCoreSize);
         fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertEquals(newCoreSize, ((DistributedFileSystem) fileSystemManager.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolSize());
+        assertEquals(newCoreSize, ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolSize());
     }
 
     @Test
@@ -204,13 +231,13 @@ public class FileSystemManagerTest {
 
         // Verify the read thread pool max size before the update
         assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE,
-                ((DistributedFileSystem) fileSystemManager.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolMaxSize());
+                ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolMaxSize());
 
         // Update the read thread pool max size and verify the returned FileSystem has the updated configuration
         int newMaxSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE + 1;
         fileSystemManager.setReadThreadPoolMaxSize(newMaxSize);
         fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertEquals(newMaxSize, ((DistributedFileSystem) fileSystemManager.getFS(defaultFsUri, true)).getDFSClientReaderThreadPoolMaxSize());
+        assertEquals(newMaxSize, ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolMaxSize());
     }
 
     @Test
@@ -272,7 +299,7 @@ public class FileSystemManagerTest {
             String updatedOciBuckets = String.join(",", expectedBuckets);
             configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
             rsm.reconfigure(configs);
-            assertNotNull(fileSystemManager.getFS(ociBucket4));
+            assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket4)));
             assertEquals(6, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
 
@@ -282,7 +309,7 @@ public class FileSystemManagerTest {
             configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
             rsm.reconfigure(configs);
             // removed bucket should still be accessible for reads.
-            assertNotNull(fileSystemManager.getFS(ociBucket2));
+            assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket2)));
             assertEquals(6, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
         }

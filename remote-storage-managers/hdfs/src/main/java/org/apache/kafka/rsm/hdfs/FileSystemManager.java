@@ -104,6 +104,8 @@ public class FileSystemManager {
 
     private Configuration defaultHadoopConf;
     private volatile Configuration hedgedReadsHadoopConf;
+    private Configuration readAheadHadoopConf;
+
     // TODO fix the thread factory name pattern
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
             ThreadUtils.createThreadFactory("hdfs-rsm-scheduler", false));
@@ -144,14 +146,17 @@ public class FileSystemManager {
         hdfsBucket = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP);
         validateScheme(hdfsBucket, RemoteStorageProvider.HDFS);
         // FileSystem for HDFS without hedged reads enabled
-        getFS(hdfsBucket);
+        FileSystemOptions defaultHdfsOpts = new FileSystemOptions(hdfsBucket);
+        getFS(defaultHdfsOpts);
         // FileSystem for HDFS with hedged reads enabled
-        getFS(hdfsBucket, true);
+        FileSystemOptions hedgedReadsOpts = new FileSystemOptions(hdfsBucket, true);
+        getFS(hedgedReadsOpts);
 
         ociBuckets.addAll(conf.getList(HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP));
         for (String ociBucket : ociBuckets) {
             validateScheme(ociBucket, RemoteStorageProvider.OCI);
-            getFS(ociBucket);
+            FileSystemOptions defaultOciOpts = new FileSystemOptions(ociBucket);
+            getFS(defaultOciOpts);
         }
 
         // Schedule periodic tasks
@@ -194,17 +199,18 @@ public class FileSystemManager {
      */
     public void handleDynamicHedgedReadsConfigUpdates() {
         try {
+            FileSystemOptions hedgedReadsOpts = new FileSystemOptions(hdfsBucket, true);
             if (isHedgedReadsThresholdChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hdfsBucket, true);
+                FileSystem hedgedReadsEnabledFs = getFS(hedgedReadsOpts);
                 if (shouldHandleHedgedReadsThresholdMsChange(hedgedReadsEnabledFs)) {
-                    FileSystemKey fileSystemKey = new FileSystemKey(hdfsBucket, true);
+                    FileSystemKey fileSystemKey = new FileSystemKey(hdfsBucket, true, false);
                     FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(hdfsBucket, hedgedReadsHadoopConf));
                     Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + hdfsBucket + " with hedged reads enabled");
                 }
                 LOGGER.info("Dynamic hedged reads thresholdMs config change handled");
             }
             if (isHedgedReadsThreadConfigChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hdfsBucket, true);
+                FileSystem hedgedReadsEnabledFs = getFS(hedgedReadsOpts);
                 handleReadThreadPoolCoreSizeChange(hedgedReadsEnabledFs);
                 handleReadThreadPoolMaxSizeChange(hedgedReadsEnabledFs);
                 LOGGER.info("Dynamic hedged reads thread pool configuration change handled");
@@ -397,28 +403,15 @@ public class FileSystemManager {
         this.hedgedReadsHadoopConf = hadoopConf;
     }
 
-    /**
-     * Gets a FileSystem for the given bucket.
-     *
-     * @param bucket the bucket
-     * @return the FileSystem
-     */
-    public FileSystem getFS(String bucket) {
-        return getFS(bucket, false);
-    }
-
-    /**
-     * Gets a FileSystem for the given bucket with optional hedged reads.
-     *
-     * @param bucket           the bucket
-     * @param enableHedgedReads whether to enable hedged reads
-     * @return the FileSystem
-     */
-    public FileSystem getFS(String bucket, boolean enableHedgedReads) {
+    public FileSystem getFS(FileSystemOptions options) {
+        String bucket = options.bucket();
         // Only use hedged reads for the HDFS bucket when explicitly enabled
-        boolean useHedgedReads = bucket.equals(hdfsBucket) && enableHedgedReads;
-        Configuration conf = useHedgedReads ? hedgedReadsHadoopConf : defaultHadoopConf;
-        FileSystemKey key = new FileSystemKey(bucket, useHedgedReads);
+        boolean useHedgedReads = bucket.equals(hdfsBucket) && options.hedgedReadsEnabled();
+        // Only use read ahead for OCS buckets when explicitly enabled
+        boolean useReadAhead = !bucket.equals(hdfsBucket) && options.readAheadEnabled();
+
+        Configuration conf = useHedgedReads ? hedgedReadsHadoopConf : useReadAhead ? readAheadHadoopConf : defaultHadoopConf;
+        FileSystemKey key = new FileSystemKey(bucket, useHedgedReads, useReadAhead);
         return fileSystemByBucket.computeIfAbsent(key, k -> createFileSystem(bucket, conf));
     }
 
@@ -608,31 +601,34 @@ public class FileSystemManager {
     static class FileSystemKey {
         final String bucket;
         final boolean hedgedReadsEnabled;
+        final boolean readAheadEnabled;
 
-        public FileSystemKey(String bucket, boolean hedgedReadsEnabled) {
+        public FileSystemKey(String bucket, boolean hedgedReadsEnabled, boolean readAheadEnabled) {
             this.bucket = bucket;
             this.hedgedReadsEnabled = hedgedReadsEnabled;
+            this.readAheadEnabled = readAheadEnabled;
         }
 
         @Override
         public String toString() {
             return "FileSystemKey{" +
-                    "bucket='" + bucket + '\'' +
-                    ", hedgedReadsEnabled=" + hedgedReadsEnabled +
-                    '}';
+                "bucket='" + bucket + '\'' +
+                ", hedgedReadsEnabled=" + hedgedReadsEnabled +
+                ", readAheadEnabled=" + readAheadEnabled +
+                '}';
         }
+
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             FileSystemKey that = (FileSystemKey) o;
-            return hedgedReadsEnabled == that.hedgedReadsEnabled && Objects.equals(bucket, that.bucket);
+            return hedgedReadsEnabled == that.hedgedReadsEnabled && readAheadEnabled == that.readAheadEnabled && Objects.equals(bucket, that.bucket);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(bucket, hedgedReadsEnabled);
+            return Objects.hash(bucket, hedgedReadsEnabled, readAheadEnabled);
         }
     }
 }

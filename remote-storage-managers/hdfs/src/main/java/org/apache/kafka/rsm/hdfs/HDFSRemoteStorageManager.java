@@ -407,13 +407,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     FileSystem getFS(String bucket) {
-        return fileSystemManager.getFS(bucket);
+        FileSystemOptions options = new FileSystemOptions(bucket);
+        return fileSystemManager.getFS(options);
     }
 
     FileSystem getFS(String bucket, boolean enableHedgedReads) {
-        return fileSystemManager.getFS(bucket, enableHedgedReads);
+        FileSystemOptions options = new FileSystemOptions(bucket, enableHedgedReads);
+        return fileSystemManager.getFS(options);
     }
-
 
     long bytesReadFromRemote() {
         return auxBytesReadFromRemote.get();

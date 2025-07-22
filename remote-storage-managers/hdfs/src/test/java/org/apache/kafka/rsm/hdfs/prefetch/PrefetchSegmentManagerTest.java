@@ -21,6 +21,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
+import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
@@ -76,7 +77,7 @@ public class PrefetchSegmentManagerTest {
     public void setup() {
         Time mockTime = new MockTime();
         mockDataFetcher = mock(DataFetcher.class);
-        segmentManager = new PrefetchSegmentManager(mockTime);
+        segmentManager = new PrefetchSegmentManager(new FileSystemManager(), mockTime);
         segmentManager.setDataFetcher(mockDataFetcher);
 
         // Create test metadata

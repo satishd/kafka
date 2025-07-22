@@ -20,8 +20,9 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
+import org.apache.kafka.rsm.hdfs.FileSystemManager;
+import org.apache.kafka.rsm.hdfs.HDFSDataFetcher;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
-import org.apache.kafka.rsm.hdfs.NoOpDataFetcher;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -44,6 +45,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_CONFIG;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_CONFIG;
@@ -54,6 +56,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_
 public class PrefetchSegmentManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
 
+    private final FileSystemManager fileSystemManager;
     private final Time time;
 
     private DataFetcher dataFetcher;
@@ -61,14 +64,17 @@ public class PrefetchSegmentManager {
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
 
-    public PrefetchSegmentManager(Time time) {
+    public PrefetchSegmentManager(FileSystemManager fileSystemManager, Time time) {
+        this.fileSystemManager = fileSystemManager;
         this.time = time;
     }
 
     public void configure(Map<String, ?> configs) {
-        this.dataFetcher = new NoOpDataFetcher();
-
         HDFSRemoteStorageManagerConfig conf = new HDFSRemoteStorageManagerConfig(configs, true);
+
+        String hadoopBaseDir = conf.getString(HDFS_BASE_DIR_PROP);
+        this.dataFetcher = new HDFSDataFetcher(hadoopBaseDir, fileSystemManager);
+
         this.localBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_CONFIG);
         // Ensure the local base directory exists
         File baseDir = new File(localBaseDir);

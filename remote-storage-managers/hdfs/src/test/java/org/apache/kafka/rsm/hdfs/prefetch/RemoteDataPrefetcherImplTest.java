@@ -59,7 +59,7 @@ public class RemoteDataPrefetcherImplTest {
     private OffsetAndEpoch nextSegmentOffsetAndEpoch;
 
     @BeforeEach
-    public void setup() {
+    public void setup() throws Exception {
         // Create mocks
         mockEvaluator = mock(PrefetchEvaluator.class);
         mockRlmm = mock(RemoteLogMetadataManager.class);
@@ -103,8 +103,8 @@ public class RemoteDataPrefetcherImplTest {
         // Create a real prefetcher but with a mock segment manager
         prefetcher = new RemoteDataPrefetcherImpl(
             mockEvaluator,
-            mockRlmmSupplier,
-            mockSegmentManager
+            mockSegmentManager,
+            mockRlmmSupplier
         );
     }
 
