@@ -1186,7 +1186,7 @@ public class RemoteLogManagerTest {
                         safeLongYammerMetricValue("RemoteLogSizeComputationTime,topic=" + leaderTopic),
                         safeLongYammerMetricValue("RemoteLogSizeComputationTime")));
         remoteLogSizeComputationTimeLatch.countDown();
-        
+
         TestUtils.waitForCondition(
                 () -> 0 == safeLongYammerMetricValue("RemoteCopyLagBytes") && 0 == safeLongYammerMetricValue("RemoteCopyLagBytes,topic=" + leaderTopic),
                 String.format("Expected to find 0 for RemoteCopyLagBytes metric value, but found %d for topic 'Leader' and %d for all topics.",
@@ -3162,6 +3162,7 @@ public class RemoteLogManagerTest {
         FileInputStream fileInputStream = mock(FileInputStream.class);
         ClassLoaderAwareRemoteStorageManager rsmManager = mock(ClassLoaderAwareRemoteStorageManager.class);
         RemoteLogSegmentMetadata segmentMetadata = mock(RemoteLogSegmentMetadata.class);
+        when(segmentMetadata.topicIdPartition()).thenReturn(new TopicIdPartition(Uuid.randomUuid(), tp));
         LeaderEpochFileCache cache = mock(LeaderEpochFileCache.class);
         when(cache.epochForOffset(anyLong())).thenReturn(OptionalInt.of(1));
 
@@ -3232,6 +3233,7 @@ public class RemoteLogManagerTest {
         FileInputStream fileInputStream = mock(FileInputStream.class);
         ClassLoaderAwareRemoteStorageManager rsmManager = mock(ClassLoaderAwareRemoteStorageManager.class);
         RemoteLogSegmentMetadata segmentMetadata = mock(RemoteLogSegmentMetadata.class);
+        when(segmentMetadata.topicIdPartition()).thenReturn(new TopicIdPartition(Uuid.randomUuid(), tp));
         LeaderEpochFileCache cache = mock(LeaderEpochFileCache.class);
         when(cache.epochForOffset(anyLong())).thenReturn(OptionalInt.of(1));
 
@@ -3797,6 +3799,125 @@ public class RemoteLogManagerTest {
         verifyNoMoreInteractions(remoteLogMetadataManager);
         verify(remoteStorageManager).configure(anyMap());
         verifyNoMoreInteractions(remoteStorageManager);
+    }
+
+    @Test
+    public void testNextSegmentOffsetAndEpoch() throws IOException {
+        // Create a mock RemoteLogSegmentMetadata with a known end offset
+        RemoteLogSegmentMetadata segmentMetadata = mock(RemoteLogSegmentMetadata.class);
+        TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), tp);
+        when(segmentMetadata.topicIdPartition()).thenReturn(topicIdPartition);
+        when(segmentMetadata.endOffset()).thenReturn(100L);
+
+        // Create a mock LeaderEpochFileCache that returns a known epoch for the next segment's start offset
+        LeaderEpochFileCache cache = mock(LeaderEpochFileCache.class);
+        when(cache.epochForOffset(anyLong())).thenReturn(OptionalInt.of(1));
+        when(cache.epochForOffset(101L)).thenReturn(OptionalInt.of(5));
+        when(mockLog.leaderEpochCache()).thenReturn(Option.apply(cache));
+
+        // Create a RemoteLogManager
+        RemoteLogManager remoteLogManager = new RemoteLogManager(
+                config.remoteLogManagerConfig(),
+                brokerId,
+                logDir,
+                clusterId,
+                time,
+                tp -> Optional.of(mockLog),
+                (topicPartition, offset) -> { },
+                brokerTopicStats,
+                metrics) {
+            public RemoteStorageManager createRemoteStorageManager() {
+                return remoteStorageManager;
+            }
+            public RemoteLogMetadataManager createRemoteLogMetadataManager() {
+                return remoteLogMetadataManager;
+            }
+        };
+
+        // Call the nextSegmentOffsetAndEpoch method directly
+        OffsetAndEpoch offsetAndEpoch = remoteLogManager.nextSegmentOffsetAndEpoch(Optional.of(mockLog), segmentMetadata);
+
+        // Verify the result
+        assertNotNull(offsetAndEpoch);
+        assertEquals(101L, offsetAndEpoch.offset());
+        assertEquals(5, offsetAndEpoch.leaderEpoch());
+    }
+
+    @Test
+    public void testNextSegmentOffsetAndEpochWithNoEpoch() throws IOException {
+        // Create a mock RemoteLogSegmentMetadata with a known end offset
+        RemoteLogSegmentMetadata segmentMetadata = mock(RemoteLogSegmentMetadata.class);
+        TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), tp);
+        when(segmentMetadata.topicIdPartition()).thenReturn(topicIdPartition);
+        when(segmentMetadata.endOffset()).thenReturn(100L);
+
+        // Create a mock LeaderEpochFileCache that returns no epoch for the next segment's start offset
+        LeaderEpochFileCache cache = mock(LeaderEpochFileCache.class);
+        when(cache.epochForOffset(anyLong())).thenReturn(OptionalInt.of(1));
+        when(cache.epochForOffset(101L)).thenReturn(OptionalInt.empty());
+        when(mockLog.leaderEpochCache()).thenReturn(Option.apply(cache));
+
+        // Create a RemoteLogManager
+        RemoteLogManager remoteLogManager = new RemoteLogManager(
+                config.remoteLogManagerConfig(),
+                brokerId,
+                logDir,
+                clusterId,
+                time,
+                tp -> Optional.of(mockLog),
+                (topicPartition, offset) -> { },
+                brokerTopicStats,
+                metrics) {
+            public RemoteStorageManager createRemoteStorageManager() {
+                return remoteStorageManager;
+            }
+            public RemoteLogMetadataManager createRemoteLogMetadataManager() {
+                return remoteLogMetadataManager;
+            }
+        };
+
+        // Call the nextSegmentOffsetAndEpoch method directly
+        OffsetAndEpoch offsetAndEpoch = remoteLogManager.nextSegmentOffsetAndEpoch(Optional.of(mockLog), segmentMetadata);
+
+        // Verify the result
+        assertNull(offsetAndEpoch);
+    }
+
+    @Test
+    public void testNextSegmentOffsetAndEpochWithNoLeaderEpochCache() throws IOException {
+        // Create a mock RemoteLogSegmentMetadata with a known end offset
+        RemoteLogSegmentMetadata segmentMetadata = mock(RemoteLogSegmentMetadata.class);
+        TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), tp);
+        when(segmentMetadata.topicIdPartition()).thenReturn(topicIdPartition);
+        when(segmentMetadata.endOffset()).thenReturn(100L);
+
+        // Create a mock log with no leader epoch cache
+        when(mockLog.leaderEpochCache()).thenReturn(Option.empty());
+
+        // Create a RemoteLogManager
+        RemoteLogManager remoteLogManager = new RemoteLogManager(
+                config.remoteLogManagerConfig(),
+                brokerId,
+                logDir,
+                clusterId,
+                time,
+                tp -> Optional.of(mockLog),
+                (topicPartition, offset) -> { },
+                brokerTopicStats,
+                metrics) {
+            public RemoteStorageManager createRemoteStorageManager() {
+                return remoteStorageManager;
+            }
+            public RemoteLogMetadataManager createRemoteLogMetadataManager() {
+                return remoteLogMetadataManager;
+            }
+        };
+
+        // Call the nextSegmentOffsetAndEpoch method directly
+        OffsetAndEpoch offsetAndEpoch = remoteLogManager.nextSegmentOffsetAndEpoch(Optional.of(mockLog), segmentMetadata);
+
+        // Verify the result
+        assertNull(offsetAndEpoch);
     }
 
     @Test

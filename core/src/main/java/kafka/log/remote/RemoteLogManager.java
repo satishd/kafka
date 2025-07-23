@@ -147,6 +147,7 @@ import java.util.stream.Stream;
 
 import scala.Option;
 import scala.collection.JavaConverters;
+import scala.compat.java8.OptionConverters;
 import scala.util.Either;
 
 import static kafka.log.remote.quota.RLMQuotaManagerConfig.INACTIVE_SENSOR_EXPIRATION_TIME_SECONDS;
@@ -1801,7 +1802,6 @@ public class RemoteLogManager implements Closeable {
                 .map(UnifiedLog::config)
                 .map(LogConfig::remoteHedgedReadsEnable)
                 .orElse(false);
-        RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads, null);
 
         Optional<UnifiedLog> logOptional = fetchLog.apply(tp);
         OptionalInt epoch = OptionalInt.empty();
@@ -1824,6 +1824,8 @@ public class RemoteLogManager implements Closeable {
         }
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = rlsMetadataOptional.get();
+        OffsetAndEpoch nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch(logOptional, remoteLogSegmentMetadata);
+        RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads, nextSegmentOffsetAndEpoch);
         EnrichedRecordBatch enrichedRecordBatch = new EnrichedRecordBatch(null, 0);
         InputStream remoteSegInputStream = null;
         try {
@@ -1897,6 +1899,31 @@ public class RemoteLogManager implements Closeable {
     // Visible for testing
     int lookupPositionForOffset(RemoteLogSegmentMetadata remoteLogSegmentMetadata, long offset) {
         return indexCache.lookupOffset(remoteLogSegmentMetadata, offset);
+    }
+
+    // Visible for testing
+    OffsetAndEpoch nextSegmentOffsetAndEpoch(Optional<UnifiedLog> logOptional, RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+        TopicPartition tp = remoteLogSegmentMetadata.topicIdPartition().topicPartition();
+        Optional<LeaderEpochFileCache> leaderEpochCache = logOptional.flatMap(log -> OptionConverters.toJava(log.leaderEpochCache()));
+
+        long endOffset = remoteLogSegmentMetadata.endOffset();
+        long nextSegmentStartOffset = endOffset + 1;
+
+        LOGGER.debug("Looking for epoch for the next segment's start offset: {} for the topic-partition: {}", nextSegmentStartOffset, tp);
+        if (leaderEpochCache.isPresent()) {
+            OptionalInt epochOpt = leaderEpochCache.get().epochForOffset(nextSegmentStartOffset);
+            if (epochOpt.isPresent()) {
+                LOGGER.debug("Epoch found for topic-partition: {}, offset: {}, epoch: {}", tp, nextSegmentStartOffset, epochOpt.getAsInt());
+                return new OffsetAndEpoch(nextSegmentStartOffset, epochOpt.getAsInt());
+            } else {
+                LOGGER.debug("Epoch not found for topic-partition: {}, offset: {}", tp, nextSegmentStartOffset);
+                return null;
+            }
+        } else {
+            LOGGER.debug("No leader epoch cache found for topic-partition: {}, unable to determine next segment offset/epoch for {}",
+                tp, remoteLogSegmentMetadata);
+            return null;
+        }
     }
 
     private FetchDataInfo addAbortedTransactions(long startOffset,
