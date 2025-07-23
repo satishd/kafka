@@ -74,7 +74,6 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         if (remoteLogMetadataManager == null)
             remoteLogMetadataManager = RemoteLogMetadataManagerTestUtils.builder()
                 .bootstrapServers(clusterInstance.bootstrapServers())
-                .startConsumerThread(true)
                 .remotePartitionMetadataStore(() -> spyRemotePartitionMetadataEventHandler)
                 .build();
         return remoteLogMetadataManager;

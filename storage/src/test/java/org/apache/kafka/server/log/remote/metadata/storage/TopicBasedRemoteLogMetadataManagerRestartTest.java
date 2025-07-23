@@ -52,7 +52,6 @@ public class TopicBasedRemoteLogMetadataManagerRestartTest {
     private TopicBasedRemoteLogMetadataManager createTopicBasedRemoteLogMetadataManager() {
         return RemoteLogMetadataManagerTestUtils.builder()
                 .bootstrapServers(clusterInstance.bootstrapServers())
-                .startConsumerThread(true)
                 .remoteLogMetadataTopicPartitioner(RemoteLogMetadataTopicPartitioner::new)
                 .overrideRemoteLogMetadataManagerProps(Collections.singletonMap(LOG_DIR, logDir))
                 .build();

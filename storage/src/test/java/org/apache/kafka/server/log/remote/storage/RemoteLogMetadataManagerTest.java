@@ -62,7 +62,6 @@ public class RemoteLogMetadataManagerTest {
     private TopicBasedRemoteLogMetadataManager topicBasedRlmm() {
         return RemoteLogMetadataManagerTestUtils.builder()
                 .bootstrapServers(clusterInstance.bootstrapServers())
-                .startConsumerThread(true)
                 .remotePartitionMetadataStore(RemotePartitionMetadataStore::new)
                 .build();
     }

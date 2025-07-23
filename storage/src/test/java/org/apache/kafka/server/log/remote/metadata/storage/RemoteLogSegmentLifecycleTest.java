@@ -75,7 +75,6 @@ public class RemoteLogSegmentLifecycleTest {
     private RemoteLogMetadataManager createTopicBasedRemoteLogMetadataManager() {
         return RemoteLogMetadataManagerTestUtils.builder()
                 .bootstrapServers(clusterInstance.bootstrapServers())
-                .startConsumerThread(true)
                 .remotePartitionMetadataStore(() -> spyRemotePartitionMetadataStore)
                 .build();
     }
