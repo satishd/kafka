@@ -56,17 +56,16 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_
 public class PrefetchSegmentManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
 
+    private final Time time = Time.SYSTEM;
     private final FileSystemManager fileSystemManager;
-    private final Time time;
 
     private DataFetcher dataFetcher;
     private String localBaseDir;
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
 
-    public PrefetchSegmentManager(FileSystemManager fileSystemManager, Time time) {
+    public PrefetchSegmentManager(FileSystemManager fileSystemManager) {
         this.fileSystemManager = fileSystemManager;
-        this.time = time;
     }
 
     public void configure(Map<String, ?> configs) {

@@ -17,7 +17,6 @@
 
 package org.apache.kafka.rsm.hdfs.prefetch;
 
-import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager;
@@ -33,30 +32,31 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
+
 public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
     private static final Logger LOGGER = LoggerFactory.getLogger(RemoteDataPrefetcherImpl.class);
 
     private final PrefetchEvaluator prefetchEvaluator;
     private final PrefetchSegmentManager prefetchSegmentManager;
-    private final Supplier<RemoteLogMetadataManager> rlmmSupplier;
+
+    private Supplier<RemoteLogMetadataManager> rlmmSupplier;
 
     public RemoteDataPrefetcherImpl(PrefetchEvaluator prefetchEvaluator,
-                                    FileSystemManager fileSystemManager,
-                                    Supplier<RemoteLogMetadataManager> rlmmSupplier,
-                                    Time time) {
-        this(prefetchEvaluator, new PrefetchSegmentManager(fileSystemManager, time), rlmmSupplier);
+                                    FileSystemManager fileSystemManager) {
+        this(prefetchEvaluator, new PrefetchSegmentManager(fileSystemManager));
     }
 
     public RemoteDataPrefetcherImpl(PrefetchEvaluator prefetchEvaluator,
-                                    PrefetchSegmentManager prefetchSegmentManager,
-                                    Supplier<RemoteLogMetadataManager> rlmmSupplier) {
+                                    PrefetchSegmentManager prefetchSegmentManager) {
         this.prefetchEvaluator = prefetchEvaluator;
         this.prefetchSegmentManager = prefetchSegmentManager;
-        this.rlmmSupplier = rlmmSupplier;
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void configure(Map<String, ?> configs) {
+        this.rlmmSupplier = (Supplier<RemoteLogMetadataManager>) configs.get(REMOTE_LOG_METADATA_MANAGER_SUPPLIER);
         this.prefetchSegmentManager.configure(configs);
     }
 

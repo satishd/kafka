@@ -152,6 +152,7 @@ import scala.util.Either;
 import static kafka.log.remote.quota.RLMQuotaManagerConfig.INACTIVE_SENSOR_EXPIRATION_TIME_SECONDS;
 import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_COMMON_CLIENT_PREFIX;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
@@ -449,6 +450,8 @@ public class RemoteLogManager implements Closeable {
     private void configureRSM() {
         final Map<String, Object> rsmProps = new HashMap<>(rlmConfig.remoteStorageManagerProps());
         rsmProps.put(ServerConfigs.BROKER_ID_CONFIG, brokerId);
+        Supplier<RemoteLogMetadataManager> supplier = () -> remoteLogMetadataManager;
+        rsmProps.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, supplier);
         remoteLogStorageManager.configure(rsmProps);
     }
 
@@ -1142,7 +1145,7 @@ public class RemoteLogManager implements Closeable {
             brokerTopicStats.topicStats(log.topicPartition().topic()).remoteCopyRequestRate().mark();
             brokerTopicStats.allTopicsStats().remoteCopyRequestRate().mark();
             Optional<CustomMetadata> customMetadata;
-            
+
             try {
                 customMetadata = remoteWriteTimer.time(() -> remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData));
             } catch (Exception e) {
@@ -1321,7 +1324,7 @@ public class RemoteLogManager implements Closeable {
             private boolean deleteLogSegmentsDueToLeaderEpochCacheTruncation(EpochEntry earliestEpochEntry,
                                                                              RemoteLogSegmentMetadata metadata)
                     throws RemoteStorageException, ExecutionException, InterruptedException {
-                boolean isSegmentDeleted = deleteRemoteLogSegment(metadata, 
+                boolean isSegmentDeleted = deleteRemoteLogSegment(metadata,
                     ignored -> metadata.segmentLeaderEpochs().keySet().stream().allMatch(epoch -> epoch < earliestEpochEntry.epoch));
                 if (isSegmentDeleted) {
                     logger.info("Deleted remote log segment {} due to leader-epoch-cache truncation. " +
@@ -1551,7 +1554,7 @@ public class RemoteLogManager implements Closeable {
                     Iterator<RemoteLogSegmentMetadata> segmentsIterator = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition, epoch);
                     while (segmentsIterator.hasNext()) {
                         RemoteLogSegmentMetadata segmentMetadata = segmentsIterator.next();
-                        // Count only the size of segments in "COPY_SEGMENT_FINISHED" state because 
+                        // Count only the size of segments in "COPY_SEGMENT_FINISHED" state because
                         // "COPY_SEGMENT_STARTED" means copy didn't complete and we will count them later,
                         // "DELETE_SEGMENT_STARTED" means deletion failed in the previous attempt and we will retry later,
                         // "DELETE_SEGMENT_FINISHED" means deletion completed, so there is nothing to count.
@@ -1601,7 +1604,7 @@ public class RemoteLogManager implements Closeable {
             log.updateHighestOffsetInRemoteStorage(offsetAndEpoch.offset());
         }
     }
-    
+
     private boolean deleteRemoteLogSegment(
         RemoteLogSegmentMetadata segmentMetadata,
         Predicate<RemoteLogSegmentMetadata> predicate

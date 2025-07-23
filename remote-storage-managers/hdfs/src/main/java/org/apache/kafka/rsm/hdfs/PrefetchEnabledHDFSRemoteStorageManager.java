@@ -19,7 +19,9 @@ package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.rsm.hdfs.prefetch.DefaultPrefetchEvaluator;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcher;
+import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcherImpl;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
@@ -40,6 +42,15 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
 
     private final HDFSRemoteStorageManager hdfsRemoteStorageManager;
     private final RemoteDataPrefetcher remoteDataPrefetcher;
+
+    public PrefetchEnabledHDFSRemoteStorageManager() {
+        FileSystemManager fileSystemManager = new FileSystemManager();
+        this.hdfsRemoteStorageManager = new HDFSRemoteStorageManager(fileSystemManager);
+        this.remoteDataPrefetcher = new RemoteDataPrefetcherImpl(
+            new DefaultPrefetchEvaluator(),
+            fileSystemManager
+        );
+    }
 
     public PrefetchEnabledHDFSRemoteStorageManager(HDFSRemoteStorageManager hdfsRemoteStorageManager,
                                                    RemoteDataPrefetcher remoteDataPrefetcher) {

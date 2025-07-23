@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
@@ -103,9 +104,12 @@ public class RemoteDataPrefetcherImplTest {
         // Create a real prefetcher but with a mock segment manager
         prefetcher = new RemoteDataPrefetcherImpl(
             mockEvaluator,
-            mockSegmentManager,
-            mockRlmmSupplier
+            mockSegmentManager
         );
+
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, mockRlmmSupplier);
+        prefetcher.configure(configs);
     }
 
     @Test
