@@ -267,4 +267,8 @@ public class TopicConfig {
     public static final String REMOTE_STORAGE_PROVIDER_OCI = "oci";
     public static final String REMOTE_STORAGE_PROVIDER_DOC = "The remote storage provider to use for the topic. " +
             "The supported providers are 'hdfs' and 'oci'.";
+            
+    public static final String REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG = "remote.storage.prefetch.enable";
+    public static final String REMOTE_STORAGE_PREFETCH_ENABLE_DOC = "To enable prefetching from remote storage for a topic, " +
+            "set this configuration as true. This config applies only when remote.storage.enable is true.";
 }

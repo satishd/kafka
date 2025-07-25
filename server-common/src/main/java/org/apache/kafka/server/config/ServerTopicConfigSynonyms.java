@@ -92,7 +92,8 @@ public final class ServerTopicConfigSynonyms {
         sameNameWithLogPrefix(TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_CONFIG),
         sameNameWithLogPrefix(TopicConfig.LOCAL_LOG_RETENTION_MS_CONFIG),
         sameNameWithLogPrefix(TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG),
-        sameNameWithLogPrefix(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG)
+        sameNameWithLogPrefix(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG),
+        sameNameWithLogPrefix(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG)
     ));
 
     /**

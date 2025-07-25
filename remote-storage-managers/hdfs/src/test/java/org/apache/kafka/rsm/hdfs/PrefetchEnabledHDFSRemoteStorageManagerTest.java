@@ -159,7 +159,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
 
     @Test
     public void testFetchLogSegmentWithReadContextAndPrefetchedData() throws RemoteStorageException {
-        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch);
+        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch, false);
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(expectedStream);
 
@@ -173,7 +173,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
 
     @Test
     public void testFetchLogSegmentWithReadContextNoPrefetchedData() throws RemoteStorageException {
-        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch);
+        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch, false);
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(null);
         when(mockHdfsRsm.fetchLogSegment(metadata, readContext, 10, 50)).thenReturn(expectedStream);
@@ -188,7 +188,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
 
     @Test
     public void testFetchLogSegmentWithReadContextNullNextSegment() throws RemoteStorageException {
-        RemoteReadContext readContext = new RemoteReadContext(true, false, null);
+        RemoteReadContext readContext = new RemoteReadContext(true, false, null, false);
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(null);
         when(mockHdfsRsm.fetchLogSegment(metadata, readContext, 10, 50)).thenReturn(expectedStream);
@@ -203,7 +203,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
 
     @Test
     public void testFetchLogSegmentWithReadContextSignalException() throws RemoteStorageException {
-        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch);
+        RemoteReadContext readContext = new RemoteReadContext(true, false, nextSegmentOffsetAndEpoch, false);
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         Mockito.doThrow(new RuntimeException("Test exception")).when(mockPrefetcher).signalSegmentRead(metadata, 10, nextSegmentOffsetAndEpoch);
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(null);

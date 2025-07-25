@@ -500,6 +500,7 @@ class LogConfigTest {
     LogConfig.validate(logProps)
   }
 
+
   @ParameterizedTest
   @ValueSource(booleans = Array(true, false))
   def testRemoteHedgedReadsEnableProps(enableRemoteStorage: Boolean): Unit = {
@@ -533,4 +534,39 @@ class LogConfigTest {
     logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, provider)
     LogConfig.validate(logProps)
   }
+
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testValidRemoteStoragePrefetchEnableConfig(enable: Boolean): Unit = {
+    val logProps = new Properties
+    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, enable.toString)
+    LogConfig.validate(logProps)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testRemoteStoragePrefetchEnableProps(enableRemoteStorage: Boolean): Unit = {
+    val kafkaProps = TestUtils.createDummyBrokerConfig()
+    kafkaProps.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, "true")
+    val kafkaConfig = KafkaConfig.fromProps(kafkaProps)
+
+    val props = new Properties()
+    props.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, enableRemoteStorage.toString)
+    // Default value should be false
+    var logConfig = new LogConfig(props)
+    assertFalse(logConfig.remoteStoragePrefetchEnable)
+
+    // Set to false and verify logConfig
+    props.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, false.toString)
+    assertDoesNotThrow[Unit](() => LogConfig.validate(Collections.emptyMap(), props, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), true))
+    logConfig = new LogConfig(props)
+    assertFalse(logConfig.remoteStoragePrefetchEnable)
+
+    // Set to true, and verify logConfig
+    props.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, true.toString)
+    assertDoesNotThrow[Unit](() => LogConfig.validate(Collections.emptyMap(), props, kafkaConfig.extractLogConfigMap, kafkaConfig.remoteLogManagerConfig.isRemoteStorageSystemEnabled(), true))
+    logConfig = new LogConfig(props)
+    assertTrue(logConfig.remoteStoragePrefetchEnable)
+  }
+
 }

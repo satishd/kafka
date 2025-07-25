@@ -1811,13 +1811,10 @@ public class RemoteLogManager implements Closeable {
 
         long offset = fetchInfo.fetchOffset;
         int maxBytes = Math.min(fetchMaxBytes, fetchInfo.maxBytes);
-        boolean enablePrefetch = maxBytes < FOUR_MB_SIZE;
-        boolean enableHedgedReads = fetchLog.apply(tp)
-                .map(UnifiedLog::config)
-                .map(LogConfig::remoteHedgedReadsEnable)
-                .orElse(false);
-
+        boolean enableBlockPrefetch = maxBytes < FOUR_MB_SIZE;
         Optional<UnifiedLog> logOptional = fetchLog.apply(tp);
+
+        Optional<LogConfig> logConfigOptional = logOptional.map(UnifiedLog::config);
         OptionalInt epoch = OptionalInt.empty();
 
         if (logOptional.isPresent()) {
@@ -1839,7 +1836,13 @@ public class RemoteLogManager implements Closeable {
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = rlsMetadataOptional.get();
         OffsetAndEpoch nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch(logOptional, remoteLogSegmentMetadata);
-        RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, enableHedgedReads, nextSegmentOffsetAndEpoch);
+        boolean enableHedgedReads = logConfigOptional
+                .map(LogConfig::remoteHedgedReadsEnable)
+                .orElse(false);
+        boolean enableRemoteStoragePrefetch = logConfigOptional
+                .map(LogConfig::remoteStoragePrefetchEnable)
+                .orElse(false);
+        RemoteReadContext readContext = new RemoteReadContext(enableBlockPrefetch, enableHedgedReads, nextSegmentOffsetAndEpoch, enableRemoteStoragePrefetch);
         EnrichedRecordBatch enrichedRecordBatch = new EnrichedRecordBatch(null, 0);
         InputStream remoteSegInputStream = null;
         try {

@@ -79,7 +79,7 @@ import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null);
+    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null, false);
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
@@ -394,7 +394,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             String bucket = fileSystemManager.getBucket(metadata);
             RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
             boolean isHedgedReadsEnabled = storageProvider == RemoteStorageProvider.HDFS && readContext.isHedgedReadsEnabled();
-            if (readContext.isPrefetchEnabled() || isHedgedReadsEnabled) {
+            if (readContext.isBlockPrefetchEnabled() || isHedgedReadsEnabled) {
                 return new CachedInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
                         startPosition, endPosition, isHedgedReadsEnabled);
             } else {

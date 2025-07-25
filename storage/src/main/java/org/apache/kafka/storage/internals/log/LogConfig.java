@@ -117,6 +117,7 @@ public class LogConfig extends AbstractConfig {
         private final long localRetentionBytes;
         private final boolean remoteHedgedReadsEnable;
         private final String remoteStorageProvider;
+        private final boolean remoteStoragePrefetchEnable;
 
         private RemoteLogConfig(LogConfig config) {
             this.remoteStorageEnable = config.getBoolean(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG);
@@ -126,6 +127,7 @@ public class LogConfig extends AbstractConfig {
             this.localRetentionBytes = config.getLong(TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG);
             this.remoteHedgedReadsEnable = config.getBoolean(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG);
             this.remoteStorageProvider = config.getString(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG);
+            this.remoteStoragePrefetchEnable = config.getBoolean(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG);
         }
 
         @Override
@@ -138,6 +140,7 @@ public class LogConfig extends AbstractConfig {
                     ", localRetentionBytes=" + localRetentionBytes +
                     ", remoteHedgedReadsEnable=" + remoteHedgedReadsEnable +
                     ", remoteStorageProvider='" + remoteStorageProvider +
+                    ", remoteStoragePrefetchEnable='" + remoteStoragePrefetchEnable +
                     '}';
         }
     }
@@ -193,6 +196,7 @@ public class LogConfig extends AbstractConfig {
     public static final boolean DEFAULT_REMOTE_LOG_COPY_DISABLE_CONFIG = false;
     public static final boolean DEFAULT_REMOTE_LOG_DELETE_ON_DISABLE_CONFIG = false;
     public static final boolean DEFAULT_REMOTE_HEDGED_READS_ENABLE_CONFIG = false;
+    public static final boolean DEFAULT_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG = false;
     public static final long DEFAULT_LOCAL_RETENTION_BYTES = -2; // It indicates the value to be derived from RetentionBytes
     public static final long DEFAULT_LOCAL_RETENTION_MS = -2; // It indicates the value to be derived from RetentionMs
 
@@ -347,7 +351,9 @@ public class LogConfig extends AbstractConfig {
                 .define(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, BOOLEAN, false, MEDIUM, TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_DOC)
                 .define(TopicConfig.REMOTE_HEDGED_READS_ENABLE_CONFIG, BOOLEAN, DEFAULT_REMOTE_HEDGED_READS_ENABLE_CONFIG, MEDIUM, TopicConfig.REMOTE_HEDGED_READS_ENABLE_DOC)
                 .define(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, STRING, TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS,
-                        ConfigDef.CaseInsensitiveValidString.in(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI), MEDIUM, TopicConfig.REMOTE_STORAGE_PROVIDER_DOC);
+                        ConfigDef.CaseInsensitiveValidString.in(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI), MEDIUM, TopicConfig.REMOTE_STORAGE_PROVIDER_DOC)
+                .define(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, BOOLEAN, DEFAULT_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, MEDIUM, TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_DOC);
+
     }
 
     public final Set<String> overriddenConfigs;
@@ -550,6 +556,10 @@ public class LogConfig extends AbstractConfig {
 
     public String remoteStorageProvider() {
         return remoteLogConfig.remoteStorageProvider;
+    }
+
+    public boolean remoteStoragePrefetchEnable() {
+        return remoteLogConfig.remoteStoragePrefetchEnable;
     }
 
     public String overriddenConfigsAsLoggableString() {

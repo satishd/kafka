@@ -21,22 +21,28 @@ import org.apache.kafka.server.common.OffsetAndEpoch;
 import java.util.Objects;
 
 public class RemoteReadContext {
-    private final boolean prefetchEnabled;
+    private final boolean blockPrefetchEnabled;
     private final boolean hedgedReadsEnabled;
     private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
+    private final boolean remoteStoragePrefetchEnabled;
 
-    public RemoteReadContext(boolean prefetchEnabled, boolean hedgedReadsEnabled, OffsetAndEpoch nextSegmentOffsetAndEpoch) {
-        this.prefetchEnabled = prefetchEnabled;
+    public RemoteReadContext(boolean blockPrefetchEnabled, boolean hedgedReadsEnabled, OffsetAndEpoch nextSegmentOffsetAndEpoch, boolean remoteStoragePrefetchEnabled) {
+        this.blockPrefetchEnabled = blockPrefetchEnabled;
         this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
+        this.remoteStoragePrefetchEnabled = remoteStoragePrefetchEnabled;
     }
 
-    public boolean isPrefetchEnabled() {
-        return prefetchEnabled;
+    public boolean isBlockPrefetchEnabled() {
+        return blockPrefetchEnabled;
     }
 
     public boolean isHedgedReadsEnabled() {
         return hedgedReadsEnabled;
+    }
+
+    public boolean isRemoteStoragePrefetchEnabled() {
+        return remoteStoragePrefetchEnabled;
     }
 
     public OffsetAndEpoch getNextSegmentOffsetAndEpoch() {
@@ -46,9 +52,10 @@ public class RemoteReadContext {
     @Override
     public String toString() {
         return "RemoteReadContext{" +
-                "prefetchEnabled=" + prefetchEnabled +
+                "prefetchEnabled=" + blockPrefetchEnabled +
                 ", hedgedReadsEnabled=" + hedgedReadsEnabled +
                 ", nextSegmentOffsetAndEpoch=" + nextSegmentOffsetAndEpoch +
+                ", remoteStoragePrefetchEnabled=" + remoteStoragePrefetchEnabled +
                 '}';
     }
 
@@ -57,11 +64,13 @@ public class RemoteReadContext {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteReadContext that = (RemoteReadContext) o;
-        return prefetchEnabled == that.prefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch);
+        return blockPrefetchEnabled == that.blockPrefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled
+                && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch)
+                && remoteStoragePrefetchEnabled == that.remoteStoragePrefetchEnabled;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(prefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch);
+        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch, remoteStoragePrefetchEnabled);
     }
 }
