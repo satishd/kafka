@@ -33,7 +33,7 @@ import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
-import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageNotReadyException;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.log.EpochEntry;
 import org.apache.kafka.storage.internals.log.LogFileUtils;
@@ -231,7 +231,7 @@ public class TierStateMachine {
         }
 
         if (!rlm.isPartitionReady(topicPartition)) {
-            throw new RetriableRemoteStorageException("RemoteLogManager is not ready for partition: " + topicPartition);
+            throw new RemoteStorageNotReadyException("RemoteLogManager is not ready for partition: " + topicPartition);
         }
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = rlm.fetchRemoteLogSegmentMetadata(topicPartition, targetEpoch, previousOffsetToLeaderLocalLogStartOffset)
