@@ -227,6 +227,7 @@ public class RemoteLogManagerTest {
     private final TopicIdPartition followerTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("Follower", 0));
     private final Map<String, Uuid> topicIds = new HashMap<>();
     private final TopicPartition tp = new TopicPartition("TestTopic", 5);
+    private final TopicIdPartition tpId = new TopicIdPartition(Uuid.randomUuid(), tp);
     private final EpochEntry epochEntry0 = new EpochEntry(0, 0);
     private final EpochEntry epochEntry1 = new EpochEntry(1, 100);
     private final EpochEntry epochEntry2 = new EpochEntry(2, 200);
@@ -3189,7 +3190,7 @@ public class RemoteLogManagerTest {
         );
 
         RemoteStorageFetchInfo fetchInfo = new RemoteStorageFetchInfo(
-                0, false, tp, partitionData, FetchIsolation.TXN_COMMITTED, false
+                0, false, tpId, partitionData, FetchIsolation.TXN_COMMITTED, false
         );
 
         try (RemoteLogManager remoteLogManager = new RemoteLogManager(
@@ -3263,7 +3264,7 @@ public class RemoteLogManagerTest {
         );
 
         RemoteStorageFetchInfo fetchInfo = new RemoteStorageFetchInfo(
-                0, minOneMessage, tp, partitionData, FetchIsolation.HIGH_WATERMARK, false
+                0, minOneMessage, tpId, partitionData, FetchIsolation.HIGH_WATERMARK, false
         );
 
         try (RemoteLogManager remoteLogManager = new RemoteLogManager(
@@ -3390,7 +3391,7 @@ public class RemoteLogManagerTest {
         when(firstBatch.sizeInBytes()).thenReturn(recordBatchSizeInBytes);
         doNothing().when(firstBatch).writeTo(capture.capture());
         RemoteStorageFetchInfo fetchInfo = new RemoteStorageFetchInfo(
-                0, true, tp, partitionData, FetchIsolation.HIGH_WATERMARK, false
+                0, true, tpId, partitionData, FetchIsolation.HIGH_WATERMARK, false
         );
 
 
@@ -3774,7 +3775,7 @@ public class RemoteLogManagerTest {
         FetchRequest.PartitionData partitionData = new FetchRequest.PartitionData(
                 Uuid.randomUuid(), fetchOffset, 0, 100, Optional.empty());
         RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(
-                1048576, true, leaderTopicIdPartition.topicPartition(),
+                1048576, true, leaderTopicIdPartition,
                 partitionData, FetchIsolation.HIGH_WATERMARK, false);
         FetchDataInfo fetchDataInfo = remoteLogManager.read(remoteStorageFetchInfo);
         // firstBatch baseOffset may not be equal to the fetchOffset
