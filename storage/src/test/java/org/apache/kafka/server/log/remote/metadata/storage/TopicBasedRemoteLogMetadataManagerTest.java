@@ -29,11 +29,13 @@ import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.utils.Exit;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.test.TestUtils;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,9 +43,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -336,4 +343,36 @@ public class TopicBasedRemoteLogMetadataManagerTest {
         assertEquals(0, topicBasedRemoteLogMetadataManager.remoteLogSize(topicIdPartition, 9001));
     }
 
+    @ClusterTest
+    public void testInitializationFailure() throws IOException, InterruptedException {
+        // Set up a custom exit procedure for testing
+        final AtomicBoolean exitCalled = new AtomicBoolean(false);
+        final AtomicInteger exitCode = new AtomicInteger(-1);
+        final AtomicReference<String> exitMessage = new AtomicReference<>();
+
+        // Set custom exit procedure that won't actually exit the process
+        Exit.setExitProcedure((statusCode, message) -> {
+            exitCalled.set(true);
+            exitCode.set(statusCode);
+            exitMessage.set(message);
+        });
+
+        try (TopicBasedRemoteLogMetadataManager rlmm = new TopicBasedRemoteLogMetadataManager()) {
+            // configure rlmm without bootstrap servers, so it will fail to initialize admin client.
+            Map<String, Object> configs = new HashMap<>();
+            configs.put(TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR, TestUtils.tempDirectory("rlmm_segs_").getAbsolutePath());
+            configs.put(TopicBasedRemoteLogMetadataManagerConfig.BROKER_ID, 0);
+            rlmm.configure(configs);
+
+            // Wait for initialization failure and exit procedure to be called
+            TestUtils.waitForCondition(() -> exitCalled.get(),
+                "Exit procedure should be called due to initialization failure");
+
+            // Verify exit code
+            assertEquals(1, exitCode.get(), "Exit code should be 1");
+        } finally {
+            // Restore default exit procedure
+            Exit.resetExitProcedure();
+        }
+    }
 }
