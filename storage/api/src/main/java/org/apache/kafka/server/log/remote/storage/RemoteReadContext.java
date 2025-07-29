@@ -24,13 +24,16 @@ public class RemoteReadContext {
     private final boolean blockPrefetchEnabled;
     private final boolean hedgedReadsEnabled;
     private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
-    private final boolean remoteStoragePrefetchEnabled;
+    private final boolean segmentPrefetchEnabled;
 
-    public RemoteReadContext(boolean blockPrefetchEnabled, boolean hedgedReadsEnabled, OffsetAndEpoch nextSegmentOffsetAndEpoch, boolean remoteStoragePrefetchEnabled) {
+    public RemoteReadContext(boolean blockPrefetchEnabled,
+                             boolean hedgedReadsEnabled,
+                             OffsetAndEpoch nextSegmentOffsetAndEpoch,
+                             boolean segmentPrefetchEnabled) {
         this.blockPrefetchEnabled = blockPrefetchEnabled;
         this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
-        this.remoteStoragePrefetchEnabled = remoteStoragePrefetchEnabled;
+        this.segmentPrefetchEnabled = segmentPrefetchEnabled;
     }
 
     public boolean isBlockPrefetchEnabled() {
@@ -41,8 +44,8 @@ public class RemoteReadContext {
         return hedgedReadsEnabled;
     }
 
-    public boolean isRemoteStoragePrefetchEnabled() {
-        return remoteStoragePrefetchEnabled;
+    public boolean isSegmentPrefetchEnabled() {
+        return segmentPrefetchEnabled;
     }
 
     public OffsetAndEpoch getNextSegmentOffsetAndEpoch() {
@@ -55,7 +58,7 @@ public class RemoteReadContext {
                 "prefetchEnabled=" + blockPrefetchEnabled +
                 ", hedgedReadsEnabled=" + hedgedReadsEnabled +
                 ", nextSegmentOffsetAndEpoch=" + nextSegmentOffsetAndEpoch +
-                ", remoteStoragePrefetchEnabled=" + remoteStoragePrefetchEnabled +
+                ", segmentPrefetchEnabled=" + segmentPrefetchEnabled +
                 '}';
     }
 
@@ -66,11 +69,11 @@ public class RemoteReadContext {
         RemoteReadContext that = (RemoteReadContext) o;
         return blockPrefetchEnabled == that.blockPrefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled
                 && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch)
-                && remoteStoragePrefetchEnabled == that.remoteStoragePrefetchEnabled;
+                && segmentPrefetchEnabled == that.segmentPrefetchEnabled;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch, remoteStoragePrefetchEnabled);
+        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch, segmentPrefetchEnabled);
     }
 }

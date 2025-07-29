@@ -527,6 +527,29 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
     verifyRemoteLogTopicConfigs(topicConfig)
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = Array("zk", "kraft"))
+  def testUpdateTopicConfigToEnableRemotePrefetch(quorum: String): Unit = {
+    val admin = createAdminClient()
+    val topicConfig = new Properties()
+    topicConfig.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true")
+    TestUtils.createTopicWithAdmin(admin, testTopicName, brokers, controllerServers, numPartitions, numReplicationFactor,
+      topicConfig = topicConfig)
+    // default value is false when unspecified
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "false")
+    verifyRemoteLogTopicConfigs(topicConfig)
+
+    val configs = new util.HashMap[ConfigResource, util.Collection[AlterConfigOp]]()
+    configs.put(new ConfigResource(ConfigResource.Type.TOPIC, testTopicName),
+      util.Collections.singletonList(
+        new AlterConfigOp(new ConfigEntry(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "true"),
+          AlterConfigOp.OpType.SET),
+      ))
+    admin.incrementalAlterConfigs(configs).all().get()
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "true")
+    verifyRemoteLogTopicConfigs(topicConfig)
+  }
+
   private def assertThrowsException(exceptionType: Class[_ <: Throwable],
                                     executable: Executable,
                                     message: String = ""): Throwable = {
@@ -583,6 +606,11 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
           result = result &&
             topicConfig.getProperty(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG) ==
               logBuffer.head.config.remoteStorageProvider
+        }
+        if (topicConfig.containsKey(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG)) {
+          result = result &&
+            topicConfig.getProperty(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG).toBoolean ==
+              logBuffer.head.config.remoteStoragePrefetchEnable()
         }
       }
       result

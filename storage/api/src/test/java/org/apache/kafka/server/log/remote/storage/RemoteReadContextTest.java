@@ -34,7 +34,7 @@ public class RemoteReadContextTest {
         RemoteReadContext context1 = new RemoteReadContext(true, false, null, false);
         assertTrue(context1.isBlockPrefetchEnabled());
         assertFalse(context1.isHedgedReadsEnabled());
-        assertFalse(context1.isRemoteStoragePrefetchEnabled());
+        assertFalse(context1.isSegmentPrefetchEnabled());
         assertNull(context1.getNextSegmentOffsetAndEpoch());
 
         // Test with non-null nextSegmentOffsetAndEpoch
@@ -42,7 +42,7 @@ public class RemoteReadContextTest {
         RemoteReadContext context2 = new RemoteReadContext(false, true, offsetAndEpoch, true);
         assertFalse(context2.isBlockPrefetchEnabled());
         assertTrue(context2.isHedgedReadsEnabled());
-        assertTrue(context2.isRemoteStoragePrefetchEnabled());
+        assertTrue(context2.isSegmentPrefetchEnabled());
         assertEquals(offsetAndEpoch, context2.getNextSegmentOffsetAndEpoch());
         assertEquals(100L, context2.getNextSegmentOffsetAndEpoch().offset());
         assertEquals(5, context2.getNextSegmentOffsetAndEpoch().leaderEpoch());
@@ -125,7 +125,7 @@ public class RemoteReadContextTest {
         String toString = context.toString();
         assertTrue(toString.contains("prefetchEnabled=true"));
         assertTrue(toString.contains("hedgedReadsEnabled=false"));
-        assertTrue(toString.contains("nextSegmentOffsetAndEpoch=" + offsetAndEpoch.toString()));
-        assertTrue(toString.contains("remoteStoragePrefetchEnabled=true"));
+        assertTrue(toString.contains("nextSegmentOffsetAndEpoch=" + offsetAndEpoch));
+        assertTrue(toString.contains("segmentPrefetchEnabled=true"));
     }
 }

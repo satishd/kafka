@@ -1110,10 +1110,40 @@ class DynamicBrokerConfigTest {
     assertEquals(RemoteStorageProvider.OCI.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
 
     // update per broker config
-    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
     newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, RemoteStorageProvider.HDFS.toString)
+    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
     config.dynamicConfig.updateBrokerConfig(0, newProps)
     assertEquals(RemoteStorageProvider.HDFS.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
+  }
+
+  @Test
+  def testDynamicLogRemoteStoragePrefetchEnableConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9093)
+    val config = KafkaConfig(props)
+    config.dynamicConfig.initialize(None, None)
+
+    // Default should be false
+    assertFalse(config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
+
+    val dynamicLogConfig = new DynamicLogConfig(mock(classOf[LogManager]), mock(classOf[KafkaServer]))
+    config.dynamicConfig.addBrokerReconfigurable(dynamicLogConfig)
+
+    val newProps = new Properties()
+    // update with invalid-value
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP, "invalid_provider")
+    assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(newProps, perBrokerConfig = false))
+
+    // update default-config
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP, "true")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(newProps)
+    assertTrue(config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
+
+    // update per broker config
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP, "false")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
+    config.dynamicConfig.updateBrokerConfig(0, newProps)
+    assertFalse(config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
   }
 
   @Test

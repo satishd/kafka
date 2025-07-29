@@ -1143,8 +1143,8 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
     logProps.put(TopicConfig.MESSAGE_DOWNCONVERSION_ENABLE_CONFIG, logMessageDownConversionEnable: java.lang.Boolean)
     logProps.put(TopicConfig.LOCAL_LOG_RETENTION_MS_CONFIG, remoteLogManagerConfig.logLocalRetentionMs: java.lang.Long)
     logProps.put(TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG, remoteLogManagerConfig.logLocalRetentionBytes: java.lang.Long)
-    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, remoteLogManagerConfig.logRemoteStorageProvider(): java.lang.String)
-    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled(): java.lang.Boolean)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, remoteLogManagerConfig.logRemoteStorageProvider: java.lang.String)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled: java.lang.Boolean)
     logProps
   }
 

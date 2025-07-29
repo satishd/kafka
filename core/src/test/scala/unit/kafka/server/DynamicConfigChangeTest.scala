@@ -611,6 +611,49 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     assertStorageProvider(partition = tp3, provider = "hdfs")
   }
 
+  @Test
+  def testCreateRemoteTopicWithPrefetchEnable(): Unit = {
+    // default value of prefetchEnable is false
+    assertFalse(this.servers.head.config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
+
+    def assertPrefetchEnabled(partition: TopicPartition, isPrefetchEnabled: Boolean): Unit = {
+      TestUtils.retry(10000) {
+        val logOpt = this.servers.head.logManager.getLog(partition)
+        assertTrue(logOpt.isDefined)
+        assertEquals(isPrefetchEnabled, logOpt.get.config.remoteStoragePrefetchEnable())
+      }
+    }
+
+    val tp = new TopicPartition("test", 0)
+    createTopic(tp.topic, 1, 1, new Properties())
+    assertPrefetchEnabled(partition = tp, isPrefetchEnabled = false)
+
+    val tp1 = new TopicPartition("test1", 0)
+    val logProps = new Properties()
+    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "false")
+    createTopic(tp1.topic, 1, 1, logProps)
+    assertPrefetchEnabled(partition = tp1, isPrefetchEnabled = false)
+
+    val serverProps = new Properties()
+    serverProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP, "true")
+    adminZkClient.changeBrokerConfig(Seq(0), serverProps)
+    TestUtils.retry(10000) {
+      assertTrue(this.servers.head.config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
+    }
+
+    val tp2 = new TopicPartition("test2", 0)
+    createTopic(tp2.topic, 1, 1, new Properties())
+    assertPrefetchEnabled(partition = tp2, isPrefetchEnabled = true)
+    // test-0 topic does not overwrite the `remote.storage.prefetch.enable` at topic-level.
+    assertPrefetchEnabled(partition = tp, isPrefetchEnabled = true)
+    assertPrefetchEnabled(partition = tp1, isPrefetchEnabled = false)
+
+    val tp3 = new TopicPartition("test3", 0)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "false")
+    createTopic(tp3.topic, 1, 1, logProps)
+    assertPrefetchEnabled(partition = tp3, isPrefetchEnabled = false)
+  }
+
   private def createAdminClient(): Admin = {
     val props = new Properties()
     props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers())

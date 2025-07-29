@@ -155,10 +155,10 @@ public final class RemoteLogManagerConfig {
             "The supported providers are 'hdfs' and 'oci'.";
     public static final String DEFAULT_LOG_REMOTE_STORAGE_PROVIDER = RemoteStorageProvider.HDFS.toString();
 
-    public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG = "log.remote.storage.prefetch.enable";
-    public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG_DOC = "To enable prefetching from remote storage for a topic, " +
+    public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP = "log.remote.storage.prefetch.enable";
+    public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_DOC = "To enable prefetching from remote storage for a topic, " +
             "set this configuration as true. This config applies only when remote.storage.enable is true.";
-    public static final boolean DEFAULT_LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG = false;
+    public static final boolean DEFAULT_LOG_REMOTE_STORAGE_PREFETCH_ENABLE = false;
 
 
     public static final String REMOTE_LOG_MANAGER_COPY_MAX_BYTES_PER_SECOND_PROP = "remote.log.manager.copy.max.bytes.per.second";
@@ -405,12 +405,12 @@ public final class RemoteLogManagerConfig {
                         ConfigDef.CaseInsensitiveValidString.in(RemoteStorageProvider.HDFS.toString(), RemoteStorageProvider.OCI.toString()),
                         MEDIUM,
                         LOG_REMOTE_STORAGE_PROVIDER_DOC)
-                .defineInternal(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG,
+                .defineInternal(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP,
                         BOOLEAN,
-                        DEFAULT_LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG,
+                        DEFAULT_LOG_REMOTE_STORAGE_PREFETCH_ENABLE,
                         null,
                         MEDIUM,
-                        LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG_DOC);
+                        LOG_REMOTE_STORAGE_PREFETCH_ENABLE_DOC);
     }
     
     public RemoteLogManagerConfig(AbstractConfig config) {
@@ -561,7 +561,7 @@ public final class RemoteLogManagerConfig {
     }
 
     public Boolean isLogRemoteStoragePrefetchEnabled() {
-        return config.getBoolean(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG);
+        return config.getBoolean(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP);
     }
 
     public static void main(String[] args) {
