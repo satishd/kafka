@@ -40,9 +40,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -94,14 +92,6 @@ public class FileSystemManager {
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, Integer::parseInt),
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt)
     );
-
-    private static final Map<String, String> BUCKET_MAPPING = new HashMap<>();
-
-    static {
-        // deprecated buckets
-        BUCKET_MAPPING.put("oci://uber-prod-ea6bj@ax9estk6tuja/jwj42", "oci://uber-prod-ea6bj@ax9estk6tuja");
-    }
-
 
     private String hdfsBucket;
     private final List<String> ociBuckets = new CopyOnWriteArrayList<>();
@@ -596,8 +586,7 @@ public class FileSystemManager {
                 throw new IllegalArgumentException("No OCI buckets are configured for writing");
             }
             int idx = Math.abs(segmentId.topicIdPartition().hashCode() % ociBuckets.size());
-            String bucket = ociBuckets.get(idx);
-            return BUCKET_MAPPING.getOrDefault(bucket, bucket);
+            return ociBuckets.get(idx);
         } else {
             throw new IllegalArgumentException("Unknown remote storage provider: " + provider);
         }
@@ -610,18 +599,10 @@ public class FileSystemManager {
     }
 
     static String getBucket(RemoteLogSegmentMetadata.CustomMetadata customMetadata) {
-        String bucket;
-        try {
-            ByteBuffer byteBuffer = ByteBuffer.wrap(customMetadata.value());
-            ConnectorCustomMetadata connectorCustomMetadata =
+        ByteBuffer byteBuffer = ByteBuffer.wrap(customMetadata.value());
+        ConnectorCustomMetadata connectorCustomMetadata =
                 new ConnectorCustomMetadata(new ByteBufferAccessor(byteBuffer), ConnectorCustomMetadata.LOWEST_SUPPORTED_VERSION);
-            bucket = connectorCustomMetadata.uri();
-        } catch (Exception e) {
-            // Backward compatibility
-            // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
-            bucket = new String(customMetadata.value(), StandardCharsets.UTF_8);
-        }
-        return BUCKET_MAPPING.getOrDefault(bucket, bucket);
+        return connectorCustomMetadata.uri();
     }
 
     /**

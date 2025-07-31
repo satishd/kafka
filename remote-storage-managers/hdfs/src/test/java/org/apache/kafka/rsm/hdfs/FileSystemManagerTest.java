@@ -49,7 +49,6 @@ import org.mockito.Mockito;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -373,7 +372,6 @@ public class FileSystemManagerTest {
     @ParameterizedTest
     @CsvSource(value = {
             "oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka, oci://uber-staging-vwxyz@ab9cdef6ghij/lwrka",
-            "oci://uber-prod-ea6bj@ax9estk6tuja/jwj42, oci://uber-prod-ea6bj@ax9estk6tuja",
             "oci://uber-prod-abcde@ax9estk6tuja/jwj42, oci://uber-prod-abcde@ax9estk6tuja/jwj42"
     })
     public void testCustomMetadataSizeWithinAllowedMaxBytes(String bucket, String expectedBucket) {
@@ -381,11 +379,6 @@ public class FileSystemManagerTest {
         assertNotNull(customMetadata);
         assertEquals(expectedBucket, FileSystemManager.getBucket(customMetadata));
         assertTrue(customMetadata.value().length < RemoteLogManagerConfig.DEFAULT_REMOTE_LOG_METADATA_CUSTOM_METADATA_MAX_BYTES);
-
-        // Backward compatibility
-        // `kafka-dev1-dca` is already deployed with the old build. This can be removed once the stress test is completed.
-        assertEquals(expectedBucket, FileSystemManager.getBucket(
-                new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes(StandardCharsets.UTF_8))));
     }
 
     @Test
