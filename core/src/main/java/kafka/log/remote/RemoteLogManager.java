@@ -2272,9 +2272,6 @@ public class RemoteLogManager implements Closeable {
                 leaderCopyRLMTasks.values().forEach(RLMTaskWithFuture::cancel);
                 leaderExpirationRLMTasks.values().forEach(RLMTaskWithFuture::cancel);
                 followerRLMTasks.values().forEach(RLMTaskWithFuture::cancel);
-                Utils.closeQuietly(remoteLogStorageManager, "RemoteLogStorageManager");
-                Utils.closeQuietly(remoteLogMetadataManager, "RemoteLogMetadataManager");
-                Utils.closeQuietly(indexCache, "RemoteIndexCache");
 
                 rlmCopyThreadPool.close();
                 rlmExpirationThreadPool.close();
@@ -2285,10 +2282,13 @@ public class RemoteLogManager implements Closeable {
                 } finally {
                     removeMetrics();
                 }
-
                 leaderCopyRLMTasks.clear();
                 leaderExpirationRLMTasks.clear();
                 followerRLMTasks.clear();
+
+                Utils.closeQuietly(indexCache, "RemoteIndexCache");
+                Utils.closeQuietly(remoteLogMetadataManager, "RemoteLogMetadataManager");
+                Utils.closeQuietly(remoteLogStorageManager, "RemoteLogStorageManager");
                 closed = true;
             }
         }

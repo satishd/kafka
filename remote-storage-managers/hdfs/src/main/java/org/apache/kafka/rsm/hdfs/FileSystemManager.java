@@ -567,7 +567,7 @@ public class FileSystemManager {
         for (Map.Entry<FileSystemKey, FileSystem> entry : fileSystemByBucket.entrySet()) {
             Utils.closeQuietly(entry.getValue(), "Closed FileSystem for bucket: " + entry.getKey().bucket);
         }
-        fileSystemByBucket.clear();
+        // Don't clear the map to avoid unintended FileSystem instance recreation.
         ThreadUtils.shutdownExecutorServiceQuietly(executor, 5, TimeUnit.SECONDS);
     }
 

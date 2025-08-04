@@ -533,4 +533,36 @@ public class FileSystemManagerTest {
                     readAheadConf.getInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, -1));
         }
     }
+
+    @Test
+    public void shouldNotRecreateFileSystemInstanceAfterClose() {
+        String ociBucket = "oci://uber@abc/lwrka";
+        List<String> allBuckets = Collections.singletonList(ociBucket);
+
+        configs.put(HDFS_OCI_BUCKETS_PROP, String.join(",", allBuckets));
+        AtomicInteger instanceCount = new AtomicInteger();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // the MiniDFSCluster only supports hdfs filesystem, but we want to test with different valid schemes
+            // so we mock the FileSystem creation
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenAnswer(ans -> {
+                        instanceCount.incrementAndGet();
+                        return hdfs;
+                    });
+            rsm.setDefaultHadoopConfiguration(hadoopConf);
+            rsm.configure(configs);
+
+            assertEquals(allBuckets, rsm.ociBuckets());
+            // verify that the FileSystem instance is called 4 times
+            // once for the default filesystem, once for the hedged reads enabled filesystem and 1 time for the OCI
+            // buckets with and without read ahead
+            assertEquals(4, instanceCount.get());
+            rsm.close();
+
+            // should not recreate the same instance when the RSM is closed.
+            rsm.getFS(ociBucket);
+            assertEquals(4, instanceCount.get());
+        }
+    }
 }
