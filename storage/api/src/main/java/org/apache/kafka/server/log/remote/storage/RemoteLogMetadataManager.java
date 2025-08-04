@@ -240,4 +240,11 @@ public interface RemoteLogMetadataManager extends Configurable, Closeable {
     default boolean isReady(TopicIdPartition topicIdPartition) {
         return true;
     }
+
+    /**
+     * This method will be called during broker startup for the implementation
+     * which needs delayed initialization until the broker can process requests.
+     */
+    default void onBrokerReadyForRequests() {
+    }
 }

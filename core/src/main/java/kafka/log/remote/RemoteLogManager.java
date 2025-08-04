@@ -760,6 +760,10 @@ public class RemoteLogManager implements Closeable {
         return new AsyncOffsetReadFutureHolder<>(jobFuture, taskFuture);
     }
 
+    public RemoteLogMetadataManager remoteLogMetadataManager() {
+        return remoteLogMetadataManager;
+    }
+
     /**
      * Search the message offset in the remote storage for the given timestamp and starting-offset.
      * Once the target segment where the search to be performed is found:

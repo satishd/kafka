@@ -41,6 +41,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -60,6 +61,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -89,6 +91,44 @@ public class TopicBasedRemoteLogMetadataManagerTest {
     @AfterEach
     public void teardown() throws IOException {
         if (remoteLogMetadataManager != null) remoteLogMetadataManager.close();
+    }
+
+    @ClusterTest
+    public void testOnBrokerReadyForRequests() throws IOException {
+        // Create a spy on TopicBasedRemoteLogMetadataManager
+        TopicBasedRemoteLogMetadataManager manager = spy(new TopicBasedRemoteLogMetadataManager());
+
+        try {
+            // Configure the manager with minimal configuration
+            Map<String, Object> configs = new HashMap<>();
+            configs.put(TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR,
+                    TestUtils.tempDirectory("rlmm_test_").getAbsolutePath());
+            configs.put(TopicBasedRemoteLogMetadataManagerConfig.BROKER_ID, 0);
+            manager.configure(configs);
+
+            // Create a mock Thread to replace the initialization thread
+            Thread mockThread = mock(Thread.class);
+
+            // Set the mock thread using reflection
+            try {
+                Field threadField = TopicBasedRemoteLogMetadataManager.class.getDeclaredField("initializationThread");
+                threadField.setAccessible(true);
+                threadField.set(manager, mockThread);
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                throw new RuntimeException("Failed to set mock thread", e);
+            }
+
+            // verify that the initialization thread is not started yet
+            verify(mockThread, never()).start();
+
+            // Call onBrokerReadyForRequests
+            manager.onBrokerReadyForRequests();
+
+            // Verify that start() was called on the mock thread
+            verify(mockThread).start();
+        } finally {
+            manager.close();
+        }
     }
 
     @ClusterTest
@@ -363,6 +403,9 @@ public class TopicBasedRemoteLogMetadataManagerTest {
             configs.put(TopicBasedRemoteLogMetadataManagerConfig.LOG_DIR, TestUtils.tempDirectory("rlmm_segs_").getAbsolutePath());
             configs.put(TopicBasedRemoteLogMetadataManagerConfig.BROKER_ID, 0);
             rlmm.configure(configs);
+
+            // call onBrokerReadyForRequests which should trigger initialization
+            rlmm.onBrokerReadyForRequests();
 
             // Wait for initialization failure and exit procedure to be called
             TestUtils.waitForCondition(() -> exitCalled.get(),

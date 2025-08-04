@@ -90,6 +90,10 @@ public class RemoteLogMetadataManagerTestUtils {
             configs.putAll(overrideRemoteLogMetadataManagerProps);
 
             topicBasedRemoteLogMetadataManager.configure(configs);
+
+            // Call onBrokerReadyForRequests
+            topicBasedRemoteLogMetadataManager.onBrokerReadyForRequests();
+
             assertDoesNotThrow(() -> TestUtils.waitForCondition(topicBasedRemoteLogMetadataManager::isInitialized, 60_000L,
                     "Time out reached before it is initialized successfully"));
             return topicBasedRemoteLogMetadataManager;

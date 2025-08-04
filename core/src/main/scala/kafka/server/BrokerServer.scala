@@ -547,6 +547,10 @@ class BrokerServer(
         "all of the SocketServer Acceptors to be started",
         enableRequestProcessingFuture, startupDeadline, time)
 
+      remoteLogManagerOpt.foreach(rlm =>
+        rlm.remoteLogMetadataManager().onBrokerReadyForRequests()
+      )
+
       maybeChangeStatus(STARTING, STARTED)
     } catch {
       case e: Throwable =>

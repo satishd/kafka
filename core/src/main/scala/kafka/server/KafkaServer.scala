@@ -667,6 +667,10 @@ class KafkaServer(
             "waiting for the SocketServer Acceptors to be started.", t)
         }
 
+        remoteLogManagerOpt.foreach(rlm =>
+          rlm.remoteLogMetadataManager().onBrokerReadyForRequests()
+        )
+
         _brokerState = BrokerState.RUNNING
         shutdownLatch = new CountDownLatch(1)
         startupComplete.set(true)
