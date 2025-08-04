@@ -26,14 +26,53 @@ public class RemoteReadContext {
     private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
     private final boolean segmentPrefetchEnabled;
 
-    public RemoteReadContext(boolean blockPrefetchEnabled,
-                             boolean hedgedReadsEnabled,
-                             OffsetAndEpoch nextSegmentOffsetAndEpoch,
-                             boolean segmentPrefetchEnabled) {
+    private RemoteReadContext(boolean blockPrefetchEnabled,
+                              boolean hedgedReadsEnabled,
+                              OffsetAndEpoch nextSegmentOffsetAndEpoch,
+                              boolean segmentPrefetchEnabled) {
         this.blockPrefetchEnabled = blockPrefetchEnabled;
         this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
         this.segmentPrefetchEnabled = segmentPrefetchEnabled;
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+        private boolean blockPrefetchEnabled = false;
+        private boolean hedgedReadsEnabled = false;
+        private OffsetAndEpoch nextSegmentOffsetAndEpoch = null;
+        private boolean segmentPrefetchEnabled = false;
+
+        private Builder() {
+        }
+
+        public Builder withBlockPrefetchEnabled(boolean blockPrefetchEnabled) {
+            this.blockPrefetchEnabled = blockPrefetchEnabled;
+            return this;
+        }
+
+        public Builder withHedgedReadsEnabled(boolean hedgedReadsEnabled) {
+            this.hedgedReadsEnabled = hedgedReadsEnabled;
+            return this;
+        }
+
+        public Builder withNextSegmentOffsetAndEpoch(OffsetAndEpoch nextSegmentOffsetAndEpoch) {
+            this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
+            return this;
+        }
+
+        public Builder withSegmentPrefetchEnabled(boolean segmentPrefetchEnabled) {
+            this.segmentPrefetchEnabled = segmentPrefetchEnabled;
+            return this;
+        }
+
+        public RemoteReadContext build() {
+            return new RemoteReadContext(blockPrefetchEnabled, hedgedReadsEnabled, 
+                                       nextSegmentOffsetAndEpoch, segmentPrefetchEnabled);
+        }
     }
 
     public boolean isBlockPrefetchEnabled() {

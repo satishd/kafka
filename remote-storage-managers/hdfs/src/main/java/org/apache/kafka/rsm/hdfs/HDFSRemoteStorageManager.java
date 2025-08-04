@@ -79,7 +79,9 @@ import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
 public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManager.class);
-    private static final RemoteReadContext DEFAULT_READ_CONTEXT = new RemoteReadContext(true, false, null, false);
+    private static final RemoteReadContext DEFAULT_READ_CONTEXT = RemoteReadContext.builder()
+            .withBlockPrefetchEnabled(true)
+            .build();
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;

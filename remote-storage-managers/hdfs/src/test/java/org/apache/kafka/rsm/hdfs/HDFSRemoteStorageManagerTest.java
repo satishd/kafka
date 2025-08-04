@@ -954,7 +954,9 @@ public class HDFSRemoteStorageManagerTest {
                                                       int startPosition,
                                                       int endPosition,
                                                       int size) throws Exception {
-        RemoteReadContext readContext = new RemoteReadContext(true, false, null, false);
+        RemoteReadContext readContext = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .build();
         verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 
@@ -964,7 +966,12 @@ public class HDFSRemoteStorageManagerTest {
                                                                     int startPosition,
                                                                     int endPosition,
                                                                     int size) throws Exception {
-        RemoteReadContext readContext = new RemoteReadContext(true, true, null, false);
+        RemoteReadContext readContext = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(true)
+                .withNextSegmentOffsetAndEpoch(null)
+                .withSegmentPrefetchEnabled(false)
+                .build();
         verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
     }
 
@@ -975,7 +982,12 @@ public class HDFSRemoteStorageManagerTest {
                                                            int endPosition,
                                                            int size) throws Exception {
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false, null, false);
+            RemoteReadContext readContext = RemoteReadContext.builder()
+                    .withBlockPrefetchEnabled(enablePrefetch)
+                    .withHedgedReadsEnabled(false)
+                    .withNextSegmentOffsetAndEpoch(null)
+                    .withSegmentPrefetchEnabled(false)
+                    .build();
             verifyFetchLogSegmentInternal(rsm, metadata, segmentData, readContext, startPosition, endPosition, size);
         }
     }
@@ -1100,7 +1112,9 @@ public class HDFSRemoteStorageManagerTest {
         }
         // Fetch the segment with and without LRU cache.
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
-            RemoteReadContext readContext = new RemoteReadContext(enablePrefetch, false, null, false);
+            RemoteReadContext readContext = RemoteReadContext.builder()
+                    .withBlockPrefetchEnabled(enablePrefetch)
+                    .build();
             try (InputStream actualStream = rsm.fetchLogSegment(metadata, readContext, 0)) {
                 assertFileEquals(segmentData.logSegment().toFile(), actualStream);
             }

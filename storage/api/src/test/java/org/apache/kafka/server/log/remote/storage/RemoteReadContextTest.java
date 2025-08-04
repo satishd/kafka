@@ -31,7 +31,12 @@ public class RemoteReadContextTest {
     @Test
     public void testConstructorAndGetters() {
         // Test with null nextSegmentOffsetAndEpoch
-        RemoteReadContext context1 = new RemoteReadContext(true, false, null, false);
+        RemoteReadContext context1 = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(null)
+                .withSegmentPrefetchEnabled(false)
+                .build();
         assertTrue(context1.isBlockPrefetchEnabled());
         assertFalse(context1.isHedgedReadsEnabled());
         assertFalse(context1.isSegmentPrefetchEnabled());
@@ -39,7 +44,12 @@ public class RemoteReadContextTest {
 
         // Test with non-null nextSegmentOffsetAndEpoch
         OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(100L, 5);
-        RemoteReadContext context2 = new RemoteReadContext(false, true, offsetAndEpoch, true);
+        RemoteReadContext context2 = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(false)
+                .withHedgedReadsEnabled(true)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch)
+                .withSegmentPrefetchEnabled(true)
+                .build();
         assertFalse(context2.isBlockPrefetchEnabled());
         assertTrue(context2.isHedgedReadsEnabled());
         assertTrue(context2.isSegmentPrefetchEnabled());
@@ -55,18 +65,58 @@ public class RemoteReadContextTest {
         OffsetAndEpoch offsetAndEpoch2 = new OffsetAndEpoch(200L, 10);
         
         // Reference object
-        RemoteReadContext context = new RemoteReadContext(true, false, offsetAndEpoch1, false);
+        RemoteReadContext context = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(false)
+                .build();
         
         // Equal objects
-        RemoteReadContext equalContext1 = new RemoteReadContext(true, false, offsetAndEpoch1, false);
-        RemoteReadContext equalContext2 = new RemoteReadContext(true, false, offsetAndEpoch1, false);
+        RemoteReadContext equalContext1 = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(false)
+                .build();
+        RemoteReadContext equalContext2 = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(false)
+                .build();
         
         // Different objects - varying each parameter
-        RemoteReadContext differentPrefetchEnabled = new RemoteReadContext(false, false, offsetAndEpoch1, false);
-        RemoteReadContext differentHedgedReadsEnabled = new RemoteReadContext(true, true, offsetAndEpoch1, false);
-        RemoteReadContext differentOffsetAndEpoch = new RemoteReadContext(true, false, offsetAndEpoch2, false);
-        RemoteReadContext differentNullOffsetAndEpoch = new RemoteReadContext(true, false, null, false);
-        RemoteReadContext differentRemoteStoragePrefetchEnabled = new RemoteReadContext(true, false, offsetAndEpoch1, true);
+        RemoteReadContext differentPrefetchEnabled = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(false)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(false)
+                .build();
+        RemoteReadContext differentHedgedReadsEnabled = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(true)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(false)
+                .build();
+        RemoteReadContext differentOffsetAndEpoch = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch2)
+                .withSegmentPrefetchEnabled(false)
+                .build();
+        RemoteReadContext differentNullOffsetAndEpoch = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(null)
+                .withSegmentPrefetchEnabled(false)
+                .build();
+        RemoteReadContext differentRemoteStoragePrefetchEnabled = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
+                .withSegmentPrefetchEnabled(true)
+                .build();
         
         // Test reflexivity: x.equals(x) should be true
         assertTrue(context.equals(context), "An object should equal itself");
@@ -120,7 +170,12 @@ public class RemoteReadContextTest {
     @Test
     public void testToString() {
         OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(100L, 5);
-        RemoteReadContext context = new RemoteReadContext(true, false, offsetAndEpoch, true);
+        RemoteReadContext context = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(true)
+                .withHedgedReadsEnabled(false)
+                .withNextSegmentOffsetAndEpoch(offsetAndEpoch)
+                .withSegmentPrefetchEnabled(true)
+                .build();
         
         String toString = context.toString();
         assertTrue(toString.contains("prefetchEnabled=true"));

@@ -1841,8 +1841,12 @@ public class RemoteLogManager implements Closeable {
         boolean enableSegmentPrefetch = logConfigOptional
                 .map(LogConfig::remoteStoragePrefetchEnable)
                 .orElse(false);
-        RemoteReadContext readContext = new RemoteReadContext(enableBlockPrefetch,
-                enableHedgedReads, nextSegmentOffsetAndEpoch, enableSegmentPrefetch);
+        RemoteReadContext readContext = RemoteReadContext.builder()
+                .withBlockPrefetchEnabled(enableBlockPrefetch)
+                .withHedgedReadsEnabled(enableHedgedReads)
+                .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
+                .withSegmentPrefetchEnabled(enableSegmentPrefetch)
+                .build();
         EnrichedRecordBatch enrichedRecordBatch = new EnrichedRecordBatch(null, 0);
         InputStream remoteSegInputStream = null;
         try {
