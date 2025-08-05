@@ -119,23 +119,28 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
                                                 RemoteReadContext readContext,
                                                 int startPosition,
                                                 int endPosition) throws RemoteStorageException {
-        try {
-            if (readContext != null) {
+        // If readContext is null, we do not use segment prefetching or block prefetching or hedged reads etc, fallback to direct fetching
+        if (readContext == null) {
+            return hdfsRemoteStorageManager.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
+        }
+
+        if (readContext.isSegmentPrefetchEnabled()) {
+            try {
                 remoteDataPrefetcher.signalSegmentRead(remoteLogSegmentMetadata, startPosition, readContext.getNextSegmentOffsetAndEpoch());
+            } catch (Exception e) {
+                // ignore
+                LOGGER.warn("Failed to submit prefetch request for segment: {}", remoteLogSegmentMetadata, e);
             }
-        } catch (Exception e) {
-            // ignore
-            LOGGER.warn("Failed to submit prefetch request for segment: {}", remoteLogSegmentMetadata, e);
+
+            // Try to get the InputStream from the prefetcher first if available
+            InputStream is = remoteDataPrefetcher.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
+            if (is != null) {
+                return is;
+            }
         }
 
-        InputStream is = remoteDataPrefetcher.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
-        if (is != null) {
-            return is;
-        }
-
-        return readContext == null
-                ? hdfsRemoteStorageManager.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition)
-                : hdfsRemoteStorageManager.fetchLogSegment(remoteLogSegmentMetadata, readContext, startPosition, endPosition);
+        // Fallback to direct fetching with the HDFSRemoteStorageManager
+        return hdfsRemoteStorageManager.fetchLogSegment(remoteLogSegmentMetadata, readContext, startPosition, endPosition);
     }
 
     @Override

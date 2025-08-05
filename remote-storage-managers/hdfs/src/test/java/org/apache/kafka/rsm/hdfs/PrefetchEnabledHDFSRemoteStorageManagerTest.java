@@ -152,18 +152,16 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
         InputStream result = manager.fetchLogSegment(metadata, 10, 50);
 
         assertSame(expectedStream, result);
-        verify(mockPrefetcher).fetchLogSegment(metadata, 10, 50);
-        verify(mockHdfsRsm).fetchLogSegment(metadata, 10, 50);
         verify(mockPrefetcher, never()).signalSegmentRead(any(), anyInt(), any());
+        verify(mockPrefetcher, never()).fetchLogSegment(metadata, 10, 50);
+        verify(mockHdfsRsm).fetchLogSegment(metadata, 10, 50);
     }
 
     @Test
     public void testFetchLogSegmentWithReadContextAndPrefetchedData() throws RemoteStorageException {
         RemoteReadContext readContext = RemoteReadContext.builder()
-                .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
-                .withSegmentPrefetchEnabled(false)
+                .withSegmentPrefetchEnabled(true)
                 .build();
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(expectedStream);
@@ -179,10 +177,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
     @Test
     public void testFetchLogSegmentWithReadContextNoPrefetchedData() throws RemoteStorageException {
         RemoteReadContext readContext = RemoteReadContext.builder()
-                .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
-                .withSegmentPrefetchEnabled(false)
                 .build();
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(null);
@@ -191,18 +186,15 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
         InputStream result = manager.fetchLogSegment(metadata, readContext, 10, 50);
 
         assertSame(expectedStream, result);
-        verify(mockPrefetcher).signalSegmentRead(metadata, 10, nextSegmentOffsetAndEpoch);
-        verify(mockPrefetcher).fetchLogSegment(metadata, 10, 50);
+        verify(mockPrefetcher, never()).signalSegmentRead(metadata, 10, nextSegmentOffsetAndEpoch);
+        verify(mockPrefetcher, never()).fetchLogSegment(metadata, 10, 50);
         verify(mockHdfsRsm).fetchLogSegment(metadata, readContext, 10, 50);
     }
 
     @Test
     public void testFetchLogSegmentWithReadContextNullNextSegment() throws RemoteStorageException {
         RemoteReadContext readContext = RemoteReadContext.builder()
-                .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
-                .withNextSegmentOffsetAndEpoch(null)
-                .withSegmentPrefetchEnabled(false)
+                .withSegmentPrefetchEnabled(true)
                 .build();
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         when(mockPrefetcher.fetchLogSegment(metadata, 10, 50)).thenReturn(null);
@@ -219,10 +211,8 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
     @Test
     public void testFetchLogSegmentWithReadContextSignalException() throws RemoteStorageException {
         RemoteReadContext readContext = RemoteReadContext.builder()
-                .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
-                .withSegmentPrefetchEnabled(false)
+                .withSegmentPrefetchEnabled(true)
                 .build();
         InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
         Mockito.doThrow(new RuntimeException("Test exception")).when(mockPrefetcher).signalSegmentRead(metadata, 10, nextSegmentOffsetAndEpoch);
@@ -264,6 +254,52 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
         manager.deletePartition(topicIdPartition, segmentMetadataList);
 
         verify(mockHdfsRsm).deletePartition(topicIdPartition, segmentMetadataList);
+    }
+
+    @Test
+    public void testFetchLogSegmentWithNullReadContext() throws RemoteStorageException {
+        InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        when(mockHdfsRsm.fetchLogSegment(metadata, 10, 50)).thenReturn(expectedStream);
+
+        InputStream result = manager.fetchLogSegment(metadata, null, 10, 50);
+
+        assertSame(expectedStream, result);
+        verify(mockPrefetcher, never()).signalSegmentRead(any(), anyInt(), any());
+        verify(mockPrefetcher, never()).fetchLogSegment(any(), anyInt(), anyInt());
+        verify(mockHdfsRsm).fetchLogSegment(metadata, 10, 50);
+    }
+
+    @Test
+    public void testFetchLogSegmentWithReadContextPrefetchEnabled() throws RemoteStorageException {
+        RemoteReadContext readContext = RemoteReadContext.builder()
+                .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
+                .withSegmentPrefetchEnabled(true)
+                .build();
+        InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        when(mockPrefetcher.fetchLogSegment(metadata, 10, Integer.MAX_VALUE)).thenReturn(expectedStream);
+
+        InputStream result = manager.fetchLogSegment(metadata, readContext, 10);
+
+        assertSame(expectedStream, result);
+        verify(mockPrefetcher).signalSegmentRead(metadata, 10, nextSegmentOffsetAndEpoch);
+        verify(mockPrefetcher).fetchLogSegment(metadata, 10, Integer.MAX_VALUE);
+        verify(mockHdfsRsm, never()).fetchLogSegment(any(), any(), anyInt(), anyInt());
+    }
+
+    @Test
+    public void testFetchLogSegmentWithReadContextPrefetchDisabled() throws RemoteStorageException {
+        RemoteReadContext readContext = RemoteReadContext.builder()
+                .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
+                .build();
+        InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        when(mockHdfsRsm.fetchLogSegment(metadata, readContext, 10, Integer.MAX_VALUE)).thenReturn(expectedStream);
+
+        InputStream result = manager.fetchLogSegment(metadata, readContext, 10);
+
+        assertSame(expectedStream, result);
+        verify(mockPrefetcher, never()).signalSegmentRead(any(), anyInt(), any());
+        verify(mockPrefetcher, never()).fetchLogSegment(any(), anyInt(), anyInt());
+        verify(mockHdfsRsm).fetchLogSegment(metadata, readContext, 10, Integer.MAX_VALUE);
     }
 
     @Test
