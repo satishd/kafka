@@ -379,6 +379,7 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.removeMetric(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
         metricsGroup.removeMetric(LogMetricNames.SizeInPercent());
+        metricsGroup.removeMetric(LogMetricNames.LocalPartitionSizeInPercent());
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
     }
@@ -920,6 +921,7 @@ public class RemoteLogManager implements Closeable {
         protected final TopicIdPartition topicIdPartition;
         private final Logger logger;
         protected AtomicInteger sizeInPercentValue = new AtomicInteger(0);
+        protected AtomicInteger localSizeInPercentValue = new AtomicInteger(0);
 
         public RLMTask(TopicIdPartition topicIdPartition) {
             this.topicIdPartition = topicIdPartition;
@@ -929,6 +931,16 @@ public class RemoteLogManager implements Closeable {
             metricTags.put("topic", topicIdPartition.topic());
             metricTags.put("partition", Integer.toString(topicIdPartition.partition()));
             metricsGroup.newGauge(LogMetricNames.SizeInPercent(), sizeInPercentValue::get, metricTags);
+            metricsGroup.newGauge(LogMetricNames.LocalPartitionSizeInPercent(), localSizeInPercentValue::get, metricTags);
+        }
+
+        @Override
+        public void cancel() {
+            // Reset metrics to 0 immediately when task is cancelled to prevent stale values
+            sizeInPercentValue.set(0);
+            localSizeInPercentValue.set(0);
+            logger.debug("Reset partition size metrics as the task got cancelled for {}", topicIdPartition);
+            super.cancel();
         }
 
         protected LogContext getLogContext() {
@@ -1422,7 +1434,7 @@ public class RemoteLogManager implements Closeable {
             long logStartOffset = log.logStartOffset();
             long logEndOffset = log.logEndOffset();
             Optional<RetentionSizeData> retentionSizeData = buildRetentionSizeData(log.config().retentionSize,
-                    log.onlyLocalLogSegmentsSize(), logEndOffset, epochWithOffsets);
+                    log.onlyLocalLogSegmentsSize(), logEndOffset, epochWithOffsets, log.config().localRetentionBytes());
             Optional<RetentionTimeData> retentionTimeData = buildRetentionTimeData(log.config().retentionMs);
 
             RemoteLogRetentionHandler remoteLogRetentionHandler = new RemoteLogRetentionHandler(retentionSizeData, retentionTimeData);
@@ -1560,7 +1572,8 @@ public class RemoteLogManager implements Closeable {
         Optional<RetentionSizeData> buildRetentionSizeData(long retentionSize,
                                                            long onlyLocalLogSegmentsSize,
                                                            long logEndOffset,
-                                                           NavigableMap<Integer, Long> epochEntries) throws RemoteStorageException {
+                                                           NavigableMap<Integer, Long> epochEntries,
+                                                           long localRetentionBytes) throws RemoteStorageException {
             if (retentionSize > -1) {
                 long startTimeMs = time.milliseconds();
                 long remoteLogSizeBytes = 0L;
@@ -1595,9 +1608,14 @@ public class RemoteLogManager implements Closeable {
 
                 int sizePercentage = retentionSize > 0 ?
                         (int) ((totalSize * 100.0) / retentionSize) : 0;
-                logger.trace("Partition size metric::value: {}, totalSize: {}, retentionSize: {}", sizePercentage, totalSize, retentionSize);
                 sizeInPercentValue.set(sizePercentage);
 
+                // Calculate local partition size percentage
+                int localSizePercentage = localRetentionBytes > 0 ?
+                        (int) ((onlyLocalLogSegmentsSize * 100.0) / localRetentionBytes) : 0;
+                localSizeInPercentValue.set(localSizePercentage);
+                logger.trace("Local partition size metric::value: {}, localLogSize: {}, localRetentionBytes: {}; Partition size metric::value: {}, totalSize: {}, retentionSize: {}", localSizePercentage, onlyLocalLogSegmentsSize,
+                        localRetentionBytes, sizePercentage, totalSize, retentionSize);
                 if (totalSize > retentionSize) {
                     long remainingBreachedSize = totalSize - retentionSize;
                     RetentionSizeData retentionSizeData = new RetentionSizeData(retentionSize, remainingBreachedSize);
@@ -2321,6 +2339,7 @@ public class RemoteLogManager implements Closeable {
         tags.put("topic", topicIdPartition.topic());
         tags.put("partition", Integer.toString(topicIdPartition.partition()));
         metricsGroup.removeMetric(LogMetricNames.SizeInPercent(), tags);
+        metricsGroup.removeMetric(LogMetricNames.LocalPartitionSizeInPercent(), tags);
     }
 
     //Visible for testing

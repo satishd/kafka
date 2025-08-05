@@ -2438,6 +2438,7 @@ object LogMetricNames {
   val LogEndOffset: String = "LogEndOffset"
   val Size: String = "Size"
   val SizeInPercent = "SizeInPercent"
+  val LocalPartitionSizeInPercent = "LocalPartitionSizeInPercent"
 
   def allMetricNames: List[String] = {
     List(NumLogSegments, LogStartOffset, LogEndOffset, Size, SizeInPercent)
