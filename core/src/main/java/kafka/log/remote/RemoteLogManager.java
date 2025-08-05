@@ -379,7 +379,7 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.removeMetric(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
         metricsGroup.removeMetric(LogMetricNames.SizeInPercent());
-        metricsGroup.removeMetric(LogMetricNames.LocalPartitionSizeInPercent());
+        metricsGroup.removeMetric(LogMetricNames.LocalSizeInPercent());
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
     }
@@ -931,7 +931,7 @@ public class RemoteLogManager implements Closeable {
             metricTags.put("topic", topicIdPartition.topic());
             metricTags.put("partition", Integer.toString(topicIdPartition.partition()));
             metricsGroup.newGauge(LogMetricNames.SizeInPercent(), sizeInPercentValue::get, metricTags);
-            metricsGroup.newGauge(LogMetricNames.LocalPartitionSizeInPercent(), localSizeInPercentValue::get, metricTags);
+            metricsGroup.newGauge(LogMetricNames.LocalSizeInPercent(), localSizeInPercentValue::get, metricTags);
         }
 
         @Override
@@ -2339,7 +2339,7 @@ public class RemoteLogManager implements Closeable {
         tags.put("topic", topicIdPartition.topic());
         tags.put("partition", Integer.toString(topicIdPartition.partition()));
         metricsGroup.removeMetric(LogMetricNames.SizeInPercent(), tags);
-        metricsGroup.removeMetric(LogMetricNames.LocalPartitionSizeInPercent(), tags);
+        metricsGroup.removeMetric(LogMetricNames.LocalSizeInPercent(), tags);
     }
 
     //Visible for testing

@@ -1877,7 +1877,7 @@ public class RemoteLogManagerTest {
             remoteLogManagerMetricNames.forEach(metricName -> verify(mockRlmMetricsGroup).removeMetric(metricName));
             verify(mockRlmMetricsGroup).removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
             verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.SizeInPercent());
-            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.LocalPartitionSizeInPercent());
+            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.LocalSizeInPercent());
 
             verify(mockThreadPoolMetricsGroup, times(remoteStorageThreadPoolMetricNames.size())).newGauge(anyString(), any());
             // Verify that the RemoteStorageThreadPool metrics are removed
@@ -4122,7 +4122,7 @@ public class RemoteLogManagerTest {
         task.sizeInPercentValue.set(0);
         task.localSizeInPercentValue.set(0);
         
-        // Test case 2: Testing LocalPartitionSizeInPercent metric (local retention scenario)
+        // Test case 2: Testing LocalSizeInPercent metric (local retention scenario)
         // localRetentionBytes = 200, onlyLocalLogSegmentsSize = 100, so percentage = (100 * 100) / 200 = 50%
         task.buildRetentionSizeData(12288, 100, 1000, epochEntries, 200);
         assertEquals(50, task.localSizeInPercentValue.get());
@@ -4139,7 +4139,7 @@ public class RemoteLogManagerTest {
         
         // Verify both metrics are cleaned up
         assertNull(yammerMetricValueWithTags(LogMetricNames.SizeInPercent(), metricTags));
-        assertNull(yammerMetricValueWithTags(LogMetricNames.LocalPartitionSizeInPercent(), metricTags));
+        assertNull(yammerMetricValueWithTags(LogMetricNames.LocalSizeInPercent(), metricTags));
     }
 
     @Test
