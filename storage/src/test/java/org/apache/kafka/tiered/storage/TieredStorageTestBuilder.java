@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.tiered.storage;
 
+import org.apache.kafka.clients.admin.LogDirDescription;
 import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
@@ -29,6 +30,7 @@ import org.apache.kafka.tiered.storage.actions.CreatePartitionsAction;
 import org.apache.kafka.tiered.storage.actions.CreateTopicAction;
 import org.apache.kafka.tiered.storage.actions.DeleteRecordsAction;
 import org.apache.kafka.tiered.storage.actions.DeleteTopicAction;
+import org.apache.kafka.tiered.storage.actions.DescribeLogDirsAction;
 import org.apache.kafka.tiered.storage.actions.EraseBrokerStorageAction;
 import org.apache.kafka.tiered.storage.actions.ExpectBrokerInISRAction;
 import org.apache.kafka.tiered.storage.actions.ExpectEmptyRemoteStorageAction;
@@ -62,6 +64,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -335,6 +339,13 @@ public final class TieredStorageTestBuilder {
                                                 int replicaIds) {
         TopicPartition topicPartition = new TopicPartition(topic, partition);
         actions.add(new AlterLogDirAction(topicPartition, replicaIds));
+        return this;
+    }
+
+    public TieredStorageTestBuilder describeLogDirs(Set<Integer> brokerIds,
+                                                    boolean includeRemoteInfo,
+                                                    Predicate<Map<Integer, Map<String, LogDirDescription>>> predicate) {
+        actions.add(new DescribeLogDirsAction(brokerIds, includeRemoteInfo, predicate));
         return this;
     }
 

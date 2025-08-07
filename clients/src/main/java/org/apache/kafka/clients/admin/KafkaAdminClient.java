@@ -3075,7 +3075,10 @@ public class KafkaAdminClient extends AdminClient {
                 @Override
                 public DescribeLogDirsRequest.Builder createRequest(int timeoutMs) {
                     // Query selected partitions in all log directories
-                    return new DescribeLogDirsRequest.Builder(new DescribeLogDirsRequestData().setTopics(null));
+                    DescribeLogDirsRequestData describeLogDirsRequestData = new DescribeLogDirsRequestData()
+                            .setTopics(null)
+                            .setUIncludeRemoteInfo(options.includeRemoteInfo());
+                    return new DescribeLogDirsRequest.Builder(describeLogDirsRequestData);
                 }
 
                 @Override

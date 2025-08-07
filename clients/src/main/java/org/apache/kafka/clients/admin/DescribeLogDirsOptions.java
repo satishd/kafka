@@ -29,5 +29,14 @@ import java.util.Collection;
  */
 @InterfaceStability.Evolving
 public class DescribeLogDirsOptions extends AbstractOptions<DescribeLogDirsOptions> {
+    private boolean includeRemoteInfo = false;
 
+    public DescribeLogDirsOptions includeRemoteInfo(boolean includeRemoteInfo) {
+        this.includeRemoteInfo = includeRemoteInfo;
+        return this;
+    }
+
+    public boolean includeRemoteInfo() {
+        return includeRemoteInfo;
+    }
 }

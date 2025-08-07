@@ -3157,8 +3157,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             describeLogDirsDirRequest.data.topics.asScala.flatMap(
               logDirTopic => logDirTopic.partitions.asScala.map(partitionIndex =>
                 new TopicPartition(logDirTopic.topic, partitionIndex))).toSet
-
-        (replicaManager.describeLogDirs(partitions), Errors.NONE)
+        val uIncludeRemoteInfo = describeLogDirsDirRequest.data().uIncludeRemoteInfo()
+        (replicaManager.describeLogDirs(partitions, uIncludeRemoteInfo), Errors.NONE)
       } else {
         (List.empty[DescribeLogDirsResponseData.DescribeLogDirsResult], Errors.CLUSTER_AUTHORIZATION_FAILED)
       }

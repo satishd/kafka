@@ -32,6 +32,8 @@
         "about": "The topic name" },
       { "name": "Partitions", "type": "[]int32", "versions": "0+",
         "about": "The partition indexes." }
-    ]}
+    ]},
+    { "name": "UIncludeRemoteInfo", "type": "bool", "versions": "2+", "taggedVersions": "2+", "tag": 10000, "default": false,
+      "about": "Whether to include remote partition information." }
   ]
 }

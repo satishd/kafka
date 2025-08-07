@@ -1306,7 +1306,8 @@ class ReplicaManager(val config: KafkaConfig,
    * 2) size and lag of current and future logs for each partition in the given log directory. Only logs of the queried partitions
    *    are included. There may be future logs (which will replace the current logs of the partition in the future) on the broker after KIP-113 is implemented.
    */
-  def describeLogDirs(partitions: Set[TopicPartition]): List[DescribeLogDirsResponseData.DescribeLogDirsResult] = {
+  def describeLogDirs(partitions: Set[TopicPartition],
+                      uIncludeRemoteInfo: Boolean = false): List[DescribeLogDirsResponseData.DescribeLogDirsResult] = {
     val logsByDir = logManager.allLogs.groupBy(log => log.parentDir)
 
     config.logDirs.toSet.map { logDir: String =>
@@ -1331,8 +1332,7 @@ class ReplicaManager(val config: KafkaConfig,
                     .setPartitionIndex(log.topicPartition.partition)
                     .setOffsetLag(getLogEndOffsetLag(log.topicPartition, log.logEndOffset, log.isFuture))
                     .setIsFutureKey(log.isFuture)
-
-                  if (remoteLogManager.isDefined && log.remoteLogEnabled()) {
+                  if (uIncludeRemoteInfo && remoteLogManager.isDefined && log.remoteLogEnabled()) {
                     try {
                       remoteLogManager.get.remoteLogSize(log.topicPartition).asScala.map { remoteLogSize =>
                         describeLogDirsPartition.setURemoteLogSize(remoteLogSize)

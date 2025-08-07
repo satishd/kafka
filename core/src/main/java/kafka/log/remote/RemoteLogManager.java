@@ -848,8 +848,9 @@ public class RemoteLogManager implements Closeable {
         if (topicId == null) {
             return Optional.empty();
         }
+        TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, tp);
         Optional<UnifiedLog> unifiedLogOptional = fetchLog.apply(tp);
-        if (!unifiedLogOptional.isPresent()) {
+        if (!remoteLogMetadataManager.isReady(topicIdPartition) || !unifiedLogOptional.isPresent()) {
             return Optional.empty();
         }
         UnifiedLog unifiedLog = unifiedLogOptional.get();
@@ -858,7 +859,6 @@ public class RemoteLogManager implements Closeable {
             return Optional.empty();
         }
         LeaderEpochFileCache leaderEpochFileCache = leaderEpochFileCacheOpt.get();
-        TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, tp);
         long remoteLogSize = 0;
         for (EpochEntry epochEntry : leaderEpochFileCache.epochEntries()) {
             remoteLogSize += remoteLogMetadataManager.remoteLogSize(topicIdPartition, epochEntry.epoch);

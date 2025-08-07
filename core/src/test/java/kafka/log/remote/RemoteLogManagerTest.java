@@ -4037,6 +4037,15 @@ public class RemoteLogManagerTest {
         assertFalse(remoteLogManager.remoteLogSize(new TopicPartition("stray-topic", 0)).isPresent());
     }
 
+    @Test
+    public void testComputeRemoteLogSizeWhenPartitionIsNotReady() throws Exception {
+        doReturn(false).when(remoteLogMetadataManager).isReady(leaderTopicIdPartition);
+        remoteLogManager.startup();
+        remoteLogManager.onLeadershipChange(
+                Collections.singleton(mockPartition(leaderTopicIdPartition)), Collections.emptySet(), topicIds);
+        assertFalse(remoteLogManager.remoteLogSize(leaderTopicIdPartition.topicPartition()).isPresent());
+    }
+
     private void appendRecordsToFile(File file, int nRecords, int nRecordsPerBatch) throws IOException {
         byte magic = RecordBatch.CURRENT_MAGIC_VALUE;
         Compression compression = Compression.NONE;

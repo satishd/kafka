@@ -2286,7 +2286,9 @@ public class KafkaAdminClientTest {
                     prepareDescribeLogDirsResponse(Errors.NONE, logDir, tp, partitionSize, offsetLag, totalBytes, usableBytes, remoteLogSize, onlyLocalLogSize),
                     env.cluster().nodeById(0));
 
-            DescribeLogDirsResult result = env.adminClient().describeLogDirs(brokers);
+            DescribeLogDirsOptions describeLogDirsOptions = new DescribeLogDirsOptions();
+            describeLogDirsOptions.includeRemoteInfo(true);
+            DescribeLogDirsResult result = env.adminClient().describeLogDirs(brokers, describeLogDirsOptions);
 
             Map<Integer, KafkaFuture<Map<String, LogDirDescription>>> descriptions = result.descriptions();
             assertEquals(brokers, descriptions.keySet());

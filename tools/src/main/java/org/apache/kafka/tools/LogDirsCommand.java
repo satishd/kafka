@@ -18,6 +18,7 @@ package org.apache.kafka.tools;
 
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.DescribeLogDirsOptions;
 import org.apache.kafka.clients.admin.DescribeLogDirsResult;
 import org.apache.kafka.clients.admin.LogDirDescription;
 import org.apache.kafka.clients.admin.ReplicaInfo;
@@ -89,7 +90,9 @@ public class LogDirsCommand {
                             commaDelimitedStringFromIntegerSet(clusterBrokers)));
         } else {
             System.out.println("Querying brokers for log directories information");
-            DescribeLogDirsResult describeLogDirsResult = adminClient.describeLogDirs(existingBrokers);
+            DescribeLogDirsOptions describeLogDirsOptions = new DescribeLogDirsOptions();
+            describeLogDirsOptions.includeRemoteInfo(options.includeRemoteInfo());
+            DescribeLogDirsResult describeLogDirsResult = adminClient.describeLogDirs(existingBrokers, describeLogDirsOptions);
             Map<Integer, Map<String, LogDirDescription>> logDirInfosByBroker = describeLogDirsResult.allDescriptions().get();
 
             System.out.printf(
@@ -164,6 +167,7 @@ public class LogDirsCommand {
         private final OptionSpecBuilder describeOpt;
         private final OptionSpec<String> topicListOpt;
         private final OptionSpec<String> brokerListOpt;
+        private final OptionSpec<Boolean> includeRemoteInfoOpt;
 
         public LogDirsCommandOptions(String... args) {
             super(args);
@@ -189,6 +193,10 @@ public class LogDirsCommand {
                     .describedAs("Broker list")
                     .ofType(String.class)
                     .defaultsTo("");
+            includeRemoteInfoOpt = parser.accepts("include-remote-info", "Include the remote log size info if the topic is enabled with remote storage")
+                    .withOptionalArg()
+                    .describedAs("Include remote log size")
+                    .ofType(Boolean.class);
 
             options = parser.parse(args);
 
@@ -219,6 +227,10 @@ public class LogDirsCommand {
 
         private Set<Integer> brokers() {
             return splitAtCommasAndFilterOutEmpty(brokerListOpt).map(Integer::valueOf).collect(Collectors.toSet());
+        }
+
+        private boolean includeRemoteInfo() {
+            return options.has(includeRemoteInfoOpt);
         }
     }
 }
