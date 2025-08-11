@@ -25,16 +25,20 @@ import org.apache.kafka.common.record.SimpleRecord
 import org.apache.kafka.common.requests.FetchMetadata.{FINAL_EPOCH, INVALID_SESSION_ID}
 import org.apache.kafka.common.requests.{FetchRequest, FetchResponse, FetchMetadata => JFetchMetadata}
 import org.apache.kafka.common.utils.Utils
+import org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig
 import org.apache.kafka.server.util.MockTime
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, Test, Timeout}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, MethodSource, ValueSource}
+import org.mockito.ArgumentCaptor
 
 import scala.jdk.CollectionConverters._
 import java.util
 import java.util.{Collections, Optional}
 import scala.collection.mutable.ArrayBuffer
+import org.mockito.Mockito.{spy, verify}
+import org.mockito.ArgumentMatchers.any
 
 @Timeout(120)
 class FetchSessionTest {
@@ -1989,6 +1993,47 @@ class FetchSessionTest {
     (0 until numShards*2).foreach { shardNum =>
       assertEquals(cacheShards(shardNum % numShards), cache.getNextCacheShard)
     }
+  }
+
+  @Test
+  def testPrivilegedFetchSessionForRemoteLogMetadataClient(): Unit = {
+    val time = new MockTime()
+    val topic = TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME
+    val cacheShard = spy(new FetchSessionCacheShard(10, 1000))
+    val fetchManager = new FetchManager(time, cacheShard)
+    val topicNames = Map(Uuid.randomUuid() -> topic).asJava
+    val topicIds = topicNames.asScala.map(_.swap).asJava
+    val version = ApiKeys.FETCH.latestVersion
+    val rlmTopicId = topicIds.getOrDefault(topic, Uuid.ZERO_UUID)
+    val tpId = new TopicIdPartition(rlmTopicId, new TopicPartition(topic, 0))
+
+    // Create a new fetch session with __remote_log_metadata-0
+    val reqData = new util.LinkedHashMap[TopicPartition, FetchRequest.PartitionData]
+    reqData.put(tpId.topicPartition, new FetchRequest.PartitionData(rlmTopicId, 0, 0, 100, Optional.empty()))
+    val request = createRequest(JFetchMetadata.INITIAL, reqData, EMPTY_PART_LIST, isFromFollower = false, version)
+    val context = fetchManager.newContext(
+      request.version,
+      request.metadata,
+      request.isFromFollower,
+      request.fetchData(topicNames),
+      request.forgottenTopics(topicNames),
+      topicNames
+    )
+    assertEquals(classOf[FullFetchContext], context.getClass)
+    val respData = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
+    respData.put(tpId, new FetchResponseData.PartitionData()
+      .setPartitionIndex(0)
+      .setHighWatermark(100)
+      .setLastStableOffset(100)
+      .setLogStartOffset(100))
+    val resp = context.updateAndGenerateResponseData(respData)
+    assertEquals(Errors.NONE, resp.error())
+    assertTrue(resp.sessionId() != INVALID_SESSION_ID)
+    assertEquals(1, resp.responseData(topicNames, request.version).size())
+
+    val privileged = ArgumentCaptor.forClass(classOf[Boolean])
+    verify(cacheShard).maybeCreateSession(any(), privileged.capture(), any(), any(), any())
+    assertTrue(privileged.getValue)
   }
 }
 
