@@ -28,6 +28,7 @@ import com.yammer.metrics.core.Timer;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -35,6 +36,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public final class RSMTestUtils {
@@ -138,6 +140,26 @@ public final class RSMTestUtils {
             .orElseThrow(() -> new AssertionError("Meter " + name + " with tags " + tags + " not found"));
         assertEquals(expectedCount, meter.count(), "Meter count check failed for " + name + " with tags " + tags);
     }
+
+    public static void verifyMeterWithTimeout(Duration timeout, Class<?> klass, String name, long expectedCount) {
+        verifyMeterWithTimeout(timeout, klass, name, Collections.emptyMap(), expectedCount);
+    }
+
+    public static void verifyMeterWithTimeout(Duration timeout, Class<?> klass, String name, Map<String, String> tags, long expectedCount) {
+        Meter meter = findKafkaMetric(klass, name, tags)
+            .map(metric -> (Meter) metric)
+            .orElseThrow(() -> new AssertionError("Meter " + name + " with tags " + tags + " not found"));
+
+        assertTimeoutPreemptively(
+            timeout,
+            () -> {
+                while (meter.count() != expectedCount) {
+                    Thread.sleep(50);
+                }
+            }
+        );
+    }
+
 
     public static <T> void verifyGauge(Class<?> klass, String name, T expectedValue) {
         Optional<Metric> metric = findKafkaMetric(klass, name)

@@ -28,6 +28,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
+import org.apache.hadoop.conf.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +59,10 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
                                                    RemoteDataPrefetcher remoteDataPrefetcher) {
         this.hdfsRemoteStorageManager = hdfsRemoteStorageManager;
         this.remoteDataPrefetcher = remoteDataPrefetcher;
+    }
+
+    void setDefaultHadoopConfiguration(Configuration configuration) {
+        this.hdfsRemoteStorageManager.setDefaultHadoopConfiguration(configuration);
     }
 
     @Override

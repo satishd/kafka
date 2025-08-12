@@ -60,6 +60,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_FAILURE_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_SUCCESS_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -134,18 +135,29 @@ public class PrefetchSegmentManagerTest {
 
     @Test
     public void testFetchLogSegmentWithCacheMiss() throws IOException {
+        clearKafkaMetrics();
         segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 0);
 
         // Call the method under test with a segment ID that's not in the cache
         InputStream result = segmentManager.fetchLogSegment(segmentId, 0, Integer.MAX_VALUE);
 
         // Verify the result
         assertNull(result, "Should return null for cache miss");
+
+        // Verify segments reads not recorded
+        verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 0);
     }
 
     @Test
     public void testFetchLogSegmentWithCacheHit() throws Exception {
+        clearKafkaMetrics();
         segmentManager.configure(configs);
+
+        // Verify initial metrics
+        verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 0);
 
         // Create a test file and add it to the cache
         String filePath = RSMUtils.segmentPrefetchPath(tempDir.toString(), metadata);
@@ -174,6 +186,9 @@ public class PrefetchSegmentManagerTest {
         assertEquals(2, buffer[1]);
         assertEquals(3, buffer[2]);
         assertEquals(4, buffer[3]);
+
+        // Verify segment reads is recorded
+        verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 1);
     }
 
     @Test

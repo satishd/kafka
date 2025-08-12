@@ -126,7 +126,14 @@ public class PrefetchSegmentManager {
         if (cacheValue == null || cacheValue.status() != PrefetchStatus.SUCCESS) {
             return null; // Cache miss or segment not successfully downloaded
         }
-        return RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), startPosition, endPosition);
+
+        try {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), startPosition, endPosition);
+            metrics.markPrefetchSegmentRead();
+            return inputStream;
+        } catch (Exception e) {
+            throw e;
+        }
     }
 
     public void downloadSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {

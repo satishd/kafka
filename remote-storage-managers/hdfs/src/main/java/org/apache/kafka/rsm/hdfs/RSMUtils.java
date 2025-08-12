@@ -66,6 +66,17 @@ public final class RSMUtils {
 
         return new InputStream() {
             private long pos = dataPosition.getPos() + startPosition;
+            private long totalBytesRead = 0;
+
+            @Override
+            public int available() {
+                long readableSegmentLen = Math.max(0, readableLength - startPosition);
+                long available = readableSegmentLen - totalBytesRead;
+                if (available > Integer.MAX_VALUE) {
+                    return Integer.MAX_VALUE;
+                }
+                return (int) available;
+            }
 
             @Override
             public int read() throws IOException {
@@ -74,6 +85,7 @@ public final class RSMUtils {
                 int bytesRead = channel.read(buf, pos);
                 if (bytesRead <= 0) return -1;
                 pos++;
+                totalBytesRead++;
                 buf.flip();
                 return buf.get() & 0xFF;
             }
@@ -86,6 +98,7 @@ public final class RSMUtils {
                 int bytesRead = channel.read(buf, pos);
                 if (bytesRead > 0) {
                     pos += bytesRead;
+                    totalBytesRead += bytesRead;
                 }
                 return bytesRead;
             }

@@ -184,4 +184,148 @@ class RSMUtilsTest {
             assertThrows(UnsupportedVersionException.class, () -> RSMUtils.getInputStreamFromChannel(channel, 0, Integer.MAX_VALUE));
         }
     }
+
+    @Test
+    public void testAvailableBytesInSegmentInputStream() throws IOException {
+        // Create data for testing
+        int segmentSize = 100;
+        int startPosition = 20;
+        int endPosition = 50;
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+
+        File testFile = new File(tempDir, "test-file-available");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, startPosition, endPosition);
+            int expectedAvailable = endPosition - startPosition + 1;
+            assertEquals(expectedAvailable, inputStream.available());
+        }
+    }
+
+    @Test
+    public void testAvailableBytesWithEndPositionExceedingSegmentLength() throws IOException {
+        // Create data for testing
+        int segmentSize = 100;
+        int startPosition = 50;
+        int endPosition = 150; // Exceeds segment size
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+
+        File testFile = new File(tempDir, "test-file-available-exceeding");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, startPosition, endPosition);
+            int expectedAvailable = segmentSize - startPosition;
+            assertEquals(expectedAvailable, inputStream.available());
+        }
+    }
+
+    @Test
+    public void testAvailableBytesAfterPartialRead() throws IOException {
+        // Create data for testing
+        int segmentSize = 100;
+        int startPosition = 20;
+        int endPosition = 50;
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+
+        File testFile = new File(tempDir, "test-file-available-partial-read");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, startPosition, endPosition);
+
+            // Read some bytes from the stream
+            byte[] buffer = new byte[10];
+            int bytesRead = inputStream.read(buffer);
+            assertEquals(10, bytesRead);
+
+            // Check available bytes after partial read
+            int expectedAvailable = endPosition - startPosition + 1 - bytesRead;
+            assertEquals(expectedAvailable, inputStream.available());
+        }
+    }
+
+    @Test
+    public void testAvailableBytesAfterMultipleReads() throws IOException {
+        // Create data for testing
+        int segmentSize = 100;
+        int startPosition = 20;
+        int endPosition = 70;
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+
+        File testFile = new File(tempDir, "test-file-available-multiple-reads");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, startPosition, endPosition);
+
+            // Initial available bytes
+            int initialAvailable = endPosition - startPosition + 1;
+            assertEquals(initialAvailable, inputStream.available());
+
+            // First read
+            byte[] buffer1 = new byte[15];
+            int firstRead = inputStream.read(buffer1);
+            assertEquals(15, firstRead);
+            assertEquals(initialAvailable - firstRead, inputStream.available());
+
+            // Second read
+            byte[] buffer2 = new byte[10];
+            int secondRead = inputStream.read(buffer2);
+            assertEquals(10, secondRead);
+            assertEquals(initialAvailable - firstRead - secondRead, inputStream.available());
+
+            // Read until end
+            byte[] remainingBuffer = new byte[inputStream.available()];
+            int remainingRead = inputStream.read(remainingBuffer);
+            assertEquals(initialAvailable - firstRead - secondRead, remainingRead);
+            // Should be 0 available now
+            assertEquals(0, inputStream.available());
+        }
+    }
+
+    @Test
+    public void testAvailableBytesWithExceedingEndPositionAfterPartialRead() throws IOException {
+        // Create data for testing
+        int segmentSize = 100;
+        int startPosition = 50;
+        int endPosition = 150; // Exceeds segment size
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+
+        File testFile = new File(tempDir, "test-file-available-exceeding-partial-read");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, startPosition, endPosition);
+
+            // Initial available bytes
+            int initialAvailable = segmentSize - startPosition;
+            assertEquals(initialAvailable, inputStream.available());
+
+            // Read some bytes
+            byte[] buffer = new byte[20];
+            int bytesRead = inputStream.read(buffer);
+            assertEquals(20, bytesRead);
+
+            // Check available bytes after partial read
+            int expectedAvailable = initialAvailable - bytesRead;
+            assertEquals(expectedAvailable, inputStream.available());
+        }
+    }
 }

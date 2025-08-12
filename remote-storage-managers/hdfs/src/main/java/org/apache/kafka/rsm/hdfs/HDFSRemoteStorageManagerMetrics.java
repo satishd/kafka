@@ -86,6 +86,7 @@ public class HDFSRemoteStorageManagerMetrics {
     public static final String PREFETCH_REQUEST_SUCCESS_PER_SEC = "prefetch-request-success-per-sec";
     public static final String PREFETCH_REQUEST_FAILURE_PER_SEC = "prefetch-request-failure-per-sec";
     public static final String PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS = "prefetch-segment-download-rate-and-time-ms";
+    public static final String PREFETCH_SEGMENT_READS_PER_SEC = "prefetch-segment-reads-per-sec";
     // TODO
     public static final String PREFETCH_SEGMENT_USAGE_RATIO = "prefetch-segment-usage-ratio";
     // TODO
@@ -126,6 +127,7 @@ public class HDFSRemoteStorageManagerMetrics {
     private Meter prefetchRequestFailureMeter;
     private Meter prefetchThreadPoolExecutorRejectionMeter;
     private Timer prefetchSegmentDownloadTimer;
+    private Meter prefetchSegmentReadMeter;
 
     private MetricName metricName(Class<?> klass, String name) {
         return metricName(klass, name, null);
@@ -432,6 +434,8 @@ public class HDFSRemoteStorageManagerMetrics {
             metricName(klass, PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC), "requests", TimeUnit.SECONDS);
         this.prefetchSegmentDownloadTimer = KafkaYammerMetrics.defaultRegistry().newTimer(
             metricName(klass, PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS), TimeUnit.MILLISECONDS, TimeUnit.SECONDS);
+        this.prefetchSegmentReadMeter = KafkaYammerMetrics.defaultRegistry().newMeter(
+            metricName(klass, PREFETCH_SEGMENT_READS_PER_SEC), "requests", TimeUnit.SECONDS);
         KafkaYammerMetrics.defaultRegistry().newGauge(metricName(klass, PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT), new Gauge<Integer>() {
                 @Override
                 public Integer value() {
@@ -646,6 +650,11 @@ public class HDFSRemoteStorageManagerMetrics {
         }
     }
 
+    public void markPrefetchSegmentRead() {
+        if (prefetchSegmentReadMeter != null) {
+            prefetchSegmentReadMeter.mark();
+        }
+    }
 
     private <E extends Exception> void time(Timer timer, ThrowingRunnable<E> operation) throws E {
         if (timer == null) {
