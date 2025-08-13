@@ -90,7 +90,7 @@ class BrokerMetadataPublisherTest {
     broker: BrokerServer,
     errorHandler: FaultHandler
   ): DynamicConfigPublisher = {
-    Mockito.spy(new DynamicConfigPublisher(
+    Mockito.spy[DynamicConfigPublisher](new DynamicConfigPublisher(
       conf = broker.config,
       faultHandler = errorHandler,
       dynamicConfigHandlers = broker.dynamicConfigHandlers.toMap,
@@ -157,7 +157,7 @@ class BrokerMetadataPublisherTest {
       TestUtils.retry(60000) {
         assertNotNull(broker.brokerMetadataPublisher)
       }
-      val publisher = Mockito.spy(broker.brokerMetadataPublisher)
+      val publisher = Mockito.spy[BrokerMetadataPublisher](broker.brokerMetadataPublisher)
       doThrow(new RuntimeException("injected failure")).when(publisher).updateCoordinator(any(), any(), any(), any(), any())
       broker.sharedServer.loader.removeAndClosePublisher(broker.brokerMetadataPublisher).get(1, TimeUnit.MINUTES)
       broker.metadataPublishers.remove(broker.brokerMetadataPublisher)

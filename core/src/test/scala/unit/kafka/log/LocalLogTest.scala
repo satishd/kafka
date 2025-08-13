@@ -673,7 +673,7 @@ class LocalLogTest {
 
   @Test
   def testFlushingNonExistentDir(): Unit = {
-    val spyLog = spy(log)
+    val spyLog = spy[LocalLog](log)
 
     val record = new SimpleRecord(mockTime.milliseconds, "a".getBytes)
     appendRecords(List(record))

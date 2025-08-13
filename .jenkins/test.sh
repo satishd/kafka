@@ -1,7 +1,7 @@
 set -e
 
-./gradlewAll clean build -x test
-./gradlew test -PmaxParallelForks=6 -PscalaVersion=2.12 -PmaxTestRetries=2 -PmaxTestRetryFailures=10 \
+./gradlewAll clean compileTestJava compileTestScala build -x test
+./gradlew test -PmaxParallelForks=6 -PmaxTestRetries=2 -PmaxTestRetryFailures=10 \
   -x connect:api:test \
   -x connect:basic-auth-extension:test \
   -x connect:file:test \

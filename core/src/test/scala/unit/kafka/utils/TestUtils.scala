@@ -1208,7 +1208,7 @@ object TestUtils extends Logging {
                    pageCacheWarmupBatch = ServerLogConfigs.LOG_PAGE_CACHE_WARMUP_BATCH_DEFAULT)
 
     if (log.isDefined) {
-      val spyLogManager = Mockito.spy(logManager)
+      val spyLogManager = Mockito.spy[LogManager](logManager)
       Mockito.doReturn(log.get, Nil: _*).when(spyLogManager).getOrCreateLog(any(classOf[TopicPartition]), anyBoolean(), anyBoolean(), any(classOf[Option[Uuid]]), any(classOf[Option[Uuid]]))
       spyLogManager
     } else

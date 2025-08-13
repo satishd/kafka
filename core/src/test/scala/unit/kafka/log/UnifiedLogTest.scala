@@ -2257,7 +2257,7 @@ class UnifiedLogTest {
   def testFetchOffsetByTimestampFromRemoteStorage(): Unit = {
     val config: KafkaConfig = createKafkaConfigWithRLM
     val purgatory = DelayedOperationPurgatory[DelayedRemoteListOffsets]("RemoteListOffsets", config.brokerId)
-    val remoteLogManager = spy(new RemoteLogManager(config.remoteLogManagerConfig,
+    val remoteLogManager = spy[RemoteLogManager](new RemoteLogManager(config.remoteLogManagerConfig,
       0,
       logDir.getAbsolutePath,
       "clusterId",
@@ -2354,7 +2354,7 @@ class UnifiedLogTest {
   def testFetchLatestTieredTimestampWithRemoteStorage(): Unit = {
     val config: KafkaConfig = createKafkaConfigWithRLM
     val purgatory = DelayedOperationPurgatory[DelayedRemoteListOffsets]("RemoteListOffsets", config.brokerId)
-    val remoteLogManager = spy(new RemoteLogManager(config.remoteLogManagerConfig,
+    val remoteLogManager = spy[RemoteLogManager](new RemoteLogManager(config.remoteLogManagerConfig,
       0,
       logDir.getAbsolutePath,
       "clusterId",
@@ -4253,7 +4253,7 @@ class UnifiedLogTest {
   @Test
   def testRecoveryPointNotIncrementedOnProducerStateSnapshotFlushFailure(): Unit = {
     val logConfig = LogTestUtils.createLogConfig()
-    val log = spy(createLog(logDir, logConfig))
+    val log = spy[UnifiedLog](createLog(logDir, logConfig))
 
     doThrow(new KafkaStorageException("Injected exception")).when(log).flushProducerStateSnapshot(any())
 

@@ -256,7 +256,7 @@ class LogManagerTest {
 
     // 3. create a new LogManager and start it in a different thread
     @volatile var loadLogCalled = 0
-    logManager = spy(createLogManager())
+    logManager = spy[LogManager](createLogManager())
     doAnswer { invocation =>
       // intercept LogManager.loadLog to sleep 5 seconds so that there is enough time to call LogManager.shutdown
       // before LogManager.startup completes.
@@ -312,7 +312,7 @@ class LogManagerTest {
 
     // Create a new LogManager with the configured directories and an overridden createLogDirectory.
     logManager.shutdown()
-    logManager = spy(createLogManager(dirs))
+    logManager = spy[LogManager](createLogManager(dirs))
     val brokenDirs = mutable.Set[File]()
     doAnswer { invocation =>
       // The first half of directories tried will fail, the rest goes through.
@@ -694,9 +694,9 @@ class LogManagerTest {
   @Test
   def testTopicConfigChangeUpdatesLogConfig(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(new MockConfigRepository)
+    val spyConfigRepository = spy[ConfigRepository](new MockConfigRepository)
     logManager = createLogManager(configRepository = spyConfigRepository)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val mockLog = mock(classOf[UnifiedLog])
 
     val testTopicOne = "test-topic-one"
@@ -730,9 +730,9 @@ class LogManagerTest {
   @Test
   def testConfigChangeGetsCleanedUp(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(new MockConfigRepository)
+    val spyConfigRepository = spy[ConfigRepository](new MockConfigRepository)
     logManager = createLogManager(configRepository = spyConfigRepository)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
 
     val testTopicPartition = new TopicPartition("test-topic", 1)
     spyLogManager.initializingLog(testTopicPartition)
@@ -749,9 +749,9 @@ class LogManagerTest {
   @Test
   def testBrokerConfigChangeDeliveredToAllLogs(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(new MockConfigRepository)
+    val spyConfigRepository = spy[ConfigRepository](new MockConfigRepository)
     logManager = createLogManager(configRepository = spyConfigRepository)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val mockLog = mock(classOf[UnifiedLog])
 
     val testTopicOne = "test-topic-one"
@@ -778,7 +778,7 @@ class LogManagerTest {
   def testTopicConfigChangeStopCleaningIfCompactIsRemoved(): Unit = {
     logManager.shutdown()
     logManager = createLogManager(configRepository = new MockConfigRepository)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
 
     val topic = "topic"
     val tp0 = new TopicPartition(topic, 0)
@@ -937,7 +937,7 @@ class LogManagerTest {
     val recoveryThreadsPerDataDir = 2
     // create logManager with expected recovery thread number
     logManager = createLogManager(logDirs, recoveryThreadsPerDataDir = recoveryThreadsPerDataDir)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
 
     assertEquals(2, spyLogManager.liveLogDirs.size)
 
@@ -1008,7 +1008,7 @@ class LogManagerTest {
     val recoveryThreadsPerDataDir = 2
     // create logManager with expected recovery thread number
     logManager = createLogManager(logDirs, recoveryThreadsPerDataDir = recoveryThreadsPerDataDir)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
 
     assertEquals(2, spyLogManager.liveLogDirs.size)
 

@@ -906,7 +906,7 @@ class ControllerIntegrationTest extends QuorumTestHarness {
     val controller = getController().kafkaController
     var count = 2
     val latch = new CountDownLatch(1)
-    val spyThread = spy(controller.eventManager.thread)
+    val spyThread = spy[controller.eventManager.ControllerEventThread](controller.eventManager.thread)
     controller.eventManager.thread = spyThread
     val processedEvent = new MockEvent(ControllerState.TopicChange) {
       override def process(): Unit = latch.await()
@@ -937,7 +937,7 @@ class ControllerIntegrationTest extends QuorumTestHarness {
     servers = makeServers(1, enableControlledShutdown = false)
     val controller = getController().kafkaController
     val latch = new CountDownLatch(1)
-    val spyThread = spy(controller.eventManager.thread)
+    val spyThread = spy[controller.eventManager.ControllerEventThread](controller.eventManager.thread)
     controller.eventManager.thread = spyThread
     val processedEvent = new MockEvent(ControllerState.TopicChange) {
       override def process(): Unit = latch.await()

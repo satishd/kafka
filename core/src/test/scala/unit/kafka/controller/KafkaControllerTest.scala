@@ -78,7 +78,7 @@ class KafkaControllerTest {
   def testReadOnlyEventsDoesNotUpdateMetrics(): Unit = {
     val mockMetricsGroupCtor = mockConstruction(classOf[KafkaMetricsGroup])
     try {
-      val kafkaController = spy(new KafkaController(
+      val kafkaController = spy[KafkaController](new KafkaController(
         config = config,
         zkClient = mock(classOf[KafkaZkClient]),
         time = new MockTime(),

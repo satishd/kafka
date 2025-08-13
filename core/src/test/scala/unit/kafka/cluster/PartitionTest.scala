@@ -45,7 +45,7 @@ import org.mockito.invocation.InvocationOnMock
 import java.nio.ByteBuffer
 import java.util.Optional
 import java.util.concurrent.{CountDownLatch, Semaphore}
-import kafka.server.metadata.{KRaftMetadataCache, ZkMetadataCache}
+import kafka.server.metadata.{ConfigRepository, KRaftMetadataCache, ZkMetadataCache}
 import org.apache.kafka.clients.ClientResponse
 import org.apache.kafka.common.compress.Compression
 import org.apache.kafka.common.config.TopicConfig
@@ -1400,7 +1400,7 @@ class PartitionTest extends AbstractPartitionTest {
   @Test
   def testIsReplicaIsrEligibleWithEmptyReplicaMap(): Unit = {
     val mockMetadataCache: KRaftMetadataCache = mock(classOf[KRaftMetadataCache])
-    val partition = spy(new Partition(topicPartition,
+    val partition = spy[Partition](new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = interBrokerProtocolVersion,
       localBrokerId = brokerId,
@@ -3042,11 +3042,11 @@ class PartitionTest extends AbstractPartitionTest {
   @Test
   def testLogConfigNotDirty(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -3076,11 +3076,11 @@ class PartitionTest extends AbstractPartitionTest {
   @Test
   def testLogConfigDirtyAsTopicUpdated(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     doAnswer((_: InvocationOnMock) => {
       logManager.initializingLog(topicPartition)
       logManager.topicConfigUpdated(topicPartition.topic())
@@ -3116,13 +3116,13 @@ class PartitionTest extends AbstractPartitionTest {
   @Test
   def testLogConfigDirtyAsBrokerUpdated(): Unit = {
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
     logManager.startup(Set.empty)
 
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     doAnswer((_: InvocationOnMock) => {
       logManager.initializingLog(topicPartition)
       logManager.brokerConfigUpdated()
@@ -3879,11 +3879,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeLeaderInvokesgetOrCreateLog_OnOnlineLogDir(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -3925,11 +3925,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeFollowerInvokesgetOrCreateLog_OnOnlineLogDir(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -3971,11 +3971,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeLeaderInvokesgetOrCreateLog_WhenNoLogDirOffline(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -4017,11 +4017,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeFollowerInvokesgetOrCreateLog_WhenNoLogDirOffline(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -4063,11 +4063,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeLeaderInvokesgetOrCreateLog_WhenTargetDirIsUnassigned(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,
@@ -4110,11 +4110,11 @@ class PartitionTest extends AbstractPartitionTest {
   def makeFollowerInvokesgetOrCreateLog_WhenTargetDirIsUnassigned(isNew: Boolean): Unit = {
     // Given
     logManager.shutdown()
-    val spyConfigRepository = spy(configRepository)
+    val spyConfigRepository = spy[ConfigRepository](configRepository)
     logManager = TestUtils.createLogManager(
       logDirs = Seq(logDir1, logDir2), defaultConfig = logConfig, configRepository = spyConfigRepository,
       cleanerConfig = new CleanerConfig(false), time = time)
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val partition = new Partition(topicPartition,
       replicaLagTimeMaxMs = ReplicationConfigs.REPLICA_LAG_TIME_MAX_MS_DEFAULT,
       interBrokerProtocolVersion = MetadataVersion.latestTesting,

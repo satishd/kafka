@@ -339,7 +339,7 @@ class ReplicaManagerTest {
     props.put("log.dirs", dir1.getAbsolutePath + "," + dir2.getAbsolutePath)
     val config = KafkaConfig.fromProps(props)
     val logManager = TestUtils.createLogManager(config.logDirs.map(new File(_)), new LogConfig(new Properties()))
-    val spyLogManager = spy(logManager)
+    val spyLogManager = spy[LogManager](logManager)
     val metadataCache: MetadataCache = mock(classOf[MetadataCache])
     mockGetAliveBrokerFunctions(metadataCache, Seq(new Node(0, "host0", 0)))
     when(metadataCache.metadataVersion()).thenReturn(config.interBrokerProtocolVersion)
@@ -4164,7 +4164,7 @@ class ReplicaManagerTest {
       brokerTopicStats,
       metrics)
     remoteLogManager.startup()
-    val spyRLM = spy(remoteLogManager)
+    val spyRLM = spy[RemoteLogManager](remoteLogManager)
 
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteLogManager = Some(spyRLM))
     try {
@@ -4270,7 +4270,7 @@ class ReplicaManagerTest {
       brokerTopicStats,
       metrics)
     remoteLogManager.startup()
-    val spyRLM = spy(remoteLogManager)
+    val spyRLM = spy[RemoteLogManager](remoteLogManager)
     val timer = new MockTimer(time)
 
     val replicaManager = setupReplicaManagerWithMockedPurgatories(timer, aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteLogManager = Some(spyRLM))
@@ -6685,7 +6685,7 @@ class ReplicaManagerTest {
   @Test
   def testCheckpointHwOnShutdown(): Unit = {
     val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
-    val spyRm = spy(new ReplicaManager(
+    val spyRm = spy[ReplicaManager](new ReplicaManager(
       metrics = metrics,
       config = config,
       time = time,

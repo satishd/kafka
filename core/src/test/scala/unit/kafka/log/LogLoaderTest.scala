@@ -358,7 +358,7 @@ class LogLoaderTest {
       // Intercept all segment read calls
       val interceptedLogSegments = new LogSegments(topicPartition) {
         override def add(segment: LogSegment): LogSegment = {
-          val wrapper = Mockito.spy(segment)
+          val wrapper = Mockito.spy[LogSegment](segment)
           Mockito.doAnswer { in =>
             segmentsWithReads += wrapper
             segment.read(in.getArgument(0, classOf[java.lang.Long]), in.getArgument(1, classOf[java.lang.Integer]), in.getArgument(2, classOf[java.util.Optional[java.lang.Long]]), in.getArgument(3, classOf[java.lang.Boolean]))

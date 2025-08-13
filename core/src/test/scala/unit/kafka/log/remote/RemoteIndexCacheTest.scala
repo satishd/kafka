@@ -1086,10 +1086,10 @@ class RemoteIndexCacheTest {
                                     dir: File = new File(logDir, DIR_NAME)): RemoteIndexCache.Entry = {
     val rlsMetadata = new RemoteLogSegmentMetadata(remoteLogSegmentId, baseOffset, lastOffset, time.milliseconds(),
       brokerId, time.milliseconds(), segmentSize, Collections.singletonMap(0, 0L))
-    val timeIndex = spy(createTimeIndexForSegmentMetadata(rlsMetadata, dir))
-    val txIndex = spy(createTxIndexForSegmentMetadata(rlsMetadata, dir))
-    val offsetIndex = spy(createOffsetIndexForSegmentMetadata(rlsMetadata, dir))
-    spy(new RemoteIndexCache.Entry(offsetIndex, timeIndex, txIndex))
+    val timeIndex = spy[TimeIndex](createTimeIndexForSegmentMetadata(rlsMetadata, dir))
+    val txIndex = spy[TransactionIndex](createTxIndexForSegmentMetadata(rlsMetadata, dir))
+    val offsetIndex = spy[OffsetIndex](createOffsetIndexForSegmentMetadata(rlsMetadata, dir))
+    spy[RemoteIndexCache.Entry](new RemoteIndexCache.Entry(offsetIndex, timeIndex, txIndex))
   }
 
   private def assertAtLeastOnePresent(cache: RemoteIndexCache, uuids: Uuid*): Unit = {
