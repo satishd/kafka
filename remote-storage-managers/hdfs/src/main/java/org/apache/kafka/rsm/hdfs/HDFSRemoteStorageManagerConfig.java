@@ -90,32 +90,31 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_OCI_BUCKETS_PROP = "hdfs.oci.buckets";
     public static final String HDFS_OCI_BUCKETS_DOC = "Comma separated list of OCI buckets";
 
-    public static final String PREFETCH_LOCAL_BASE_DIR_CONFIG = "prefetch.local.base.dir";
+    public static final String PREFETCH_LOCAL_BASE_DIR_PROP = "prefetch.local.base.dir";
     public static final String PREFETCH_LOCAL_BASE_DIR_DOC = "The local directory where remote log segments will be prefetched and stored temporarily. " +
         "This directory should have sufficient space to accommodate the cached segments.";
     public static final String DEFAULT_PREFETCH_LOCAL_BASE_DIR = "/tmp/remote-log-prefetch";
 
-    public static final String PREFETCH_CACHE_MAX_SIZE_CONFIG = "prefetch.cache.max.size";
+    public static final String PREFETCH_CACHE_MAX_SIZE_PROP = "prefetch.cache.max.size";
     public static final String PREFETCH_CACHE_MAX_SIZE_DOC = "Maximum size of the prefetch cache. " +
         "This limits the number of segments that can be cached in memory at any given time.";
     public static final int DEFAULT_PREFETCH_CACHE_MAX_SIZE = 1000;
 
-    public static final String PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG = "prefetch.cache.expire.after.access.time.minutes";
+    public static final String PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP = "prefetch.cache.expire.after.access.time.minutes";
     public static final String PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_DOC = "The duration in minutes after which an entry in the prefetch cache expires if not accessed";
     public static final int DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES = 10;
 
-
-    public static final String PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG = "prefetch.thread.pool.core.size";
+    public static final String PREFETCH_THREAD_POOL_CORE_SIZE_PROP = "prefetch.thread.pool.core.size";
     public static final String PREFETCH_THREAD_POOL_CORE_SIZE_DOC = "The core size of the thread pool used for prefetching segments. " +
         "This controls the number of concurrent prefetch operations.";
     public static final int DEFAULT_PREFETCH_THREAD_POOL_CORE_SIZE = 10;
 
-    public static final String PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG = "prefetch.thread.pool.max.size";
+    public static final String PREFETCH_THREAD_POOL_MAX_SIZE_PROP = "prefetch.thread.pool.max.size";
     public static final String PREFETCH_THREAD_POOL_MAX_SIZE_DOC = "The maximum size of the thread pool used for prefetching segments. " +
         "This limits the number of concurrent prefetch operations to avoid overwhelming the system.";
     public static final int DEFAULT_PREFETCH_THREAD_POOL_MAX_SIZE = 10;
 
-    public static final String PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG = "prefetch.thread.pool.queue.capacity";
+    public static final String PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP = "prefetch.thread.pool.queue.capacity";
     public static final String PREFETCH_THREAD_POOL_QUEUE_CAPACITY_DOC = "The capacity of the queue used by the thread pool for prefetching segments. " +
         "This controls how many prefetch requests can be queued up before new requests are rejected.";
     public static final int DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY = 1000;
@@ -131,6 +130,22 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP = "oci.prefetch.client.read.ahead.num.threads";
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_DOC = "The number of threads to use for parallel GET operations when reading ahead by the prefetch client of OCI";
     public static final int DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS = 10;
+
+    public static final String PREFETCH_MAX_BYTES_PER_SECOND_PROP = "prefetch.max.bytes.per.second";
+    public static final String PREFETCH_MAX_BYTES_PER_SECOND_DOC = "The maximum number of bytes that can be prefetched from the remote storage to local storage per sec." +
+        "This is a global limit for all the partitions that are being prefetched from remote storage to local storage. " +
+        "The default value is Long.MAX_VALUE which means there is no limit on the number of bytes that can be fetched per second.";
+    public static final Long DEFAULT_PREFETCH_MAX_BYTES_PER_SECOND = Long.MAX_VALUE;
+
+    public static final String PREFETCH_QUOTA_WINDOW_NUM_PROP = "prefetch.quota.window.num";
+    public static final String PREFETCH_QUOTA_WINDOW_NUM_DOC = "The number of samples to retain in memory for prefetch quota management. " +
+        "The default value is 11, which means there are 10 whole windows + 1 current window.";
+    public static final int DEFAULT_PREFETCH_QUOTA_WINDOW_NUM = 11;
+
+    public static final String PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP = "prefetch.quota.window.size.seconds";
+    public static final String PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_DOC = "The time span of each sample for prefetch quota management. " +
+        "The default value is 1 second.";
+    public static final int DEFAULT_PREFETCH_QUOTA_WINDOW_SIZE = 1;
 
     private static final ConfigDef CONFIG;
 
@@ -149,15 +164,18 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP,  INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_DOC)
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP, BOOLEAN, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED, MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_DOC)
             .define(HDFS_OCI_BUCKETS_PROP, LIST, "", HIGH, HDFS_OCI_BUCKETS_DOC)
-            .define(PREFETCH_LOCAL_BASE_DIR_CONFIG, ConfigDef.Type.STRING, DEFAULT_PREFETCH_LOCAL_BASE_DIR, ConfigDef.Importance.HIGH, PREFETCH_LOCAL_BASE_DIR_DOC)
-            .define(PREFETCH_CACHE_MAX_SIZE_CONFIG, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_MAX_SIZE, ConfigDef.Range.atLeast(1), ConfigDef.Importance.HIGH, PREFETCH_CACHE_MAX_SIZE_DOC)
-            .define(PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_CORE_SIZE, ConfigDef.Range.atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_CORE_SIZE_DOC)
-            .define(PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_MAX_SIZE, ConfigDef.Range.atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_MAX_SIZE_DOC)
-            .define(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES, ConfigDef.Range.atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_DOC)
-            .define(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY, ConfigDef.Range.atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_QUEUE_CAPACITY_DOC)
-            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT, ConfigDef.Range.atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_DOC)
-            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE, ConfigDef.Range.atLeast(1048576), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_DOC)
-            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS, ConfigDef.Range.atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_DOC);
+            .define(PREFETCH_LOCAL_BASE_DIR_PROP, ConfigDef.Type.STRING, DEFAULT_PREFETCH_LOCAL_BASE_DIR, ConfigDef.Importance.HIGH, PREFETCH_LOCAL_BASE_DIR_DOC)
+            .define(PREFETCH_CACHE_MAX_SIZE_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_MAX_SIZE, atLeast(1), ConfigDef.Importance.HIGH, PREFETCH_CACHE_MAX_SIZE_DOC)
+            .define(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_CORE_SIZE, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_CORE_SIZE_DOC)
+            .define(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_MAX_SIZE, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_MAX_SIZE_DOC)
+            .define(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_DOC)
+            .define(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_QUEUE_CAPACITY_DOC)
+            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT, atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_DOC)
+            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE, atLeast(1048576), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_DOC)
+            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS, atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_DOC)
+            .define(PREFETCH_MAX_BYTES_PER_SECOND_PROP, LONG, DEFAULT_PREFETCH_MAX_BYTES_PER_SECOND, atLeast(1), MEDIUM, PREFETCH_MAX_BYTES_PER_SECOND_DOC)
+            .define(PREFETCH_QUOTA_WINDOW_NUM_PROP, INT, DEFAULT_PREFETCH_QUOTA_WINDOW_NUM, atLeast(1), MEDIUM, PREFETCH_QUOTA_WINDOW_NUM_DOC)
+            .define(PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP, INT, DEFAULT_PREFETCH_QUOTA_WINDOW_SIZE, atLeast(1), MEDIUM, PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_DOC);
     }
 
     public HDFSRemoteStorageManagerConfig(Map<?, ?> props, boolean doLog) {

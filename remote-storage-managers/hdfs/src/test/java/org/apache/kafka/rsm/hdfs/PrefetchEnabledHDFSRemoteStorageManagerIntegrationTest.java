@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
@@ -52,6 +53,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFA
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_SUCCESS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -101,6 +103,9 @@ public class PrefetchEnabledHDFSRemoteStorageManagerIntegrationTest {
             .thenReturn(Optional.of(secondSegmentMetadata));
         Supplier<RemoteLogMetadataManager> rlmmSupplier = () -> remoteLogMetadataManager;
 
+        // Setup metrics for Quota Manager instantiation
+        Metrics metrics = new Metrics();
+
         try (PrefetchEnabledHDFSRemoteStorageManager rsm = new PrefetchEnabledHDFSRemoteStorageManager()) {
             // Configure storage manager
             rsm.setDefaultHadoopConfiguration(hadoopConfig);
@@ -109,6 +114,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerIntegrationTest {
             configs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
             configs.put(HDFS_DEFAULT_FS_URI_PROP, hdfsUri);
             configs.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, rlmmSupplier);
+            configs.put(METRICS, metrics);
             rsm.configure(configs);
 
             // Verify initial metrics

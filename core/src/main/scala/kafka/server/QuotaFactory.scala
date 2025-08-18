@@ -35,6 +35,7 @@ object QuotaType  {
   case object AlterLogDirsReplication extends QuotaType
   case object RLMCopy extends QuotaType
   case object RLMFetch extends QuotaType
+  case object RLMPrefetch extends QuotaType
 
   def toClientQuotaType(quotaType: QuotaType): ClientQuotaType = {
     quotaType match {

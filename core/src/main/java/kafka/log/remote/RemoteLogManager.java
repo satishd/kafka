@@ -153,6 +153,7 @@ import scala.util.Either;
 import static kafka.log.remote.quota.RLMQuotaManagerConfig.INACTIVE_SENSOR_EXPIRATION_TIME_SECONDS;
 import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_COMMON_CLIENT_PREFIX;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
@@ -454,6 +455,7 @@ public class RemoteLogManager implements Closeable {
         rsmProps.put(ServerConfigs.BROKER_ID_CONFIG, brokerId);
         Supplier<RemoteLogMetadataManager> supplier = () -> remoteLogMetadataManager;
         rsmProps.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, supplier);
+        rsmProps.put(METRICS, metrics);
         remoteLogStorageManager.configure(rsmProps);
     }
 

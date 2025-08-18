@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.rsm.hdfs.prefetch;
 
+import kafka.log.remote.quota.RLMQuotaManager;
+
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.MockTime;
@@ -47,6 +49,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Predicate;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS;
@@ -58,7 +63,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class DownloadTaskTest {
@@ -69,6 +81,9 @@ public class DownloadTaskTest {
     private RemoteLogSegmentId segmentId;
     private FSDataInputStream mockInputStream;
     private HDFSRemoteStorageManagerMetrics metrics;
+    private RLMQuotaManager rlmQuotaManager;
+    private ReentrantLock lock;
+    private Condition lockCondition;
 
     @TempDir
     Path tempDir;
@@ -109,6 +124,12 @@ public class DownloadTaskTest {
         ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
         Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
         metrics.registerPrefetchMetrics(executor, cache, tempDir.toAbsolutePath().toString());
+
+        rlmQuotaManager = mock(RLMQuotaManager.class);
+        when(rlmQuotaManager.getThrottleTimeMs()).thenReturn(0L);
+
+        lock = spy(new ReentrantLock());
+        lockCondition = spy(lock.newCondition());
     }
 
     @Test
@@ -142,7 +163,7 @@ public class DownloadTaskTest {
         verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
 
         // Create and execute the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+        DownloadTask task = createDownloadTask();
         FileChannel result = task.call();
 
         // Verify results
@@ -170,6 +191,65 @@ public class DownloadTaskTest {
     }
 
     @Test
+    public void testQuotaReservationOnSuccess() throws Exception {
+        byte[] testData = createSequentialTestData(1024);
+        long fileSize = stubFetchAndFileLength(testData);
+        when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
+            // Get invocation parameters
+            long pos = invocation.getArgument(0);
+            byte[] buffer = invocation.getArgument(1);
+            int offset = invocation.getArgument(2);
+            int length = invocation.getArgument(3);
+
+            int bytesToCopy = Math.min(length, (int) (testData.length - pos));
+            if (bytesToCopy <= 0) return -1;
+            System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+            return bytesToCopy;
+        });
+
+        DownloadTask task = createDownloadTask();
+        FileChannel result = task.call();
+        assertNotNull(result);
+        assertEquals(testData.length, result.size());
+
+        // Verify quota reservation was recorded once with full file size
+        verify(rlmQuotaManager, times(1)).record(eq((double) fileSize));
+    }
+
+    @Test
+    public void testQuotaReservationAndReleaseOnFailure() throws Exception {
+        // Prepare data so that we can simulate partial read then exception
+        byte[] testData = createSequentialTestData(1024);
+        long fileSize = stubFetchAndFileLength(testData);
+
+        // Simulate: first call reads 256 bytes, second call throws IOException
+        when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt()))
+            .thenAnswer(invocation -> {
+                // Get invocation parameters
+                long pos = invocation.getArgument(0);
+                byte[] buffer = invocation.getArgument(1);
+                int offset = invocation.getArgument(2);
+                int length = invocation.getArgument(3);
+
+                int bytesToCopy = Math.min(length, 256);
+                System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+                return bytesToCopy;
+            })
+            .thenThrow(new IOException("Simulated read failure"));
+
+        DownloadTask task = createDownloadTask();
+
+        IOException thrown = assertThrows(IOException.class, task::call);
+        assertTrue(thrown.getMessage().contains("Simulated read failure"));
+
+        // Verify initial reservation and subsequent release of unused quota
+        verify(rlmQuotaManager, times(1)).record(eq((double) fileSize));
+        // 256 bytes were actually downloaded (not including header), so downloadSize=256
+        // release adjustment = 256 - fileSize
+        verify(rlmQuotaManager, times(1)).record(eq((double) (256 - fileSize)));
+    }
+
+    @Test
     public void testDownloadWithIOException() throws IOException {
         // Set up mock to throw IOException
         IOException testException = new IOException("Test exception");
@@ -180,7 +260,7 @@ public class DownloadTaskTest {
         verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
 
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+        DownloadTask task = createDownloadTask();
 
         // Execute the task and verify that the exception is propagated
         IOException thrown = assertThrows(
@@ -208,7 +288,7 @@ public class DownloadTaskTest {
         verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
 
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+        DownloadTask task = createDownloadTask();
 
         // Execute the task and verify that the exception is propagated
         RuntimeException thrown = assertThrows(
@@ -236,7 +316,7 @@ public class DownloadTaskTest {
         verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value == 0);
 
         // Create the task
-        DownloadTask task = new DownloadTask(mockTime, tempDir.toString(), mockDataFetcher, metrics, metadata);
+        DownloadTask task = createDownloadTask();
 
         // Execute the task and verify that an IOException is thrown
         IOException thrown = assertThrows(
@@ -252,6 +332,127 @@ public class DownloadTaskTest {
         // Verify the metrics
         verifyTimerCount(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 1);
         verifyTimerQuantile(PREFETCH_SEGMENT_DOWNLOAD_RATE_AND_TIME_MS, 0.5, value -> value > 0);
+    }
+
+    @Test
+    public void testThrottlingWhenQuotaExceeded() throws Exception {
+        // Setup the quota manager to return throttle time initially and then no throttle time
+        when(rlmQuotaManager.getThrottleTimeMs())
+            .thenReturn(1000L) // First call returns throttle time
+            .thenReturn(500L)  // Second call still has throttle time
+            .thenReturn(0L);   // Third call has no throttle time (proceed with download)
+
+        // Setup the file size and successful download
+        long fileSize = 1024L;
+        when(mockDataFetcher.fileLength(metadata)).thenReturn(fileSize);
+
+        // Setup a mock result
+        FileChannel mockChannel = mock(FileChannel.class);
+        DownloadTask task = setupSuccessfulDownload(mockChannel, fileSize);
+
+        // Execute the task
+        FileChannel result = task.call();
+
+        // Verify throttling behavior
+        verify(rlmQuotaManager, times(3)).getThrottleTimeMs();
+        verify(lockCondition, times(2)).await(500, TimeUnit.MILLISECONDS);
+        verify(lockCondition, times(1)).signalAll();
+
+        // Verify quota was reserved
+        verify(rlmQuotaManager).record(fileSize);
+
+        // Verify the download occurred and returned the expected result
+        assertEquals(mockChannel, result);
+    }
+
+    @Test
+    public void testNoThrottlingWhenQuotaAvailable() throws Exception {
+        // Setup the quota manager to return no throttle time
+        when(rlmQuotaManager.getThrottleTimeMs()).thenReturn(0L);
+
+        // Setup the file size and successful download
+        long fileSize = 1024L;
+        when(mockDataFetcher.fileLength(metadata)).thenReturn(fileSize);
+
+        // Setup a mock result
+        FileChannel mockChannel = mock(FileChannel.class);
+        DownloadTask task = setupSuccessfulDownload(mockChannel, fileSize);
+
+        // Execute the task
+        FileChannel result = task.call();
+
+        // Verify throttling behavior
+        verify(rlmQuotaManager, times(1)).getThrottleTimeMs();
+        verify(lockCondition, never()).await(anyLong(), any(TimeUnit.class));
+        verify(lockCondition, times(1)).signalAll();
+
+        // Verify quota was reserved
+        verify(rlmQuotaManager).record(fileSize);
+
+        // Verify the download occurred and returned the expected result
+        assertEquals(mockChannel, result);
+    }
+
+    @Test
+    public void testThrottlingWithInterruption() throws Exception {
+        // Setup the quota manager to always return throttle time
+        when(rlmQuotaManager.getThrottleTimeMs()).thenReturn(1000L);
+
+        // Setup the lockCondition to throw InterruptedException
+        doThrow(new InterruptedException()).when(lockCondition).await(anyLong(), any(TimeUnit.class));
+
+        // Execute the task and expect an InterruptedException
+        DownloadTask task = createDownloadTask();
+        assertThrows(InterruptedException.class, task::call);
+
+        // Verify throttling behavior
+        verify(rlmQuotaManager, times(1)).getThrottleTimeMs();
+        verify(lockCondition, times(1)).await(500, TimeUnit.MILLISECONDS);
+
+        // Verify quota was not reserved
+        verify(rlmQuotaManager, never()).record(anyLong());
+
+        // Verify the lock was released
+        verify(lock, times(1)).unlock();
+    }
+
+    private byte[] createSequentialTestData(int size) {
+        byte[] data = new byte[size];
+        for (int i = 0; i < data.length; i++) {
+            data[i] = (byte) (i % 256);
+        }
+        return data;
+    }
+
+    private long stubFetchAndFileLength(byte[] testData) throws IOException {
+        when(mockDataFetcher.fetchSegmentData(metadata)).thenReturn(mockInputStream);
+        long fileSize = LogSegmentDataHeader.LENGTH + testData.length;
+        when(mockDataFetcher.fileLength(metadata)).thenReturn(fileSize);
+        return fileSize;
+    }
+
+    // Helper method to set up a successful download
+    private DownloadTask setupSuccessfulDownload(FileChannel mockChannel, long fileSize) throws Exception {
+        DownloadTask.Result mockResult = DownloadTask.Result.success(mockChannel, fileSize);
+
+        DownloadTask spyTask = spy(createDownloadTask());
+        doReturn(mockResult).when(spyTask).downloadSegment();
+
+        return spyTask;
+    }
+
+    // Helper method to create a DownloadTask
+    private DownloadTask createDownloadTask() {
+        return new DownloadTask(
+            mockTime,
+            tempDir.toString(),
+            mockDataFetcher,
+            metrics,
+            metadata,
+            rlmQuotaManager,
+            lock,
+            lockCondition
+        );
     }
 
     private void verifyTimerCount(String name, long expectedValue) {

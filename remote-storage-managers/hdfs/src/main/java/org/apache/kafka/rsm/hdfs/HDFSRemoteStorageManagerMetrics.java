@@ -638,7 +638,7 @@ public class HDFSRemoteStorageManagerMetrics {
         }
     }
 
-    public FileChannel timeSegmentDownload(ThrowingSupplier<FileChannel, IOException> fileChannelSupplier) throws IOException {
+    public FileChannel timeSegmentDownload(ThrowingSupplier<FileChannel, Exception> fileChannelSupplier) throws Exception {
         if (prefetchSegmentDownloadTimer == null) {
             return fileChannelSupplier.get();
         }

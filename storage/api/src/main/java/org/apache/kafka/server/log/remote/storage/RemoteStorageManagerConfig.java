@@ -19,4 +19,5 @@ package org.apache.kafka.server.log.remote.storage;
 public final class RemoteStorageManagerConfig {
 
     public static final String REMOTE_LOG_METADATA_MANAGER_SUPPLIER = "remote.log.metadata.manager.supplier";
+    public static final String METRICS = "metrics";
 }

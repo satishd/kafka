@@ -20,6 +20,8 @@
 
 <import-control pkg="org.apache.kafka.rsm">
     <allow pkg="java"/>
+    <allow pkg="kafka.log.remote.quota" />
+    <allow pkg="kafka.server" />
     <allow pkg="org.apache.commons.io" />
     <allow pkg="org.apache.hadoop" />
     <allow pkg="org.apache.kafka.common"/>

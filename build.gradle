@@ -2182,6 +2182,7 @@ project(':remote-storage-managers:hdfs') {
   dependencies {
     implementation project(':server-common')
     implementation project(':storage:storage-api')
+    implementation project(':core')
 
     implementation libs.hadoopHdfsClient
     implementation libs.hadoopCommon

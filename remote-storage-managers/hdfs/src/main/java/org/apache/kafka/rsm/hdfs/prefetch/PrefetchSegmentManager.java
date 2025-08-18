@@ -17,6 +17,11 @@
 
 package org.apache.kafka.rsm.hdfs.prefetch;
 
+import kafka.log.remote.quota.RLMQuotaManager;
+import kafka.log.remote.quota.RLMQuotaManagerConfig;
+import kafka.server.QuotaType;
+
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
@@ -46,31 +51,40 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_CONFIG;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_CONFIG;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_MAX_BYTES_PER_SECOND_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_QUOTA_WINDOW_NUM_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP;
 import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 
 public class PrefetchSegmentManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
 
     private final Time time = Time.SYSTEM;
     private final FileSystemManager fileSystemManager;
-    private final HDFSRemoteStorageManagerMetrics metrics;
+    private final HDFSRemoteStorageManagerMetrics rsmMetrics;
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition lockCondition = lock.newCondition();
 
+    private RLMQuotaManager quotaManager;
     private DataFetcher dataFetcher;
     private String localBaseDir;
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
 
-    public PrefetchSegmentManager(FileSystemManager fileSystemManager, HDFSRemoteStorageManagerMetrics metrics) {
+    public PrefetchSegmentManager(FileSystemManager fileSystemManager, HDFSRemoteStorageManagerMetrics rsmMetrics) {
         this.fileSystemManager = fileSystemManager;
-        this.metrics = metrics;
+        this.rsmMetrics = rsmMetrics;
     }
 
     public void configure(Map<String, ?> configs) {
@@ -79,23 +93,23 @@ public class PrefetchSegmentManager {
         String hadoopBaseDir = KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
         this.dataFetcher = new HDFSDataFetcher(hadoopBaseDir, fileSystemManager);
 
-        this.localBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_CONFIG);
+        this.localBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_PROP);
         // Ensure the local base directory exists
         File baseDir = new File(localBaseDir);
         if (!baseDir.exists() && !baseDir.mkdirs()) {
             throw new RuntimeException("Unable to create directory: " + baseDir.getAbsolutePath());
         }
 
-        int corePoolSize = conf.getInt(PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG);
-        int maxPoolSize = conf.getInt(PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG);
-        int queueCapacity = conf.getInt(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG);
+        int corePoolSize = conf.getInt(PREFETCH_THREAD_POOL_CORE_SIZE_PROP);
+        int maxPoolSize = conf.getInt(PREFETCH_THREAD_POOL_MAX_SIZE_PROP);
+        int queueCapacity = conf.getInt(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP);
         this.threadPoolExecutor = new ThreadPoolExecutor(corePoolSize, maxPoolSize, 0L, TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<>(queueCapacity),
             ThreadUtils.createThreadFactory("remote-log-prefetch", false,
                 (t, e) -> LOGGER.error("Uncaught exception in thread '{}':", t.getName(), e)));
 
-        int maxCacheSize = conf.getInt(PREFETCH_CACHE_MAX_SIZE_CONFIG);
-        int expireAfterAccessMinutes = conf.getInt(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG);
+        int maxCacheSize = conf.getInt(PREFETCH_CACHE_MAX_SIZE_PROP);
+        int expireAfterAccessMinutes = conf.getInt(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP);
         this.segmentCache = Caffeine.newBuilder()
                 .maximumSize(maxCacheSize)
                 .expireAfterAccess(expireAfterAccessMinutes, TimeUnit.MINUTES)
@@ -103,7 +117,20 @@ public class PrefetchSegmentManager {
                 .recordStats()
                 .build();
 
-        metrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.localBaseDir);
+        rsmMetrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.localBaseDir);
+
+        RLMQuotaManagerConfig rlmQuotaManagerConfig = fetchQuotaManagerConfig(conf);
+        Metrics metrics = (Metrics) configs.get(METRICS);
+        this.quotaManager = new RLMQuotaManager(rlmQuotaManagerConfig, metrics, QuotaType.RLMPrefetch$.MODULE$,
+            "Tracking prefetch byte-rate for Remote Log Manager", time);
+    }
+
+    static RLMQuotaManagerConfig fetchQuotaManagerConfig(HDFSRemoteStorageManagerConfig config) {
+        return new RLMQuotaManagerConfig(
+            config.getLong(PREFETCH_MAX_BYTES_PER_SECOND_PROP),
+            config.getInt(PREFETCH_QUOTA_WINDOW_NUM_PROP),
+            config.getInt(PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP)
+        );
     }
 
     @VisibleForTesting
@@ -129,7 +156,7 @@ public class PrefetchSegmentManager {
 
         try {
             InputStream inputStream = RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), startPosition, endPosition);
-            metrics.markPrefetchSegmentRead();
+            rsmMetrics.markPrefetchSegmentRead();
             return inputStream;
         } catch (Exception e) {
             throw e;
@@ -161,9 +188,9 @@ public class PrefetchSegmentManager {
         try {
             Task task = new Task(segmentMetadata);
             threadPoolExecutor.submit(task);
-            metrics.markPrefetchRequests();
+            rsmMetrics.markPrefetchRequests();
         } catch (RejectedExecutionException e) {
-            metrics.markPrefetchThreadPoolExecutorRejection();
+            rsmMetrics.markPrefetchThreadPoolExecutorRejection();
             LOGGER.error("Task rejected by thread pool for segment: {}", segmentMetadata.remoteLogSegmentId(), e);
             signalDownloadFailure(segmentMetadata);
         } catch (Exception e) {
@@ -175,12 +202,12 @@ public class PrefetchSegmentManager {
     private void signalDownloadSuccess(RemoteLogSegmentMetadata segmentMetadata, FileChannel fileChannel) {
         Path filePath = Paths.get(RSMUtils.segmentPrefetchPath(localBaseDir, segmentMetadata));
         segmentCache.put(segmentMetadata.remoteLogSegmentId(), new CacheValue(PrefetchStatus.SUCCESS, filePath, fileChannel));
-        metrics.markPrefetchRequestSuccess();
+        rsmMetrics.markPrefetchRequestSuccess();
     }
 
     private void signalDownloadFailure(RemoteLogSegmentMetadata segmentMetadata) {
         segmentCache.invalidate(segmentMetadata.remoteLogSegmentId());
-        metrics.markPrefetchRequestFailure();
+        rsmMetrics.markPrefetchRequestFailure();
     }
 
     private class Task implements Runnable {
@@ -189,7 +216,7 @@ public class PrefetchSegmentManager {
 
         public Task(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
             this.remoteLogSegmentMetadata = remoteLogSegmentMetadata;
-            this.downloadTask = new DownloadTask(time, localBaseDir, dataFetcher, metrics, remoteLogSegmentMetadata);
+            this.downloadTask = new DownloadTask(time, localBaseDir, dataFetcher, rsmMetrics, remoteLogSegmentMetadata, quotaManager, lock, lockCondition);
         }
 
         @Override

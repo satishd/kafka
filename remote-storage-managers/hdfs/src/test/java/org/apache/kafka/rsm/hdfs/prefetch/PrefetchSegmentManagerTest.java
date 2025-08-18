@@ -18,6 +18,7 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
@@ -63,6 +64,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -115,12 +117,13 @@ public class PrefetchSegmentManagerTest {
         // Create a common configuration
         configs = new HashMap<>();
         configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, HDFS_BASE_DIR);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_CONFIG, tempDir.toString());
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG, 2);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG, 4);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG, 10);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_CONFIG, 100);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_CONFIG, 30);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP, tempDir.toString());
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 2);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 4);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 10);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_PROP, 100);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, 30);
+        configs.put(METRICS, new Metrics());
     }
 
     @Test
@@ -366,9 +369,9 @@ public class PrefetchSegmentManagerTest {
     @Test
     public void testRejectedExecution() throws IOException, InterruptedException {
         clearKafkaMetrics();
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_CONFIG, 1);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_CONFIG, 1);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_CONFIG, 1);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 1);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 1);
+        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 1);
         segmentManager.configure(configs);
 
         // Verify initial metrics
