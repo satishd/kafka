@@ -155,7 +155,7 @@ public class RemoteLogMetadataCacheTest {
         assertFalse(cache.isInitialized());
         Thread t = new Thread(() -> {
             try {
-                cache.awaitInitialized(5, TimeUnit.SECONDS);
+                cache.awaitInitialized(2000, TimeUnit.MILLISECONDS);
                 latch.countDown();
             } catch (InterruptedException e) {
                 fail("Shouldn't throw InterruptedException");
