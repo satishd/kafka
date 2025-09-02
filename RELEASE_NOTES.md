@@ -1,3 +1,9 @@
+# Release Kafka 3.9.3-uber build
+
+- Reduce the remote log metadata init latch await timeout
+- Added metrics when a segment is read from prefetch directory
+- Fix scala 2.12.19 compilation error in Kafka 3.9 test classes
+
 # Release Kafka 3.9.2-uber build
 
 - Upgrade hadoop client to v2.8.2.61
