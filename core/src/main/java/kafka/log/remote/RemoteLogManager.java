@@ -19,7 +19,6 @@ package kafka.log.remote;
 import kafka.cluster.EndPoint;
 import kafka.cluster.Partition;
 import kafka.log.AsyncOffsetReadFutureHolder;
-import kafka.log.LogMetricNames;
 import kafka.log.UnifiedLog;
 import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.log.remote.quota.RLMQuotaManagerConfig;
@@ -155,10 +154,12 @@ import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_COMMON_CLIENT_PREFIX;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.LOCAL_SIZE_IN_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASKS_AVG_IDLE_PERCENT_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC;
+import static org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics.SIZE_IN_PERCENT_METRIC;
 
 /**
  * This class is responsible for
@@ -379,8 +380,6 @@ public class RemoteLogManager implements Closeable {
         metricsGroup.removeMetric(REMOTE_LOG_READER_FETCH_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_WRITER_COPY_RATE_AND_TIME_METRIC);
         metricsGroup.removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
-        metricsGroup.removeMetric(LogMetricNames.SizeInPercent());
-        metricsGroup.removeMetric(LogMetricNames.LocalSizeInPercent());
         remoteStorageReaderThreadPool.removeMetrics();
         remoteStorageOffsetReaderThreadPool.removeMetrics();
     }
@@ -918,31 +917,23 @@ public class RemoteLogManager implements Closeable {
         return null;
     }
 
+    // VisibleForTesting
+    RLMExpirationTask rlmExpirationTask(TopicIdPartition topicIdPartition) {
+        RLMTaskWithFuture task = leaderExpirationRLMTasks.get(topicIdPartition);
+        if (task != null) {
+            return (RLMExpirationTask) task.rlmTask;
+        }
+        return null;
+    }
+
     abstract class RLMTask extends CancellableRunnable {
 
         protected final TopicIdPartition topicIdPartition;
         private final Logger logger;
-        protected AtomicInteger sizeInPercentValue = new AtomicInteger(0);
-        protected AtomicInteger localSizeInPercentValue = new AtomicInteger(0);
 
         public RLMTask(TopicIdPartition topicIdPartition) {
             this.topicIdPartition = topicIdPartition;
             this.logger = getLogContext().logger(RLMTask.class);
-
-            Map<String, String> metricTags = new HashMap<>();
-            metricTags.put("topic", topicIdPartition.topic());
-            metricTags.put("partition", Integer.toString(topicIdPartition.partition()));
-            metricsGroup.newGauge(LogMetricNames.SizeInPercent(), sizeInPercentValue::get, metricTags);
-            metricsGroup.newGauge(LogMetricNames.LocalSizeInPercent(), localSizeInPercentValue::get, metricTags);
-        }
-
-        @Override
-        public void cancel() {
-            // Reset metrics to 0 immediately when task is cancelled to prevent stale values
-            sizeInPercentValue.set(0);
-            localSizeInPercentValue.set(0);
-            logger.debug("Reset partition size metrics as the task got cancelled for {}", topicIdPartition);
-            super.cancel();
         }
 
         protected LogContext getLogContext() {
@@ -1260,15 +1251,70 @@ public class RemoteLogManager implements Closeable {
 
     class RLMExpirationTask extends RLMTask {
         private final Logger logger;
+        private volatile boolean metricsRegistered = false;
+        private final Map<String, String> metricTags = new HashMap<>();
+        private final AtomicInteger sizeInPercentValue = new AtomicInteger(0);
+        private final AtomicInteger localSizeInPercentValue = new AtomicInteger(0);
+
+        int sizeInPercent() {
+            return sizeInPercentValue.get();
+        }
+
+        int localSizeInPercent() {
+            return localSizeInPercentValue.get();
+        }
 
         public RLMExpirationTask(TopicIdPartition topicIdPartition) {
             super(topicIdPartition);
             this.logger = getLogContext().logger(RLMExpirationTask.class);
+            metricTags.put("topic", topicIdPartition.topic());
+            metricTags.put("partition", Integer.toString(topicIdPartition.partition()));
+            // Metrics will be registered on first run() to avoid constructor timing issues
+        }
+        
+        private void ensureMetricsRegistered() {
+            if (!metricsRegistered && !isCancelled()) {
+                metricsGroup.newGauge(SIZE_IN_PERCENT_METRIC.getName(), sizeInPercentValue::get, metricTags);
+                metricsGroup.newGauge(LOCAL_SIZE_IN_PERCENT_METRIC.getName(), localSizeInPercentValue::get, metricTags);
+                metricsRegistered = true;
+            }
+        }
+
+        @Override
+        public void cancel() {
+            // Reset metrics to 0 immediately when task is cancelled to prevent stale values
+            sizeInPercentValue.set(0);
+            localSizeInPercentValue.set(0);
+            // Remove metrics only if they were actually registered
+            if (metricsRegistered) {
+                metricsGroup.removeMetric(SIZE_IN_PERCENT_METRIC.getName(), metricTags);
+                metricsGroup.removeMetric(LOCAL_SIZE_IN_PERCENT_METRIC.getName(), metricTags);
+                metricsRegistered = false;
+            }
+            super.cancel();
         }
 
         @Override
         protected void execute(UnifiedLog log) throws InterruptedException, RemoteStorageException, ExecutionException {
+            // Register metrics on first execution (after task is safely scheduled)
+            ensureMetricsRegistered();
             cleanupExpiredRemoteLogSegments();
+        }
+
+        private void calculateSizeInPercent(long totalSize,
+                                            long retentionSize,
+                                            long onlyLocalLogSegmentsSize,
+                                            long localRetentionBytes) {
+            int sizePercentage = retentionSize > 0 ?
+                    (int) ((totalSize * 100.0) / retentionSize) : 0;
+            sizeInPercentValue.set(sizePercentage);
+
+            // Calculate local partition size percentage
+            int localSizePercentage = localRetentionBytes > 0 ?
+                    (int) ((onlyLocalLogSegmentsSize * 100.0) / localRetentionBytes) : 0;
+            localSizeInPercentValue.set(localSizePercentage);
+            logger.trace("Local partition size metric::value: {}, localLogSize: {}, localRetentionBytes: {}; Partition size metric::value: {}, totalSize: {}, retentionSize: {}", localSizePercentage, onlyLocalLogSegmentsSize,
+                    localRetentionBytes, sizePercentage, totalSize, retentionSize);
         }
 
         public void handleLogStartOffsetUpdate(TopicPartition topicPartition, long remoteLogStartOffset) {
@@ -1408,6 +1454,8 @@ public class RemoteLogManager implements Closeable {
             if (!segmentMetadataIter.hasNext()) {
                 updateMetadataCountAndLogSizeWith(0, 0);
                 logger.debug("No remote log segments available on remote storage for partition: {}", topicIdPartition);
+
+                calculateSizeInPercent(log.size(), log.config().retentionSize, log.onlyLocalLogSegmentsSize(), log.config().localRetentionBytes());
                 return;
             }
 
@@ -1607,17 +1655,7 @@ public class RemoteLogManager implements Closeable {
                 // This is the total size of segments in local log that have their base-offset > local-log-start-offset
                 // and size of the segments in remote storage which have their end-offset < local-log-start-offset.
                 long totalSize = onlyLocalLogSegmentsSize + remoteLogSizeBytes;
-
-                int sizePercentage = retentionSize > 0 ?
-                        (int) ((totalSize * 100.0) / retentionSize) : 0;
-                sizeInPercentValue.set(sizePercentage);
-
-                // Calculate local partition size percentage
-                int localSizePercentage = localRetentionBytes > 0 ?
-                        (int) ((onlyLocalLogSegmentsSize * 100.0) / localRetentionBytes) : 0;
-                localSizeInPercentValue.set(localSizePercentage);
-                logger.trace("Local partition size metric::value: {}, localLogSize: {}, localRetentionBytes: {}; Partition size metric::value: {}, totalSize: {}, retentionSize: {}", localSizePercentage, onlyLocalLogSegmentsSize,
-                        localRetentionBytes, sizePercentage, totalSize, retentionSize);
+                calculateSizeInPercent(totalSize, retentionSize, onlyLocalLogSegmentsSize, localRetentionBytes);
                 if (totalSize > retentionSize) {
                     long remainingBreachedSize = totalSize - retentionSize;
                     RetentionSizeData retentionSizeData = new RetentionSizeData(retentionSize, remainingBreachedSize);
@@ -2337,11 +2375,6 @@ public class RemoteLogManager implements Closeable {
             brokerTopicStats.removeRemoteLogSizeComputationTime(topic, partition);
             brokerTopicStats.removeRemoteLogSizeBytes(topic, partition);
         }
-        Map<String, String> tags = new HashMap<>();
-        tags.put("topic", topicIdPartition.topic());
-        tags.put("partition", Integer.toString(topicIdPartition.partition()));
-        metricsGroup.removeMetric(LogMetricNames.SizeInPercent(), tags);
-        metricsGroup.removeMetric(LogMetricNames.LocalSizeInPercent(), tags);
     }
 
     //Visible for testing

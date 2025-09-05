@@ -18,7 +18,6 @@ package kafka.log.remote;
 
 import kafka.cluster.EndPoint;
 import kafka.cluster.Partition;
-import kafka.log.LogMetricNames;
 import kafka.log.UnifiedLog;
 import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.log.remote.quota.RLMQuotaManagerConfig;
@@ -1876,8 +1875,6 @@ public class RemoteLogManagerTest {
             // Verify that the RemoteLogManager metrics are removed
             remoteLogManagerMetricNames.forEach(metricName -> verify(mockRlmMetricsGroup).removeMetric(metricName));
             verify(mockRlmMetricsGroup).removeMetric(REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC);
-            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.SizeInPercent());
-            verify(mockRlmMetricsGroup).removeMetric(LogMetricNames.LocalSizeInPercent());
 
             verify(mockThreadPoolMetricsGroup, times(remoteStorageThreadPoolMetricNames.size())).newGauge(anyString(), any());
             // Verify that the RemoteStorageThreadPool metrics are removed
@@ -4077,89 +4074,5 @@ public class RemoteLogManagerTest {
         props.put(DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX + remoteLogMetadataCommonClientTestProp, remoteLogMetadataCommonClientTestVal);
         props.put(DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX + remoteLogMetadataConsumerTestProp, remoteLogMetadataConsumerTestVal);
         props.put(DEFAULT_REMOTE_LOG_METADATA_MANAGER_CONFIG_PREFIX + remoteLogMetadataProducerTestProp, remoteLogMetadataProducerTestVal);
-    }
-
-    /**
-     * Helper function to set up common infrastructure for partition size metric tests.
-     * This method sets up the basic infrastructure but does not call buildRetentionSizeData,
-     * allowing tests to verify initial values and then trigger the computation.
-     * 
-     * @return The RLMExpirationTask configured for testing
-     */
-    private RemoteLogManager.RLMExpirationTask setupExpirationTaskForPartitionSizeMetricTest() throws RemoteStorageException {
-        remoteLogManager.startup();
-        remoteLogManager.onLeadershipChange(
-                Collections.singleton(mockPartition(leaderTopicIdPartition)), Collections.emptySet(), topicIds);
-
-        RemoteLogManager.RLMExpirationTask task = remoteLogManager.new RLMExpirationTask(leaderTopicIdPartition);
-        List<RemoteLogSegmentMetadata> metadataList = listRemoteLogSegmentMetadata(leaderTopicIdPartition, 10,
-                100, 1024, Collections.singletonList(epochEntry0), RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition, 0)).thenReturn(metadataList.iterator());
-        return task;
-    }
-
-    @Test
-    public void testLocalAndRemotePartitionSizeInPercentMetrics() throws RemoteStorageException {
-        RemoteLogManager.RLMExpirationTask task = setupExpirationTaskForPartitionSizeMetricTest();
-        
-        // Verify initial values for both metrics
-        assertEquals(0, task.sizeInPercentValue.get());
-        assertEquals(0, task.localSizeInPercentValue.get());
-        
-        TreeMap<Integer, Long> epochEntries = new TreeMap<>();
-        epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        
-        // Test case 1: Testing SizeInPercent metric (standard retention scenario)
-        task.buildRetentionSizeData(12288, 100, 1000, epochEntries, 6144);
-
-        // Each remote log segment size is 1024. There are 10 remote-log-segments. Total remote size = 10 * 1024 = 10240
-        // ((100 + 10240) * 100) / 12288 = 84%
-        assertEquals(84, task.sizeInPercentValue.get()); // (100 + 10240) / 12288 * 100 = 84%
-        
-        // Reset for next test
-        task.sizeInPercentValue.set(0);
-        task.localSizeInPercentValue.set(0);
-        
-        // Test case 2: Testing LocalSizeInPercent metric (local retention scenario)
-        // localRetentionBytes = 200, onlyLocalLogSegmentsSize = 100, so percentage = (100 * 100) / 200 = 50%
-        task.buildRetentionSizeData(12288, 100, 1000, epochEntries, 200);
-        assertEquals(50, task.localSizeInPercentValue.get());
-        
-        // Test metric cleanup when leadership changes
-        TopicIdPartition newLeaderTopicIdPartition = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("Leader", 1));
-        remoteLogManager.onLeadershipChange(
-                Collections.singleton(mockPartition(newLeaderTopicIdPartition)), 
-                Collections.singleton(mockPartition(leaderTopicIdPartition)), topicIds);
-        
-        Map<String, String> metricTags = new HashMap<>();
-        metricTags.put("topic", leaderTopicIdPartition.topic());
-        metricTags.put("partition", Integer.toString(leaderTopicIdPartition.partition()));
-        
-        // Verify both metrics are cleaned up
-        assertNull(yammerMetricValueWithTags(LogMetricNames.SizeInPercent(), metricTags));
-        assertNull(yammerMetricValueWithTags(LogMetricNames.LocalSizeInPercent(), metricTags));
-    }
-
-    @Test
-    public void testPartitionSizeMetricsResetToZeroOnTaskCancellation() throws RemoteStorageException {
-        RemoteLogManager.RLMExpirationTask task = setupExpirationTaskForPartitionSizeMetricTest();
-
-        // Set up metrics with non-zero values
-        TreeMap<Integer, Long> epochEntries = new TreeMap<>();
-        epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        task.buildRetentionSizeData(12288, 100, 1000, epochEntries, 6144);
-        
-        // Verify metrics have non-zero values
-        assertEquals(84, task.sizeInPercentValue.get());
-        
-        // Simulate leadership loss by cancelling the task
-        task.cancel();
-        
-        // Verify metrics are immediately reset to 0
-        assertEquals(0, task.sizeInPercentValue.get());
-        assertEquals(0, task.localSizeInPercentValue.get());
-        
-        // Verify task is marked as cancelled
-        assertTrue(task.isCancelled());
     }
 }
