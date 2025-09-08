@@ -164,7 +164,7 @@ versions += [
   // Also make sure the compression levels in org.apache.kafka.common.record.CompressionType are still valid
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
-  kafkasecurity: "2.0.11",
+  kafkasecurity: "2.0.14",
   hadoop: '2.8.2.61',
   brokerHadoopConnector: '0.10.8-176',
 ]
