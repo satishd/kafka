@@ -39,7 +39,7 @@ import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoderConfigs
 import org.apache.kafka.server.authorizer._
 import org.apache.kafka.server.config.{KRaftConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
-import org.apache.kafka.server.log.remote.storage.{RemoteLogManagerConfig, RemoteStorageProvider}
+import org.apache.kafka.server.log.remote.storage.{RemoteLogManagerConfig, RemoteStorageManager, RemoteStorageProvider}
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.util.KafkaScheduler
 import org.apache.kafka.storage.internals.log.{CleanerConfig, LogConfig, ProducerStateManagerConfig}
@@ -586,6 +586,7 @@ class DynamicBrokerConfigTest {
     val producerStateManagerConfig: ProducerStateManagerConfig = mock(classOf[ProducerStateManagerConfig])
     when(logManager.producerStateManagerConfig).thenReturn(producerStateManagerConfig)
     when(kafkaServer.logManager).thenReturn(logManager)
+    when(kafkaServer.remoteLogManagerOpt).thenReturn(None)
 
     val authorizer = new TestAuthorizer
     when(kafkaServer.authorizer).thenReturn(Some(authorizer))
@@ -1591,6 +1592,64 @@ class DynamicBrokerConfigTest {
     } catch {
       case e: ConfigException => // expected exception
     }
+  }
+
+  @Test
+  def testDynamicRemoteStorageManagerConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+
+    // Enable tiered-storage
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true.toString)
+    props.put(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP, "remote.log.storage.")
+    val config = KafkaConfig.fromProps(props)
+
+    val newProps = new Properties()
+    newProps.putAll(props)
+    newProps.put("remote.log.storage.key", "value")
+    val newConfig = KafkaConfig(newProps)
+    val newConfigMap = newConfig.originals.asScala.map { case (k, v) => (k, v) }.toMap.asJava
+
+    val reconfigurables = Set("key").asJava
+
+    // Mockito mocks
+    val remoteStorageManager: RemoteStorageManager = mock(classOf[RemoteStorageManager])
+    when(remoteStorageManager.reconfigurableConfigs()).thenReturn(reconfigurables)
+
+    val remoteLogManager: RemoteLogManager = mock(classOf[RemoteLogManager])
+    when(remoteLogManager.storageManager()).thenReturn(remoteStorageManager)
+
+    val kafkaBroker: KafkaBroker = mock(classOf[KafkaBroker])
+    when(kafkaBroker.config).thenReturn(config)
+    when(kafkaBroker.remoteLogManagerOpt).thenReturn(Some(remoteLogManager))
+
+    // Verify reconfigurableConfigs returned by DynamicRemoteStorageManagerConfig is same as reconfigurable from RSM
+    val dynamicRemoteStorageManagerConfig = new DynamicRemoteStorageManagerConfig(kafkaBroker)
+    assertEquals(Set("remote.log.storage.key").asJava, dynamicRemoteStorageManagerConfig.reconfigurableConfigs)
+
+    def verifyCapturedMap(capturedMap: util.Map[String, Any]): Unit = {
+      assertEquals(3, capturedMap.size)
+      assertEquals("value", capturedMap.get("key"))
+      assertEquals("true", capturedMap.get("system.enable"))
+      assertEquals("remote.log.storage.", capturedMap.get("manager.impl.prefix"))
+    }
+
+    // Invoke and capture arguments for validateReconfiguration
+    dynamicRemoteStorageManagerConfig.validateReconfiguration(newConfigMap)
+    val validateCaptor: ArgumentCaptor[JMap[_, _]] = ArgumentCaptor.forClass(classOf[JMap[_, _]])
+    verify(remoteStorageManager).validateReconfiguration(validateCaptor.capture().asInstanceOf[JMap[String, Any]])
+    verifyCapturedMap(validateCaptor.getValue.asInstanceOf[JMap[String, Any]])
+
+    // Invoke and capture arguments for reconfigure
+    dynamicRemoteStorageManagerConfig.reconfigure(newConfigMap)
+    val reconfigureCaptor: ArgumentCaptor[JMap[_, _]] = ArgumentCaptor.forClass(classOf[JMap[_, _]])
+    verify(remoteStorageManager).reconfigure(reconfigureCaptor.capture().asInstanceOf[JMap[String, Any]])
+    verifyCapturedMap(reconfigureCaptor.getValue.asInstanceOf[JMap[String, Any]])
+
+    // Also verify we queried the reconfigurable configs
+    verify(remoteStorageManager).reconfigurableConfigs()
+
+    // Ensure no unexpected extra interactions
+    verifyNoMoreInteractions(remoteStorageManager)
   }
 }
 

@@ -21,7 +21,10 @@ import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.log.remote.quota.RLMQuotaManagerConfig;
 import kafka.server.QuotaType;
 
+import org.apache.kafka.common.Reconfigurable;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.metrics.Quota;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
@@ -46,7 +49,9 @@ import java.io.InputStream;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -67,7 +72,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_
 import static org.apache.kafka.rsm.hdfs.RSMUtils.KLOAK_USER;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 
-public class PrefetchSegmentManager {
+public class PrefetchSegmentManager implements Reconfigurable {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
 
     private final Time time = Time.SYSTEM;
@@ -131,6 +136,24 @@ public class PrefetchSegmentManager {
             config.getInt(PREFETCH_QUOTA_WINDOW_NUM_PROP),
             config.getInt(PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP)
         );
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs() {
+        return Collections.singleton(PREFETCH_MAX_BYTES_PER_SECOND_PROP);
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        // Currently no-op
+    }
+
+    @Override
+    public void reconfigure(Map<String, ?> configs) {
+        String prefetchMaxBytesPerSecond = (String) configs.get(PREFETCH_MAX_BYTES_PER_SECOND_PROP);
+        if (prefetchMaxBytesPerSecond != null) {
+            this.quotaManager.updateQuota(new Quota(Long.parseLong(prefetchMaxBytesPerSecond), true));
+        }
     }
 
     @VisibleForTesting

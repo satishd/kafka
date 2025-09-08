@@ -17,6 +17,7 @@
 
 package org.apache.kafka.rsm.hdfs.prefetch;
 
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.server.common.OffsetAndEpoch;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
@@ -60,6 +62,20 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
     public void configure(Map<String, ?> configs) {
         this.rlmmSupplier = (Supplier<RemoteLogMetadataManager>) configs.get(REMOTE_LOG_METADATA_MANAGER_SUPPLIER);
         this.prefetchSegmentManager.configure(configs);
+    }
+
+    @Override
+    public Set<String> reconfigurableConfigs()  {
+        return prefetchSegmentManager.reconfigurableConfigs();
+    }
+
+    @Override
+    public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        prefetchSegmentManager.validateReconfiguration(configs);
+    }
+
+    public void reconfigure(Map<String, ?> configs) {
+        prefetchSegmentManager.reconfigure(configs);
     }
 
     @Override

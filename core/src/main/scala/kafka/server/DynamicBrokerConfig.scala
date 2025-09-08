@@ -271,6 +271,9 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addReconfigurable(kafkaServer.kafkaYammerMetrics)
     addReconfigurable(new DynamicMetricsReporters(kafkaConfig.brokerId, kafkaServer.config, kafkaServer.metrics, kafkaServer.clusterId))
     addReconfigurable(new DynamicClientQuotaCallback(kafkaServer.quotaManagers, kafkaServer.config))
+    if (kafkaServer.remoteLogManagerOpt.nonEmpty) {
+      addReconfigurable(new DynamicRemoteStorageManagerConfig(kafkaServer))
+    }
 
     addBrokerReconfigurable(new BrokerDynamicThreadPool(kafkaServer))
     addBrokerReconfigurable(new DynamicLogConfig(kafkaServer.logManager, kafkaServer))
@@ -1166,6 +1169,35 @@ class DynamicProducerStateManagerConfig(val producerStateManagerConfig: Producer
 
   override def reconfigurableConfigs: Set[String] = DynamicProducerStateManagerConfig
 
+}
+
+class DynamicRemoteStorageManagerConfig(server: KafkaBroker) extends Reconfigurable with Logging {
+  val prefix = server.config.get(RemoteLogManagerConfig.REMOTE_STORAGE_MANAGER_CONFIG_PREFIX_PROP).asInstanceOf[String]
+
+  override def reconfigurableConfigs: util.Set[String] = {
+    server.remoteLogManagerOpt.get.storageManager().reconfigurableConfigs().asScala
+      .map((s: String) => prefix + s)
+      .asJava
+  }
+
+  private def removePrefix(configs: util.Map[String, _]): util.Map[String, _] = {
+    configs.asScala
+      .filter(_._1.startsWith(prefix))
+      .map { case (k, v) => (k.substring(prefix.length), v) }
+      .asJava
+  }
+
+  override def validateReconfiguration(configs: util.Map[String, _]): Unit = {
+    val rsmConfigs = removePrefix(configs)
+    server.remoteLogManagerOpt.get.storageManager().validateReconfiguration(rsmConfigs)
+  }
+
+  override def reconfigure(configs: util.Map[String, _]): Unit = {
+    val rsmConfigs = removePrefix(configs)
+    server.remoteLogManagerOpt.get.storageManager().reconfigure(rsmConfigs)
+  }
+
+  override def configure(configs: util.Map[String, _]): Unit = {}
 }
 
 class DynamicRemoteLogConfig(server: KafkaBroker) extends BrokerReconfigurable with Logging {

@@ -17,13 +17,14 @@
 
 package org.apache.kafka.rsm.hdfs.prefetch;
 
+import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
 import java.io.InputStream;
 import java.util.Map;
 
-public interface RemoteDataPrefetcher {
+public interface RemoteDataPrefetcher extends Reconfigurable {
 
     void configure(Map<String, ?> configs);
 

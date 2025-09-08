@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,17 +74,22 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        return hdfsRemoteStorageManager.reconfigurableConfigs();
+        Set<String> configs = new HashSet<>();
+        configs.addAll(hdfsRemoteStorageManager.reconfigurableConfigs());
+        configs.addAll(remoteDataPrefetcher.reconfigurableConfigs());
+        return configs;
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
         hdfsRemoteStorageManager.validateReconfiguration(configs);
+        remoteDataPrefetcher.validateReconfiguration(configs);
     }
 
     @Override
     public void reconfigure(Map<String, ?> configs) {
         hdfsRemoteStorageManager.reconfigure(configs);
+        remoteDataPrefetcher.reconfigure(configs);
     }
 
     @Override
