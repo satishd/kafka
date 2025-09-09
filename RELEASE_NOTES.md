@@ -1,3 +1,10 @@
+# Release Kafka 3.9.4-uber build
+
+- Fix SizeInPercent and LocalSizeInPercent metrics
+- Bump kafkasecurity jar to 2.0.14 version
+- Quota manager integration for prefetch
+- Enable privileged FetchSession for remote log metadata client
+
 # Release Kafka 3.9.3-uber build
 
 - Reduce the remote log metadata init latch await timeout
