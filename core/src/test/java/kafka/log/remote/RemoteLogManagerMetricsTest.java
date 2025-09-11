@@ -38,6 +38,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
 import org.apache.kafka.storage.internals.log.EpochEntry;
 import org.apache.kafka.storage.internals.log.LogConfig;
 
@@ -55,6 +56,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.TreeMap;
+import java.util.function.Function;
 
 import scala.Option;
 
@@ -85,6 +87,7 @@ public class RemoteLogManagerMetricsTest {
     private EpochEntry epochEntry0;
     private Map<String, Uuid> topicIds;
     private UnifiedLog mockLog;
+    private UnifiedLog mockLogForPartition;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -111,7 +114,14 @@ public class RemoteLogManagerMetricsTest {
             logDir,
             clusterId,
             time,
-            tp -> Optional.of(mockLog),
+            tp -> {
+                // Check if we have a specific mock for this partition
+                if (tp.equals(leaderTopicIdPartition.topicPartition()) && 
+                    mockLogForPartition != null) {
+                    return Optional.of(mockLogForPartition);
+                }
+                return Optional.of(mockLog);
+            },
             (topicPartition, offset) -> { },
             brokerTopicStats,
             metrics
@@ -287,6 +297,25 @@ public class RemoteLogManagerMetricsTest {
         return partition;
     }
 
+    private Partition mockPartitionWithLogSizes(TopicIdPartition topicIdPartition, long logSize, long onlyLocalLogSegmentsSize, long retentionSize, long localRetentionBytes) {
+        TopicPartition tp = topicIdPartition.topicPartition();
+        Partition partition = mock(Partition.class);
+        UnifiedLog log = mock(UnifiedLog.class);
+        Properties logProps = new Properties();
+        logProps.setProperty("retention.bytes", String.valueOf(retentionSize));
+        logProps.setProperty("local.retention.bytes", String.valueOf(localRetentionBytes));
+        LogConfig logConfig = new LogConfig(logProps);
+        
+        when(partition.topicPartition()).thenReturn(tp);
+        when(partition.topic()).thenReturn(tp.topic());
+        when(log.remoteLogEnabled()).thenReturn(true);
+        when(partition.log()).thenReturn(Option.apply(log));
+        when(log.config()).thenReturn(logConfig);
+        when(log.size()).thenReturn(logSize);
+        when(log.onlyLocalLogSegmentsSize()).thenReturn(onlyLocalLogSegmentsSize);
+        return partition;
+    }
+
     @Test
     public void testRLMExpirationTaskMetricsLifecycle() throws IOException, RemoteStorageException {
         RLMExpirationTask task = setupExpirationTaskForPartitionSizeMetricTest();
@@ -396,5 +425,127 @@ public class RemoteLogManagerMetricsTest {
         // Verify metrics are properly set after becoming leader
         assertEquals(84, leaderTask.sizeInPercent());
         assertEquals(1, leaderTask.localSizeInPercent());
+    }
+
+    @Test
+    public void testMetricsWithNoRemoteLogSegments() throws RemoteStorageException, IOException {
+        
+        // Set up specific log sizes for predictable calculations
+        long logSize = 1000L;                    // Total log size
+        long onlyLocalLogSegmentsSize = 200L;    // Local segments size
+        long retentionSize = 5000L;              // Total retention limit
+        long localRetentionBytes = 1000L;        // Local retention limit
+        
+        // Initially set up some remote log segments (5 segments * 512 bytes = 2560 bytes)
+        List<RemoteLogSegmentMetadata> initialMetadataList = listOfRemoteLogSegmentMetadata(
+            leaderTopicIdPartition, 5, 100, 512, 
+            Collections.singletonList(epochEntry0), RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        
+        // Mock the metadata manager to return initial segments
+        // Use thenAnswer to provide fresh iterators for each call
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
+            .thenAnswer(invocation -> initialMetadataList.iterator());
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition, 0))
+            .thenAnswer(invocation -> initialMetadataList.iterator());
+        when(remoteLogMetadataManager.isReady(leaderTopicIdPartition)).thenReturn(true);
+        
+        // Create a dedicated mock log for this test
+        UnifiedLog mockLogForTest = mock(UnifiedLog.class);
+        Properties logProps = new Properties();
+        logProps.setProperty("retention.bytes", String.valueOf(retentionSize));
+        logProps.setProperty("local.retention.bytes", String.valueOf(localRetentionBytes));
+        LogConfig logConfig = new LogConfig(logProps);
+        
+        // Create a mock leader epoch cache
+        LeaderEpochFileCache mockEpochCache = mock(LeaderEpochFileCache.class);
+        
+        // Mock all required log methods
+        when(mockLogForTest.remoteLogEnabled()).thenReturn(true);
+        when(mockLogForTest.config()).thenReturn(logConfig);
+        when(mockLogForTest.size()).thenReturn(logSize);
+        when(mockLogForTest.onlyLocalLogSegmentsSize()).thenReturn(onlyLocalLogSegmentsSize);
+        when(mockLogForTest.leaderEpochCache()).thenReturn(Option.apply(mockEpochCache));
+        when(mockLogForTest.logStartOffset()).thenReturn(0L);
+        when(mockLogForTest.logEndOffset()).thenReturn(1000L);
+        when(mockLogForTest.highWatermark()).thenReturn(1000L);
+        
+        // Mock epoch cache methods
+        when(mockEpochCache.latestEpoch()).thenReturn(java.util.OptionalInt.of(0));
+        when(mockEpochCache.epochForOffset(0L)).thenReturn(java.util.OptionalInt.of(0));
+        
+        // Mock epochWithOffsets() - this is crucial for buildRetentionSizeData to work
+        TreeMap<Integer, Long> epochWithOffsets = new TreeMap<>();
+        epochWithOffsets.put(epochEntry0.epoch, epochEntry0.startOffset);
+        when(mockEpochCache.epochWithOffsets()).thenReturn(epochWithOffsets);
+        
+        // Create RemoteLogManager with custom fetchLog that returns our mock
+        Function<TopicPartition, Optional<UnifiedLog>> customFetchLog = tp -> {
+            if (tp.equals(leaderTopicIdPartition.topicPartition())) {
+                return Optional.of(mockLogForTest);
+            }
+            return Optional.empty();
+        };
+        
+        RemoteLogManager customRemoteLogManager = new RemoteLogManager(
+            config.remoteLogManagerConfig(),
+            brokerId,
+            logDir,
+            clusterId,
+            time,
+            customFetchLog,
+            (topicPartition, offset) -> { },
+            brokerTopicStats,
+            metrics
+        ) {
+            @Override
+            public RemoteStorageManager createRemoteStorageManager() {
+                return remoteStorageManager;
+            }
+            
+            @Override
+            public RemoteLogMetadataManager createRemoteLogMetadataManager() {
+                return remoteLogMetadataManager;
+            }
+        };
+        
+        customRemoteLogManager.startup();
+        
+        // Start as leader with specific log sizes
+        Partition mockLeaderPartition = mockPartitionWithLogSizes(
+            leaderTopicIdPartition, logSize, onlyLocalLogSegmentsSize, retentionSize, localRetentionBytes);
+        customRemoteLogManager.onLeadershipChange(
+            Collections.singleton(mockLeaderPartition),
+            Collections.emptySet(),
+            topicIds
+        );
+        
+        // Get the leader task from the custom RemoteLogManager
+        RLMExpirationTask leaderTask = customRemoteLogManager.rlmExpirationTask(leaderTopicIdPartition);
+        assertNotNull(leaderTask);
+        
+        // First run: With remote segments available
+        leaderTask.run();
+
+        // Remote segments: 5 segments * 512 bytes = 2560 bytes
+        // totalSize = onlyLocalLogSegmentsSize (200) + remoteLogSizeBytes (2560) = 2760
+        // sizePercent = (2760 * 100) / 5000 = 55%
+        // localSizePercent = (200 * 100) / 1000 = 20%
+        assertEquals(55, leaderTask.sizeInPercent());
+        assertEquals(20, leaderTask.localSizeInPercent());
+        
+        // Mock empty iterator to simulate no remote log segments available after offset change
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
+            .thenReturn(Collections.emptyIterator());
+        
+        // Second run: No remote segments available (early return path)
+        leaderTask.run();
+
+        // totalSize = logSize (1000) - no remote segments added
+        // sizePercent = (1000 * 100) / 5000 = 20%
+        // localSizePercent = (200 * 100) / 1000 = 20%
+        assertEquals(20, leaderTask.sizeInPercent());
+        assertEquals(20, leaderTask.localSizeInPercent());
+        
+        customRemoteLogManager.close();
     }
 }
