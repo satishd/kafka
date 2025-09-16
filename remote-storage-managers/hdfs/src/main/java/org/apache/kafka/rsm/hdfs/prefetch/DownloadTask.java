@@ -42,8 +42,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class DownloadTask implements Callable<FileChannel> {
     private static final Logger LOGGER = LoggerFactory.getLogger(DownloadTask.class);
-    // During performance testing, 3 MB was found to be the optimal buffer size that minimized garbage collection overhead while maximizing read throughput
-    private static final int BUFFER_SIZE = 3 * 1024 * 1024;
+    private static final int BUFFER_SIZE = 4 * 1024 * 1024;
 
     private final Time time;
     private final String downloadDirectory;
@@ -147,14 +146,10 @@ public class DownloadTask implements Callable<FileChannel> {
                 buffer.flip();
                 fileChannel.write(buffer);
                 buffer.clear();
-                // Force flush the current chunk to disk and immediately free page cache, as these chunks won't be
-                // accessed until the complete file is downloaded
-                fileChannel.force(false);
+
                 totalBytesRead += bytesRead;
                 pos += bytesRead;
             }
-            // Force a final flush to ensure all file metadata and content are written to disk
-            fileChannel.force(true);
 
             LOGGER.debug("Prefetched segment data for segmentId: {}, filePath: {}, size: {} in {} ms", segmentId,
                     filePath, totalBytesRead, time.milliseconds() - startTimeMs);
