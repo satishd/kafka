@@ -2091,4 +2091,25 @@ class KafkaConfigTest {
     assertEquals(Some("rack-1"), config.rack)
     assertEquals(Some("pod-1"), config.brokerPod)
   }
+
+  @Test
+  def testMaybeSensitiveBrokerConfigForRemoteLogStorage(): Unit = {
+    // All remote.log.storage.* broker configs should not be treated as sensitive
+    assertFalse(KafkaConfig.maybeSensitiveBrokerConfig("remote.log.storage.system.enable"))
+    assertFalse(KafkaConfig.maybeSensitiveBrokerConfig("remote.log.storage.manager.class.name"))
+    assertFalse(KafkaConfig.maybeSensitiveBrokerConfig("remote.log.storage.any.custom.prop"))
+  }
+
+  @Test
+  def testLoggableValueForRemoteLogStorageBrokerConfigs(): Unit = {
+    val value = "myVisibleValue"
+    val logged = KafkaConfig.loggableValue(org.apache.kafka.common.config.ConfigResource.Type.BROKER,
+      "remote.log.storage.custom.key", value)
+    assertEquals(value, logged)
+
+    // For non-remote and unknown broker configs, values should be hidden by default
+    val hidden = KafkaConfig.loggableValue(org.apache.kafka.common.config.ConfigResource.Type.BROKER,
+      "some.unknown.config", "secretValue")
+    assertEquals(org.apache.kafka.common.config.types.Password.HIDDEN, hidden)
+  }
 }

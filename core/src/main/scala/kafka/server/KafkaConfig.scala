@@ -140,6 +140,14 @@ object KafkaConfig {
     }
   }
 
+  def maybeSensitiveBrokerConfig(name: String): Boolean = {
+    if (name.startsWith("remote.log.storage.")) {
+      false
+    } else {
+      maybeSensitive(KafkaConfig.configType(name))
+    }
+  }
+
   def maybeSensitive(configType: Option[ConfigDef.Type]): Boolean = {
     // If we can't determine the config entry type, treat it as a sensitive config to be safe
     configType.isEmpty || configType.contains(ConfigDef.Type.PASSWORD)
@@ -147,7 +155,7 @@ object KafkaConfig {
 
   def loggableValue(resourceType: ConfigResource.Type, name: String, value: String): String = {
     val maybeSensitive = resourceType match {
-      case ConfigResource.Type.BROKER => KafkaConfig.maybeSensitive(KafkaConfig.configType(name))
+      case ConfigResource.Type.BROKER => KafkaConfig.maybeSensitiveBrokerConfig(name)
       case ConfigResource.Type.TOPIC => KafkaConfig.maybeSensitive(LogConfig.configType(name).asScala)
       case ConfigResource.Type.BROKER_LOGGER => false
       case ConfigResource.Type.CLIENT_METRICS => false

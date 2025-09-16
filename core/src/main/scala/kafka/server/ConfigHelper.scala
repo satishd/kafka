@@ -200,7 +200,7 @@ class ConfigHelper(metadataCache: MetadataCache, config: KafkaConfig, configRepo
                                      (name: String, value: Any): DescribeConfigsResponseData.DescribeConfigsResourceResult = {
     val allNames = brokerSynonyms(name)
     val configEntryType = KafkaConfig.configType(name)
-    val isSensitive = KafkaConfig.maybeSensitive(configEntryType)
+    val isSensitive = KafkaConfig.maybeSensitiveBrokerConfig(name)
     val valueAsString = if (isSensitive)
       null
     else value match {
