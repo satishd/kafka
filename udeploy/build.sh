@@ -42,15 +42,10 @@ cp core/build/distributions/!(*docs*) /tmp
 rm -rf !(udeploy)
 
 # Symlinks
-ln -s ${APP_HOME}/bin/zkcli.py /usr/local/bin/zkcli
 ln -s ${APP_HOME}/udeploy/config /etc/kafka
 rm -rf /etc/kafka/server.properties
 
 tar -C ${APP_HOME} --strip 1 -xzf /tmp/kafka_*.tgz
-
-pushd ${APP_HOME}/libs
-curl -O http://artifactory.uber.internal:4587/artifactory/repo/io/prometheus/jmx/jmx_prometheus_javaagent/${JMX_EXPORTER_VERSION}/jmx_prometheus_javaagent-${JMX_EXPORTER_VERSION}.jar
-popd
 
 apt-get update && apt-get install -y --reinstall uber-data-hdfs-conf
 mkdir -p ${HADOOP_CONF_DIR}

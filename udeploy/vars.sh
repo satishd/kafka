@@ -21,7 +21,6 @@
 
 export APP_HOME=${APP_HOME:-/home/udocker/odin-kafka/}
 export LOG_HOME=${LOG_HOME:-/var/log/kafka}
-export JMX_EXPORTER_VERSION=${JMX_EXPORTER_VERSION:-0.19.0}
 export JMX_PORT=${JMX_PORT:-29010}
 export JMX_EXPORTER_PORT=${JMX_EXPORTER_PORT:-7071}
 export KAFKA_CONF_TARGET_PATH=${APP_HOME}/udeploy
@@ -67,9 +66,6 @@ export DEFAULT_KAFKA_JMX_OPTS="-Dcom.sun.management.jmxremote \
                        -Dcom.sun.management.jmxremote.ssl=false"
 export KAFKA_JMX_OPTS=${KAFKA_JMX_OPTS:-${DEFAULT_KAFKA_JMX_OPTS}}
 
-
-#comment out below so kafka container will not start jmx exporter
-#export DEFAULT_EXTRA_ARGS="-javaagent:${APP_HOME}/libs/jmx_prometheus_javaagent-${JMX_EXPORTER_VERSION}.jar=${JMX_EXPORTER_PORT}:${APP_HOME}/udeploy/config/jmx_limited.yaml \
 export DEFAULT_EXTRA_ARGS=""
 export EXTRA_ARGS=${EXTRA_ARGS:-${DEFAULT_EXTRA_ARGS}}
 
