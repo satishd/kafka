@@ -49,7 +49,7 @@ rm -rf /etc/kafka/server.properties
 tar -C ${APP_HOME} --strip 1 -xzf /tmp/kafka_*.tgz
 
 pushd ${APP_HOME}/libs
-curl -O https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/${JMX_EXPORTER_VERSION}/jmx_prometheus_javaagent-${JMX_EXPORTER_VERSION}.jar
+curl -O http://artifactory.uber.internal:4587/artifactory/repo/io/prometheus/jmx/jmx_prometheus_javaagent/${JMX_EXPORTER_VERSION}/jmx_prometheus_javaagent-${JMX_EXPORTER_VERSION}.jar
 popd
 
 apt-get update && apt-get install -y --reinstall uber-data-hdfs-conf
