@@ -1,3 +1,9 @@
+# Release Kafka 3.9.5-uber build
+- Utility script to check whether remote storage can be disabled for a given topics.
+- JMX Prometheus exporter version upgraded from 0.12.0 to 1.0.1
+- Extend pod information to FetchResponse v16+, ProduceResponse v10+, ShareAckResponse v0+, and ShareFetchResponse v0+
+- Make remote storage manager configs as non-sensitive
+
 # Release Kafka 3.9.4-uber build
 
 - Fix SizeInPercent and LocalSizeInPercent metrics
