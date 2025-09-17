@@ -3337,7 +3337,7 @@ public class FetchRequestManagerTest {
         // Test that next fetch returns an error(due to leadership change) and new leader info is returned, as introduced
         // in KIP-951. The new leader is a new node, id = 999. For tp1 fetch returns with no error.
         LinkedHashMap<TopicIdPartition, FetchResponseData.PartitionData> partitions = new LinkedHashMap<>();
-        Node newNode = new Node(999, "newnode", 999, "newrack");
+        Node newNode = new Node(999, "newnode", 999, "newrack", "newpod");
         FetchResponseData.PartitionData tp0Data = new FetchResponseData.PartitionData()
             .setPartitionIndex(tidp0.topicPartition().partition())
             .setErrorCode(error.code());

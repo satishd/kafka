@@ -222,7 +222,7 @@ public class RequestTestUtils {
                                                       final Boolean leaderOnly) {
         final List<Node> nodes = new ArrayList<>(numNodes);
         for (int i = 0; i < numNodes; i++)
-            nodes.add(new Node(i, "localhost", 1969 + i));
+            nodes.add(new Node(i, "localhost", 1969 + i, "testrack", "testpod"));
 
         List<MetadataResponse.TopicMetadata> topicMetadata = new ArrayList<>();
         for (Map.Entry<String, Integer> topicPartitionCountEntry : topicPartitionCounts.entrySet()) {

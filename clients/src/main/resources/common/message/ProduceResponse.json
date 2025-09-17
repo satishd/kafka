@@ -82,7 +82,9 @@
       { "name": "Port", "type": "int32", "versions": "10+",
         "about": "The node's port." },
       { "name": "Rack", "type": "string", "versions": "10+", "nullableVersions": "10+", "default": "null",
-        "about": "The rack of the node, or null if it has not been assigned to a rack." }
+        "about": "The rack of the node, or null if it has not been assigned to a rack." },
+      { "name": "UPod", "type": "string", "versions": "10+", "nullableVersions": "10+", "ignorable": true, "default": "null",
+        "about": "The pod of the broker, or null if it has not been assigned to a pod.", "taggedVersions": "10+", "tag": 10000 }
     ]}
   ]
 }

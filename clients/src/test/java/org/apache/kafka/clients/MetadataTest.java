@@ -1242,21 +1242,22 @@ public class MetadataTest {
 
         //TEST2: Ensure valid update to tp11 is applied to the metadata.  Rest (tp12, tp21) remain unchanged.
         // 1. New Node with id=999 is added.
-        // 2. Existing node with id=0 has host, port changed, so is updated.
+        // 2. Existing node with id=0 has host, port, and pod changed, so is updated.
         Integer part1NewLeaderId = part1Metadata.leaderId.get() + 1;
         Integer part1NewLeaderEpoch = part1Metadata.leaderEpoch.get() + 1;
         updates.put(tp11, new Metadata.LeaderIdAndEpoch(Optional.of(part1NewLeaderId), Optional.of(part1NewLeaderEpoch)));
         PartitionMetadata updatedPart1Metadata = new PartitionMetadata(part1Metadata.error, part1Metadata.topicPartition, Optional.of(part1NewLeaderId), Optional.of(part1NewLeaderEpoch), part1Metadata.replicaIds, part1Metadata.inSyncReplicaIds, part1Metadata.offlineReplicaIds);
 
-        Node newNode = new Node(999, "testhost", 99999, "testrack");
+        Node newNode = new Node(999, "testhost", 99999, "testrack", "testpod");
         nodes.add(newNode);
         int index = nodes.stream().filter(node -> node.id() == 0).findFirst().map(nodes::indexOf).orElse(-1);
         Node existingNode = nodes.get(index);
-        Node updatedNode = new Node(existingNode.id(), "newhost", existingNode.port(), "newrack");
+        Node updatedNode = new Node(existingNode.id(), "newhost", existingNode.port(), "newrack", "newpod");
         nodes.remove(index);
         nodes.add(updatedNode);
 
         updatedTps = metadata.updatePartitionLeadership(updates, nodes);
+        assertEquals(updatedNode, metadata.fetch().nodeById(existingNode.id()));
 
         assertEquals(1, updatedTps.size());
         assertEquals(part1Metadata.topicPartition, updatedTps.toArray()[0]);
@@ -1387,6 +1388,8 @@ public class MetadataTest {
 
             Metadata.LeaderAndEpoch expectedLeaderInfo = new Metadata.LeaderAndEpoch(Optional.of(nodeMap.get(partitionMetadata.leaderId.get())), partitionMetadata.leaderEpoch);
             assertEquals(expectedLeaderInfo, updatedMetadata.currentLeader(tp));
+            assertEquals("testrack", expectedLeaderInfo.leader.get().rack());
+            assertEquals("testpod", expectedLeaderInfo.leader.get().pod());
 
             // Compare the partition-metadata.
             Optional<PartitionMetadata> optionalUpdatedMetadata = updatedMetadata.partitionMetadataIfCurrent(tp);

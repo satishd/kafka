@@ -630,7 +630,7 @@ public class Sender implements Runnable {
 
                 if (!partitionsWithUpdatedLeaderInfo.isEmpty()) {
                     List<Node> leaderNodes = produceResponse.data().nodeEndpoints().stream()
-                        .map(e -> new Node(e.nodeId(), e.host(), e.port(), e.rack()))
+                        .map(e -> new Node(e.nodeId(), e.host(), e.port(), e.rack(), e.uPod()))
                         .filter(e -> !e.equals(Node.noNode()))
                         .collect(
                             Collectors.toList());

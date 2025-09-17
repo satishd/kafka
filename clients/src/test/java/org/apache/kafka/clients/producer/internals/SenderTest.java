@@ -3435,8 +3435,8 @@ public class SenderTest {
             assertEquals(1, sender.inFlightBatches(tp2).size());
             assertTrue(client.hasInFlightRequests());
 
-            Node newNodeForTp0 = new Node(9990, "newhost9990", 9990, "newrack9990");
-            Node newNodeForTp1 = new Node(9991, "newhost9991", 9991, "newrack9991");
+            Node newNodeForTp0 = new Node(9990, "newhost9990", 9990, "newrack9990", "newpod0");
+            Node newNodeForTp1 = new Node(9991, "newhost9991", 9991, "newrack9991", "newpod1");
             List<Node> newNodes = Arrays.asList(newNodeForTp0, newNodeForTp1);
 
             Map<TopicPartition, OffsetAndError> responses = new LinkedHashMap<>();
@@ -3465,10 +3465,12 @@ public class SenderTest {
             // Validate metadata cached has updated leader info for tp0/1.
             Metadata.LeaderAndEpoch tp0NewLeaderInfo = metadata.currentLeader(tp0);
             assertEquals(newNodeForTp0, tp0NewLeaderInfo.leader.get());
+            assertEquals("newpod0", tp0NewLeaderInfo.leader.get().pod());
             assertEquals(tp0LeaderEpoch + 1, tp0NewLeaderInfo.epoch.get());
             Metadata.LeaderAndEpoch tp1NewLeaderInfo = metadata.currentLeader(tp1);
             assertEquals(newNodeForTp1, tp1NewLeaderInfo.leader.get());
             assertEquals(tp1LeaderEpoch + 1, tp1NewLeaderInfo.epoch.get());
+            assertEquals("newpod1", tp1NewLeaderInfo.leader.get().pod());
 
             // Validate metadata-refresh is requested as NOT_LEADER_OR_FOLLOWER received earlier
             assertTrue(metadata.updateRequested());
@@ -3651,6 +3653,7 @@ public class SenderTest {
                 nodeEndPt.setPort(n.port());
                 nodeEndPt.setHost(n.host());
                 nodeEndPt.setRack(n.rack());
+                nodeEndPt.setUPod(n.pod());
                 return nodeEndPt;
             }).forEach(nodeEndpoint -> data.nodeEndpoints().add(nodeEndpoint));
         }

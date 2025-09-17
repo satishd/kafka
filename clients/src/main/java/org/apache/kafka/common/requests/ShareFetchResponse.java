@@ -194,7 +194,8 @@ public class ShareFetchResponse extends AbstractResponse {
                         .setNodeId(endpoint.id())
                         .setHost(endpoint.host())
                         .setPort(endpoint.port())
-                        .setRack(endpoint.rack())));
+                        .setRack(endpoint.rack())
+                        .setUPod(endpoint.pod())));
         return data.setThrottleTimeMs(throttleTimeMs)
                 .setErrorCode(error.code())
                 .setResponses(new ArrayList<>(topicResponseList.values()));
