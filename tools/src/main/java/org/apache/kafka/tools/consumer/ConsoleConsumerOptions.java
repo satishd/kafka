@@ -104,7 +104,12 @@ public final class ConsoleConsumerOptions extends CommandDefaultOptions {
                 .withRequiredArg()
                 .describedAs("config file")
                 .ofType(String.class);
-        messageFormatterOpt = parser.accepts("formatter", "The name of a class to use for formatting kafka messages for display.")
+        messageFormatterOpt = parser.accepts("formatter", "The name of a class to use for formatting kafka messages for display. Examples: \n" +
+                            DefaultMessageFormatter.class.getName() + "\n" +
+                            GroupMetadataMessageFormatter.class.getName() + "\n" +
+                            OffsetsMessageFormatter.class.getName() + "\n" +
+                            TransactionLogMessageFormatter.class.getName() + "\n" +
+                            "org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde\\$RemoteLogMetadataFormatter")
                 .withRequiredArg()
                 .describedAs("class")
                 .ofType(String.class)

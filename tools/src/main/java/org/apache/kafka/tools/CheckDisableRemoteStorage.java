@@ -46,6 +46,13 @@ public class CheckDisableRemoteStorage {
     private static final double WARNING_DISK_USAGE_PERCENTAGE = 70.0; // 70%
     private static final double CRITICAL_DISK_USAGE_PERCENTAGE = 80.0; // 80%
 
+    /**
+     * To run the script:
+     *  sh kafka-run-class.sh org.apache.kafka.tools.CheckDisableRemoteStorage <bootstrapServers> <topicsToDisableRemote> [multiplier]
+     * @param args bootstrapServers topicsToDisableRemote [multiplier]
+     * @throws ExecutionException
+     * @throws InterruptedException
+     */
     public static void main(String[] args) throws ExecutionException, InterruptedException {
         String bootstrapServers = args[0];
         Set<String> topicsToDisableRemote = Arrays.stream(args[1].split(","))
