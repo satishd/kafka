@@ -34,8 +34,6 @@ import java.util.concurrent.{ThreadLocalRandom, TimeUnit}
 import scala.collection.mutable
 import scala.math.Ordered.orderingToOrdered
 
-import org.apache.kafka.server.log.remote.metadata.storage.TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME
-
 object FetchSession {
   type REQ_MAP = util.Map[TopicIdPartition, FetchRequest.PartitionData]
   type RESP_MAP = util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
@@ -442,10 +440,7 @@ class FullFetchContext(private val time: Time,
       cachedPartitions
     }
     val cacheShard = cache.getNextCacheShard
-    // Make FetchSession as privileged when the consumer reads from the internal __remote_log_metadata topic.
-    val privileged = isFromFollower ||
-      updates.keySet().stream().anyMatch(tpId => REMOTE_LOG_METADATA_TOPIC_NAME.equals(tpId.topic()))
-    val responseSessionId = cacheShard.maybeCreateSession(time.milliseconds(), privileged,
+    val responseSessionId = cacheShard.maybeCreateSession(time.milliseconds(), isFromFollower,
         updates.size, usesTopicIds, () => createNewSession)
     debug(s"Full fetch context with session id $responseSessionId returning " +
       s"${partitionsToLogString(updates.keySet)}")
