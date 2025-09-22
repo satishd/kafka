@@ -309,12 +309,13 @@ class DumpLogSegmentsTest {
     val topicId = Uuid.randomUuid
     val topicName = "foo"
     val remoteSegmentId = Uuid.randomUuid
+    val bucket = "test"
 
     val topicIdPartition = new TopicIdPartition(topicId, new TopicPartition(topicName, 0))
     val remoteLogSegmentId = new RemoteLogSegmentId(topicIdPartition, remoteSegmentId)
 
     val metadata = Seq(new RemoteLogSegmentMetadataUpdate(remoteLogSegmentId, time.milliseconds,
-        Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(Array[Byte](0, 1, 2, 3))), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 0),
+        Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes())), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 0),
       new RemotePartitionDeleteMetadata(topicIdPartition, RemotePartitionDeleteState.DELETE_PARTITION_MARKED, time.milliseconds, 0))
 
     val metadataRecords: Array[SimpleRecord] = metadata.map(message => {
@@ -328,7 +329,7 @@ class DumpLogSegmentsTest {
 
     val expectedUpdatePayload = String.format("RemoteLogSegmentMetadataUpdate{remoteLogSegmentId=" +
       "RemoteLogSegmentId{topicIdPartition=%s:%s-0, id=%s}, customMetadata=Optional[" +
-      "CustomMetadata{4 bytes}], state=COPY_SEGMENT_FINISHED, eventTimestampMs=0, brokerId=0}", topicId, topicName, remoteSegmentId)
+      "CustomMetadata{test}], state=COPY_SEGMENT_FINISHED, eventTimestampMs=0, brokerId=0}", topicId, topicName, remoteSegmentId)
     val expectedDeletePayload = String.format("RemotePartitionDeleteMetadata{topicPartition=%s:%s-0, " +
       "state=DELETE_PARTITION_MARKED, eventTimestampMs=0, brokerId=0}", topicId, topicName)
     
@@ -345,13 +346,14 @@ class DumpLogSegmentsTest {
     val topicId = Uuid.randomUuid
     val topicName = "foo"
     val remoteSegmentId = Uuid.randomUuid
+    val bucket = "test"
     
     val topicIdPartition = new TopicIdPartition(topicId, new TopicPartition(topicName, 0))
     val remoteLogSegmentId = new RemoteLogSegmentId(topicIdPartition, remoteSegmentId)
 
     val metadata = Seq(
       new RemoteLogSegmentMetadataUpdate(remoteLogSegmentId, time.milliseconds,
-        Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(Array[Byte](0, 1, 2, 3))), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 0),
+        Optional.of(new RemoteLogSegmentMetadata.CustomMetadata(bucket.getBytes())), RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 0),
       new RemotePartitionDeleteMetadata(topicIdPartition, RemotePartitionDeleteState.DELETE_PARTITION_MARKED, time.milliseconds, 0)
     )
 
@@ -367,7 +369,7 @@ class DumpLogSegmentsTest {
 
     val expectedUpdatePayload = String.format("RemoteLogSegmentMetadataUpdate{remoteLogSegmentId=" +
       "RemoteLogSegmentId{topicIdPartition=%s:%s-0, id=%s}, customMetadata=Optional[" +
-      "CustomMetadata{4 bytes}], state=COPY_SEGMENT_FINISHED, eventTimestampMs=0, brokerId=0}", topicId, topicName, remoteSegmentId)
+      "CustomMetadata{test}], state=COPY_SEGMENT_FINISHED, eventTimestampMs=0, brokerId=0}", topicId, topicName, remoteSegmentId)
     val expectedDeletePayload = String.format("RemotePartitionDeleteMetadata{topicPartition=%s:%s-0, " +
       "state=DELETE_PARTITION_MARKED, eventTimestampMs=0, brokerId=0}", topicId, topicName)
 

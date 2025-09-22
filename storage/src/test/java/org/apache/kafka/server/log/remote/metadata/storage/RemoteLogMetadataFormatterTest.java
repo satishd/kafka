@@ -49,8 +49,9 @@ public class RemoteLogMetadataFormatterTest {
         segLeaderEpochs.put(0, 0L);
         segLeaderEpochs.put(1, 20L);
         segLeaderEpochs.put(2, 80L);
+        String bucket = "test-bucket";
         RemoteLogSegmentId remoteLogSegmentId = new RemoteLogSegmentId(TP0, SEGMENT_ID);
-        Optional<CustomMetadata> customMetadata = Optional.of(new CustomMetadata(new byte[10]));
+        Optional<CustomMetadata> customMetadata = Optional.of(new CustomMetadata(bucket.getBytes()));
         RemoteLogSegmentMetadata remoteLogMetadata = new RemoteLogSegmentMetadata(
                 remoteLogSegmentId, 0L, 100L, -1L, 1, 123L, 1024, customMetadata, COPY_SEGMENT_STARTED,
                 segLeaderEpochs, true);
@@ -64,9 +65,9 @@ public class RemoteLogMetadataFormatterTest {
                         "RemoteLogSegmentMetadata{remoteLogSegmentId=RemoteLogSegmentId{topicIdPartition=%s:foo-0, id=%s}, " +
                         "startOffset=0, endOffset=100, brokerId=1, maxTimestampMs=-1, " +
                         "eventTimestampMs=123, segmentLeaderEpochs={0=0, 1=20, 2=80}, segmentSizeInBytes=1024, " +
-                        "customMetadata=Optional[CustomMetadata{10 bytes}], " +
+                        "customMetadata=Optional[CustomMetadata{%s}], " +
                         "state=COPY_SEGMENT_STARTED, txnIdxEmpty=true}\n",
-                TOPIC_ID, SEGMENT_ID);
+                TOPIC_ID, SEGMENT_ID, bucket);
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              PrintStream ps = new PrintStream(baos)) {
             try (RemoteLogMetadataSerde.RemoteLogMetadataFormatter formatter =

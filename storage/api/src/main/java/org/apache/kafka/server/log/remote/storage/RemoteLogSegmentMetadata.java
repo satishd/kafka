@@ -19,6 +19,7 @@ package org.apache.kafka.server.log.remote.storage;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
@@ -413,7 +414,7 @@ public class RemoteLogSegmentMetadata extends RemoteLogMetadata {
 
         @Override
         public String toString() {
-            return "CustomMetadata{" + value.length + " bytes}";
+            return "CustomMetadata{" + new String(value, StandardCharsets.UTF_8) + "}";
         }
     }
 }
