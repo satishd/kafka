@@ -1455,7 +1455,7 @@ public class RemoteLogManager implements Closeable {
                 updateMetadataCountAndLogSizeWith(0, 0);
                 logger.debug("No remote log segments available on remote storage for partition: {}", topicIdPartition);
 
-                calculateSizeInPercent(log.size(), log.config().retentionSize, log.onlyLocalLogSegmentsSize(), log.config().localRetentionBytes());
+                calculateSizeInPercent(log.size(), log.config().retentionSize, log.size(), log.config().localRetentionBytes());
                 return;
             }
 
@@ -1484,7 +1484,7 @@ public class RemoteLogManager implements Closeable {
             long logStartOffset = log.logStartOffset();
             long logEndOffset = log.logEndOffset();
             Optional<RetentionSizeData> retentionSizeData = buildRetentionSizeData(log.config().retentionSize,
-                    log.onlyLocalLogSegmentsSize(), logEndOffset, epochWithOffsets, log.config().localRetentionBytes());
+                    log.onlyLocalLogSegmentsSize(), log.size(), logEndOffset, epochWithOffsets, log.config().localRetentionBytes());
             Optional<RetentionTimeData> retentionTimeData = buildRetentionTimeData(log.config().retentionMs);
 
             RemoteLogRetentionHandler remoteLogRetentionHandler = new RemoteLogRetentionHandler(retentionSizeData, retentionTimeData);
@@ -1621,6 +1621,7 @@ public class RemoteLogManager implements Closeable {
 
         Optional<RetentionSizeData> buildRetentionSizeData(long retentionSize,
                                                            long onlyLocalLogSegmentsSize,
+                                                           long localLogSementsSize,
                                                            long logEndOffset,
                                                            NavigableMap<Integer, Long> epochEntries,
                                                            long localRetentionBytes) throws RemoteStorageException {
@@ -1655,7 +1656,7 @@ public class RemoteLogManager implements Closeable {
                 // This is the total size of segments in local log that have their base-offset > local-log-start-offset
                 // and size of the segments in remote storage which have their end-offset < local-log-start-offset.
                 long totalSize = onlyLocalLogSegmentsSize + remoteLogSizeBytes;
-                calculateSizeInPercent(totalSize, retentionSize, onlyLocalLogSegmentsSize, localRetentionBytes);
+                calculateSizeInPercent(totalSize, retentionSize, localLogSementsSize, localRetentionBytes);
                 if (totalSize > retentionSize) {
                     long remainingBreachedSize = totalSize - retentionSize;
                     RetentionSizeData retentionSizeData = new RetentionSizeData(retentionSize, remainingBreachedSize);
