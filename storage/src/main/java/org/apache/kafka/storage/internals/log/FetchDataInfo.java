@@ -29,6 +29,7 @@ public class FetchDataInfo {
     public final boolean firstEntryIncomplete;
     public final Optional<List<FetchResponseData.AbortedTransaction>> abortedTransactions;
     public final Optional<RemoteStorageFetchInfo> delayedRemoteStorageFetch;
+    public final Long segmentLargestTimestamp;
 
     public FetchDataInfo(LogOffsetMetadata fetchOffsetMetadata,
                          Records records) {
@@ -47,11 +48,21 @@ public class FetchDataInfo {
                          boolean firstEntryIncomplete,
                          Optional<List<FetchResponseData.AbortedTransaction>> abortedTransactions,
                          Optional<RemoteStorageFetchInfo> delayedRemoteStorageFetch) {
+        this(fetchOffsetMetadata, records, firstEntryIncomplete, abortedTransactions, delayedRemoteStorageFetch, -1L);
+    }
+
+    public FetchDataInfo(LogOffsetMetadata fetchOffsetMetadata,
+                         Records records,
+                         boolean firstEntryIncomplete,
+                         Optional<List<FetchResponseData.AbortedTransaction>> abortedTransactions,
+                         Optional<RemoteStorageFetchInfo> delayedRemoteStorageFetch,
+                         long segmentLargestTimestamp) {
         this.fetchOffsetMetadata = fetchOffsetMetadata;
         this.records = records;
         this.firstEntryIncomplete = firstEntryIncomplete;
         this.abortedTransactions = abortedTransactions;
         this.delayedRemoteStorageFetch = delayedRemoteStorageFetch;
+        this.segmentLargestTimestamp = segmentLargestTimestamp;
     }
 
     public static FetchDataInfo empty(long fetchOffset) {

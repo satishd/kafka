@@ -433,7 +433,9 @@ class LocalLog(@volatile private var _dir: File,
     new FetchDataInfo(fetchInfo.fetchOffsetMetadata,
       fetchInfo.records,
       fetchInfo.firstEntryIncomplete,
-      Optional.of(abortedTransactions.toList.asJava))
+      Optional.of(abortedTransactions.toList.asJava),
+      Optional.empty(),
+      fetchInfo.segmentLargestTimestamp)
   }
 
   private def collectAbortedTransactions(startOffset: Long, upperBoundOffset: Long,

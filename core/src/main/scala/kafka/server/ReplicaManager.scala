@@ -60,7 +60,7 @@ import org.apache.kafka.metadata.LeaderConstants.NO_LEADER
 import org.apache.kafka.server.common
 import org.apache.kafka.server.common.DirectoryEventHandler
 import org.apache.kafka.server.common.MetadataVersion._
-import org.apache.kafka.server.metrics.KafkaMetricsGroup
+import org.apache.kafka.server.metrics.{KafkaMetricsGroup, MetricConfigs}
 import org.apache.kafka.server.util.{Scheduler, ShutdownableThread}
 import org.apache.kafka.storage.internals.log.{AppendOrigin, FetchDataInfo, FetchParams, FetchPartitionData, LeaderHwChange, LogAppendInfo, LogConfig, LogDirFailureChannel, LogOffsetMetadata, LogReadInfo, RecordValidationException, RemoteLogReadResult, RemoteStorageFetchInfo, VerificationGuard}
 
@@ -200,6 +200,35 @@ class IsrBlacklistHandler(val replicaManager: ReplicaManager) extends ZNodeChild
     // We have to update the ISR black list in another thread,
     // because we can't call ZooKeeper methods to retrieve ISR black list, inside the ZooKeeper callback thread.
     updateExecutor.execute(() => replicaManager.updateIsrBlacklist())
+  }
+}
+
+class ExcludedClientPrefixes(clientIdPrefixes: List[String]) {
+
+  val allowAll: Boolean = {
+    clientIdPrefixes != null && clientIdPrefixes.size == 1 && clientIdPrefixes.head
+      .equals(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE)
+  }
+
+  val denyAll: Boolean = {
+    clientIdPrefixes != null && clientIdPrefixes.size == 1 && clientIdPrefixes.head
+      .equals(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL)
+  }
+
+  def isNotInDenyList(clientId: String): Boolean = {
+    allowAll || !isInDenyList(clientId)
+  }
+
+  private def isInDenyList(clientId: String): Boolean = {
+    if (denyAll) return true
+    if (clientId != null && clientId.nonEmpty) {
+      for (denyPrefix <- clientIdPrefixes) {
+        if (clientId.startsWith(denyPrefix)) {
+          return true
+        }
+      }
+    }
+    false
   }
 }
 
@@ -350,6 +379,13 @@ class ReplicaManager(val config: KafkaConfig,
 
   this.logIdent = s"[ReplicaManager broker=$localBrokerId] "
   protected val stateChangeLogger = new StateChangeLogger(localBrokerId, inControllerContext = false, None)
+
+  @volatile private var clientIdsExcludedFromConsumptionMetric =
+    new ExcludedClientPrefixes(config.consumptionMetricsClientExcludeList.asScala.toList)
+
+  def updateExcludedClientPrefixesForConsumptionMetrics(newExcludedClients: List[String]): Unit = {
+    clientIdsExcludedFromConsumptionMetric = new ExcludedClientPrefixes(newExcludedClients)
+  }
 
   private var logDirFailureHandler: LogDirFailureHandler = _
 
@@ -1733,6 +1769,14 @@ class ReplicaManager(val config: KafkaConfig,
     var hasPreferredReadReplica = false
     val logReadResultMap = new mutable.HashMap[TopicIdPartition, LogReadResult]
 
+    def isConsumerAllowedForLookbackMetric() : Boolean = {
+      /**
+       * Exclude consumers which are consuming for the background operations. For instance, uatu for monitoring.
+       */
+      params.isFromConsumer && params.clientMetadata.isPresent &&
+        clientIdsExcludedFromConsumptionMetric.isNotInDenyList(params.clientMetadata.get.clientId)
+    }
+
     logReadResults.foreach { case (topicIdPartition, logReadResult) =>
       brokerTopicStats.topicStats(topicIdPartition.topicPartition.topic).totalFetchRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalFetchRequestRate.mark()
@@ -1743,6 +1787,10 @@ class ReplicaManager(val config: KafkaConfig,
       }
       if (logReadResult.divergingEpoch.nonEmpty)
         hasDivergingEpoch = true
+      if (isConsumerAllowedForLookbackMetric() && logReadResult.info.segmentLargestTimestamp > 0) {
+        val durationMs = time.milliseconds() - logReadResult.info.segmentLargestTimestamp
+        brokerTopicStats.topicStats(topicIdPartition.topic).updateFetchMessageLookbackMs(durationMs)
+      }
       if (logReadResult.preferredReadReplica.nonEmpty)
         hasPreferredReadReplica = true
       bytesReadable = bytesReadable + logReadResult.info.records.sizeInBytes
@@ -1978,7 +2026,7 @@ class ReplicaManager(val config: KafkaConfig,
             MemoryRecords.EMPTY,
             false,
             Optional.empty(),
-            Optional.empty()
+            Optional.empty[RemoteStorageFetchInfo]()
           )
         } else {
           // For consume fetch requests, create a dummy FetchDataInfo with the remote storage fetch information.

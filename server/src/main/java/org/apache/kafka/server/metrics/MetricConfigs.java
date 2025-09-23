@@ -74,6 +74,18 @@ public class MetricConfigs {
     public static final boolean ENABLE_CLIENT_IO_TRACER_DEFAULT = true;
     public static final String ENABLE_CLIENT_IO_TRACER_DOC = "ClientIoTracer records bytes rate of Fetch/Produce requests of each (clientId, topicPartition)";
 
+    public static final String EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL = "_all_";
+    public static final String EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE = "_none_";
+    public static final String EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG = "consumption.metric.client.prefix.denylist";
+    public static final String EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_DEFAULT = EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL;
+    public static final String EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_DOC =
+            "Comma separated clientId prefixes which can be used to exclude the " +
+                    "clientIds for computing metrics on consumption pattern. To disable consumption metric " +
+                    "computation for all clients set this to '" + EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL + "'. " +
+                    "For no exclusion set this to '" + EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE + "'.";
+
+
+
     public static final ConfigDef CONFIG_DEF =  new ConfigDef()
             // Kafka Metrics Configuration
             .define(METRIC_NUM_SAMPLES_CONFIG, INT, METRIC_NUM_SAMPLES_DEFAULT, atLeast(1), LOW, METRIC_NUM_SAMPLES_DOC)
@@ -88,5 +100,8 @@ public class MetricConfigs {
 
             // Kafka Client Telemetry Metrics Configuration
             .define(CLIENT_TELEMETRY_MAX_BYTES_CONFIG, INT, CLIENT_TELEMETRY_MAX_BYTES_DEFAULT, atLeast(1), LOW, CLIENT_TELEMETRY_MAX_BYTES_DOC)
-            .define(ENABLE_CLIENT_IO_TRACER_CONFIG, BOOLEAN, ENABLE_CLIENT_IO_TRACER_DEFAULT, LOW, ENABLE_CLIENT_IO_TRACER_DOC);
+            .define(ENABLE_CLIENT_IO_TRACER_CONFIG, BOOLEAN, ENABLE_CLIENT_IO_TRACER_DEFAULT, LOW, ENABLE_CLIENT_IO_TRACER_DOC)
+
+            // Kafka Consumption Metrics Configuration
+            .define(EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG, LIST, EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_DEFAULT, LOW, EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_DOC);
 }

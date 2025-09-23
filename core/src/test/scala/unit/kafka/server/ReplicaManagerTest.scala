@@ -66,11 +66,12 @@ import org.apache.kafka.server.common.MetadataVersion.IBP_2_6_IV0
 import org.apache.kafka.server.common.{DirectoryEventHandler, MetadataVersion, OffsetAndEpoch}
 import org.apache.kafka.server.config.{KRaftConfigs, ReplicationConfigs, ServerLogConfigs}
 import org.apache.kafka.server.log.remote.storage._
-import org.apache.kafka.server.metrics.{KafkaMetricsGroup, KafkaYammerMetrics}
+import org.apache.kafka.server.metrics.{KafkaMetricsGroup, KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.util.timer.MockTimer
 import org.apache.kafka.server.util.{MockScheduler, MockTime}
 import org.apache.kafka.storage.internals.checkpoint.PartitionMetadataFile
 import org.apache.kafka.storage.internals.log._
+import org.apache.kafka.storage.log.metrics.BrokerTopicMetrics
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterAll, AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
@@ -6699,6 +6700,159 @@ class ReplicaManagerTest {
     spyRm.shutdown(checkpointHW = true)
 
     verify(spyRm).checkpointHighWatermarks()
+  }
+
+  @Test
+  def testConsumptionMetricsLookbackRespectsExcludedClientPrefixes(): Unit = {
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+    val mockBrokerTopicStats = mock(classOf[BrokerTopicStats])
+    val mockBrokerTopicMetrics = mock(classOf[BrokerTopicMetrics])
+
+    val topic = "consumption-metrics-test"
+    when(mockBrokerTopicStats.topicStats(topic)).thenReturn(mockBrokerTopicMetrics)
+    when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
+    when(mockBrokerTopicStats.allTopicsStats).thenReturn(mockBrokerTopicMetrics)
+
+    val spyRm = spy(new ReplicaManager(
+      metrics = metrics,
+      config = config,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      brokerTopicStats = mockBrokerTopicStats
+    ))
+
+    try {
+      // Prepare a stubbed log read result with a positive segmentLargestTimestamp so that lookback is computed
+      val tp = new TopicPartition(topic, 0)
+      val tidp = new TopicIdPartition(Uuid.randomUuid(), tp)
+      val fetchInfo = new PartitionData(Uuid.ZERO_UUID, 0, 0, 1024, Optional.empty())
+
+      val past = Math.max(1L, time.milliseconds() - 5000L)
+      val fetchDataInfo = new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA, MemoryRecords.EMPTY, false,
+        Optional.empty(), Optional.empty(), past)
+      val logReadResult = LogReadResult(
+        info = fetchDataInfo,
+        divergingEpoch = None,
+        highWatermark = 0L,
+        leaderLogStartOffset = 0L,
+        leaderLogEndOffset = 0L,
+        followerLogStartOffset = 0L,
+        fetchTimeMs = time.milliseconds(),
+        lastStableOffset = None,
+        preferredReadReplica = None,
+        exception = None
+      )
+
+      doReturn(Seq(tidp -> logReadResult), Nil: _*).when(spyRm)
+        .readFromLog(any(), any(), any(), ArgumentMatchers.eq(false))
+
+      // Client with excluded prefix should not update lookback metric
+      spyRm.updateExcludedClientPrefixesForConsumptionMetrics(List("uatu", "bg-"))
+      val excludedClient = new DefaultClientMetadata("rack-a", "uatu-agent-1",
+        InetAddress.getByName("localhost"), KafkaPrincipal.ANONYMOUS, "default")
+
+      val paramsExcluded = new FetchParams(ApiKeys.FETCH.latestVersion, FetchRequest.ORDINARY_CONSUMER_ID, 1, 0, 1, 1024,
+        FetchIsolation.LOG_END, Optional.of(excludedClient))
+
+      val responseRef1 = new AtomicReference[Seq[(TopicIdPartition, FetchPartitionData)]]()
+      spyRm.fetchMessages(paramsExcluded, Seq(tidp -> fetchInfo), UnboundedQuota, resp => responseRef1.set(resp))
+
+      // Verify that consumption lookback metric was NOT updated for excluded client
+      verify(mockBrokerTopicMetrics, times(0)).updateFetchMessageLookbackMs(anyLong())
+
+      // A normal client (non-excluded) should update the metric
+      val normalClient = new DefaultClientMetadata("rack-a", "my-consumer-1",
+        InetAddress.getByName("localhost"), KafkaPrincipal.ANONYMOUS, "default")
+
+      val paramsAllowed = new FetchParams(ApiKeys.FETCH.latestVersion, FetchRequest.ORDINARY_CONSUMER_ID, 1, 0, 1, 1024,
+        FetchIsolation.LOG_END, Optional.of(normalClient))
+
+      val responseRef2 = new AtomicReference[Seq[(TopicIdPartition, FetchPartitionData)]]()
+      spyRm.fetchMessages(paramsAllowed, Seq(tidp -> fetchInfo), UnboundedQuota, resp => responseRef2.set(resp))
+
+      verify(mockBrokerTopicMetrics, atLeastOnce()).updateFetchMessageLookbackMs(anyLong())
+    } finally {
+      spyRm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testConsumptionMetricsLookbackAllNoneSentinels(): Unit = {
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+    val mockBrokerTopicStats = mock(classOf[BrokerTopicStats])
+    val mockBrokerTopicMetrics = mock(classOf[BrokerTopicMetrics])
+
+    val topic = "consumption-metrics-sentinels"
+    when(mockBrokerTopicStats.topicStats(topic)).thenReturn(mockBrokerTopicMetrics)
+    when(mockBrokerTopicStats.allTopicsStats).thenReturn(mockBrokerTopicMetrics)
+    when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
+
+    val spyRm = spy(new ReplicaManager(
+      metrics = metrics,
+      config = config,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      brokerTopicStats = mockBrokerTopicStats
+    ))
+
+    try {
+      val tp = new TopicPartition(topic, 0)
+      val tidp = new TopicIdPartition(Uuid.randomUuid(), tp)
+      val fetchInfo = new PartitionData(Uuid.ZERO_UUID, 0, 0, 1024, Optional.empty())
+
+      val past = Math.max(1L, time.milliseconds() - 1000L)
+      val fetchDataInfo = new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA, MemoryRecords.EMPTY, false,
+        Optional.empty(), Optional.empty(), past)
+      val logReadResult = LogReadResult(
+        info = fetchDataInfo,
+        divergingEpoch = None,
+        highWatermark = 0L,
+        leaderLogStartOffset = 0L,
+        leaderLogEndOffset = 0L,
+        followerLogStartOffset = 0L,
+        fetchTimeMs = time.milliseconds(),
+        lastStableOffset = None,
+        preferredReadReplica = None,
+        exception = None
+      )
+
+      doReturn(Seq(tidp -> logReadResult), Nil: _*).when(spyRm)
+        .readFromLog(any(), any(), any(), ArgumentMatchers.eq(false))
+
+      val anyClient = new DefaultClientMetadata("rack-a", "uatu-agent-2",
+        InetAddress.getByName("localhost"), KafkaPrincipal.ANONYMOUS, "default")
+
+      val params = new FetchParams(ApiKeys.FETCH.latestVersion, FetchRequest.ORDINARY_CONSUMER_ID, 1, 0, 1, 1024,
+        FetchIsolation.LOG_END, Optional.of(anyClient))
+
+      // _all_ means deny all -> no updates
+      reset(mockBrokerTopicMetrics)
+      // Re-stub meter methods after reset to avoid NPEs on mark()
+      when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
+      spyRm.updateExcludedClientPrefixesForConsumptionMetrics(List(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL))
+      spyRm.fetchMessages(params, Seq(tidp -> fetchInfo), UnboundedQuota, _ => ())
+      verify(mockBrokerTopicMetrics, times(0)).updateFetchMessageLookbackMs(anyLong())
+
+      // _none_ means allow all -> updates go through
+      reset(mockBrokerTopicMetrics)
+      // Re-stub meter methods after reset to avoid NPEs on mark()
+      when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
+      spyRm.updateExcludedClientPrefixesForConsumptionMetrics(List(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE))
+      spyRm.fetchMessages(params, Seq(tidp -> fetchInfo), UnboundedQuota, _ => ())
+      verify(mockBrokerTopicMetrics, atLeastOnce()).updateFetchMessageLookbackMs(anyLong())
+    } finally {
+      spyRm.shutdown(checkpointHW = false)
+    }
   }
 
   @Test

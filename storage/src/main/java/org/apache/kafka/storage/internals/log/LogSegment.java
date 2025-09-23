@@ -456,7 +456,7 @@ public class LogSegment implements Closeable {
         int fetchSize = Math.min((int) (maxPositionOpt.get() - startPosition), adjustedMaxSize);
 
         return new FetchDataInfo(offsetMetadata, log.slice(startPosition, fetchSize),
-            adjustedMaxSize < startOffsetAndSize.size, Optional.empty());
+            adjustedMaxSize < startOffsetAndSize.size, Optional.empty(), Optional.empty(), largestTimestamp());
     }
 
     public OptionalLong fetchUpperBoundOffset(OffsetPosition startOffsetPosition, int fetchSize) throws IOException {

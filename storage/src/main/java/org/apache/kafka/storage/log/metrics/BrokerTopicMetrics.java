@@ -19,6 +19,7 @@ package org.apache.kafka.storage.log.metrics;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageMetrics;
 import org.apache.kafka.server.metrics.KafkaMetricsGroup;
 
+import com.yammer.metrics.core.Gauge;
 import com.yammer.metrics.core.Meter;
 
 import java.util.Collections;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -50,6 +52,8 @@ public class BrokerTopicMetrics {
     public static final String INVALID_MAGIC_NUMBER_RECORDS_PER_SEC = "InvalidMagicNumberRecordsPerSec";
     public static final String INVALID_MESSAGE_CRC_RECORDS_PER_SEC = "InvalidMessageCrcRecordsPerSec";
     public static final String INVALID_OFFSET_OR_SEQUENCE_RECORDS_PER_SEC = "InvalidOffsetOrSequenceRecordsPerSec";
+    public static final String FETCH_MESSAGE_LOOKBACK_MS = "FetchMessageLookbackMs";
+
 
     // KAFKA-16972: BrokerTopicMetrics is migrated from "kafka.server" package.
     // For backward compatibility, we keep the old package name as metric group name.
@@ -57,6 +61,9 @@ public class BrokerTopicMetrics {
     private final Map<String, String> tags;
     private final Map<String, MeterWrapper> metricTypeMap = new java.util.HashMap<>();
     private final Map<String, GaugeWrapper> metricGaugeTypeMap = new java.util.HashMap<>();
+
+    private final AtomicLong maxLookbackMs;
+    private volatile Gauge<Long> fetchLookbackDurationMetric;
 
     public BrokerTopicMetrics(boolean remoteStorageEnabled) {
         this(Optional.empty(), remoteStorageEnabled);
@@ -111,6 +118,8 @@ public class BrokerTopicMetrics {
             metricGaugeTypeMap.put(RemoteStorageMetrics.REMOTE_LOG_SIZE_COMPUTATION_TIME_METRIC.getName(), new GaugeWrapper(RemoteStorageMetrics.REMOTE_LOG_SIZE_COMPUTATION_TIME_METRIC.getName()));
             metricGaugeTypeMap.put(RemoteStorageMetrics.REMOTE_LOG_SIZE_BYTES_METRIC.getName(), new GaugeWrapper(RemoteStorageMetrics.REMOTE_LOG_SIZE_BYTES_METRIC.getName()));
         }
+
+        maxLookbackMs = new AtomicLong(0);
     }
 
     public void closeMetric(String metricName) {
@@ -118,11 +127,21 @@ public class BrokerTopicMetrics {
         if (mw != null) mw.close();
         GaugeWrapper mg = metricGaugeTypeMap.get(metricName);
         if (mg != null) mg.close();
+        if (metricName.equals(FETCH_MESSAGE_LOOKBACK_MS) && fetchLookbackDurationMetric != null) {
+            closeFetchLookbackMetric();
+        }
     }
 
     public void close() {
         metricTypeMap.values().forEach(MeterWrapper::close);
         metricGaugeTypeMap.values().forEach(GaugeWrapper::close);
+        closeFetchLookbackMetric();
+    }
+
+    private void closeFetchLookbackMetric() {
+        metricsGroup.removeMetric(BrokerTopicMetrics.FETCH_MESSAGE_LOOKBACK_MS, tags);
+        fetchLookbackDurationMetric = null;
+        maxLookbackMs.set(0);
     }
 
     // used for testing only
@@ -320,6 +339,20 @@ public class BrokerTopicMetrics {
 
     public Meter failedBuildRemoteLogAuxStateRate() {
         return metricTypeMap.get(RemoteStorageMetrics.FAILED_BUILD_REMOTE_LOG_AUX_STATE_PER_SEC_METRIC.getName()).meter();
+    }
+
+    public void updateFetchMessageLookbackMs(Long fetchLookbackDurationMs) {
+        if (fetchLookbackDurationMetric == null) {
+            // lazily initialize the metric when the first time updateFetchMessageLookbackMs is called
+            fetchLookbackDurationMetric = metricsGroup.newGauge(BrokerTopicMetrics.FETCH_MESSAGE_LOOKBACK_MS, () -> maxLookbackMs.getAndSet(0), tags);
+        }
+        // Update the maximum lookback duration if the new value is larger. There is a possibility of race condition here
+        // because of the separation between getting and setting the value. But it should settle down to the largest value
+        // eventually
+        Long current = maxLookbackMs.get();
+        if (fetchLookbackDurationMs > current) {
+            maxLookbackMs.compareAndSet(current, fetchLookbackDurationMs);
+        }
     }
 
     private class MeterWrapper {

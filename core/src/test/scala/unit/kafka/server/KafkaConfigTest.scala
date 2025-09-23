@@ -1087,6 +1087,7 @@ class KafkaConfigTest {
         //Kafka Yammer metrics reporter configs
         case MetricConfigs.KAFKA_METRICS_REPORTER_CLASSES_CONFIG => // ignore
         case MetricConfigs.KAFKA_METRICS_POLLING_INTERVAL_SECONDS_CONFIG => //ignore
+        case MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG => //ignore
 
         case BrokerSecurityConfigs.SASL_SERVER_MAX_RECEIVE_SIZE_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
 

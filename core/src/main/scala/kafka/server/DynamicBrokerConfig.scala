@@ -103,7 +103,8 @@ object DynamicBrokerConfig {
     DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs ++
     DynamicDeleteTopicEnableConfig.ReconfigurableConfigs ++
     DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs ++
-    DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs
+    DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs ++
+    DynamicExcludedClientsFromConsumptionMetricsConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -287,6 +288,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicDeleteTopicEnableConfig)
     addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
     addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicExcludedClientsFromConsumptionMetricsConfig(kafkaServer))
   }
 
   /**
@@ -1491,5 +1493,31 @@ class DynamicNewReplicaExcludeListConfig (server: KafkaBroker) extends BrokerRec
       case ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG => server.config.newReplicaExcludeListString
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
+  }
+}
+
+object DynamicExcludedClientsFromConsumptionMetricsConfig {
+  val ReconfigurableConfigs = Set(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG)
+}
+
+class DynamicExcludedClientsFromConsumptionMetricsConfig(server: KafkaBroker) extends BrokerReconfigurable with Logging {
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicExcludedClientsFromConsumptionMetricsConfig.ReconfigurableConfigs
+  }
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    val excludedClients = newConfig.getList(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG)
+    if(excludedClients == null || excludedClients.isEmpty) {
+      throw new ConfigException(s"Excluded clients from consumption metrics cannot be empty. " +
+        s"Set '${MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL}' to exclude every client or " +
+        s"'${MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE}' to allow every client")
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    val oldExcludedClients = oldConfig.getList(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG)
+    val newExcludedClients = newConfig.getList(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG)
+    server.replicaManager.updateExcludedClientPrefixesForConsumptionMetrics(newExcludedClients.asScala.toList)
+    info("Updated excluded clients from consumption metrics to: " + newExcludedClients + ". old value: " + oldExcludedClients)
   }
 }

@@ -1651,6 +1651,60 @@ class DynamicBrokerConfigTest {
     // Ensure no unexpected extra interactions
     verifyNoMoreInteractions(remoteStorageManager)
   }
+
+  @Test
+  def testDynamicExcludedClientsFromConsumptionMetricsConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config = KafkaConfig.fromProps(props)
+
+    val serverMock: KafkaBroker = Mockito.mock(classOf[KafkaBroker])
+    val replicaManagerMock: ReplicaManager = Mockito.mock(classOf[ReplicaManager])
+    when(serverMock.config).thenReturn(config)
+    when(serverMock.replicaManager).thenReturn(replicaManagerMock)
+
+    // Initialize dynamic config and register reconfigurable
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicExcludedClientsFromConsumptionMetricsConfig(serverMock))
+
+    // 1) Empty list should be rejected with helpful message
+    val emptyProps = new Properties()
+    emptyProps.put(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG, "")
+    val ex = assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(emptyProps, perBrokerConfig = false))
+    assertTrue(ex.getMessage.contains("cannot be empty"))
+    assertTrue(ex.getMessage.contains(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL))
+    assertTrue(ex.getMessage.contains(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE))
+
+    // 2) Set to _all_ should be accepted and forwarded to ReplicaManager
+    val allProps = new Properties()
+    allProps.put(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG,
+      MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL)
+    config.dynamicConfig.updateDefaultConfig(allProps)
+
+    val captorAll = ArgumentCaptor.forClass(classOf[scala.collection.immutable.List[String]])
+    verify(replicaManagerMock).updateExcludedClientPrefixesForConsumptionMetrics(captorAll.capture())
+    assertEquals(scala.collection.immutable.List(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL), captorAll.getValue)
+
+    // 3) Set to _none_ should be accepted and forwarded
+    Mockito.reset(replicaManagerMock)
+    val noneProps = new Properties()
+    noneProps.put(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG,
+      MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE)
+    config.dynamicConfig.updateDefaultConfig(noneProps)
+
+    val captorNone = ArgumentCaptor.forClass(classOf[scala.collection.immutable.List[String]])
+    verify(replicaManagerMock).updateExcludedClientPrefixesForConsumptionMetrics(captorNone.capture())
+    assertEquals(scala.collection.immutable.List(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE), captorNone.getValue)
+
+    // 4) Normal non-empty list should be accepted and forwarded preserving order and values
+    Mockito.reset(replicaManagerMock)
+    val customProps = new Properties()
+    customProps.put(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG, "foo,bar,baz")
+    config.dynamicConfig.updateDefaultConfig(customProps)
+
+    val captorCustom = ArgumentCaptor.forClass(classOf[scala.collection.immutable.List[String]])
+    verify(replicaManagerMock).updateExcludedClientPrefixesForConsumptionMetrics(captorCustom.capture())
+    assertEquals(scala.collection.immutable.List("foo", "bar", "baz"), captorCustom.getValue)
+  }
 }
 
 class TestDynamicThreadPool() extends BrokerReconfigurable {
