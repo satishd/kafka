@@ -1,3 +1,12 @@
+# Release Kafka 3.9.6-uber build (09/25/2025)
+- Simplify finding the remote metadata partition script for given topics.
+- Revert "DKAFC-5965: Enable privileged FetchSession for remote log metadata client."
+- Fix local log size metrics for remote storage topics.
+- Emit FetchLookback metrics when reading from local-log.
+- Log bucket information while printing the remote log metadata.
+- Prefetch - Download task optimization. (Beta)
+- Implement server-side backoff retry when facing remote-read errors.
+
 # Release Kafka 3.9.5-uber build
 - Utility script to check whether remote storage can be disabled for a given topics.
 - JMX Prometheus exporter version upgraded from 0.12.0 to 1.0.1
