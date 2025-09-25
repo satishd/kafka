@@ -22,6 +22,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.protocol.MessageUtil;
 import org.apache.kafka.common.utils.ByteBufferInputStream;
+import org.apache.kafka.common.utils.ExponentialBackoff;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.generated.ConnectorCustomMetadata;
@@ -54,6 +55,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -65,6 +67,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_CACHE_BYTES_PROP;
@@ -82,13 +86,15 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private static final RemoteReadContext DEFAULT_READ_CONTEXT = RemoteReadContext.builder()
             .withBlockPrefetchEnabled(true)
             .build();
+    private static final int ERROR_BACKOFF_EXP_BASE = 2;
+    private static final double ERROR_BACKOFF_JITTER = 0.2;
 
     private final AtomicLong auxBytesReadFromRemote = new AtomicLong(0);
     private String baseDir;
     private int cacheLineSize;
     private LRUCache readCache;
     private ByteBufferPool byteBufferPool;
-    private final Time time = Time.SYSTEM;
+    private Time time = Time.SYSTEM;
     private final Cache<RemoteLogSegmentId, SegmentHeaderHolder> segmentHeaderHolderCache =
             Caffeine.newBuilder()
                     .maximumSize(20_000)
@@ -98,6 +104,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final AtomicInteger openInputStreamCount = new AtomicInteger();
     private final AtomicInteger openOutputStreamCount = new AtomicInteger();
     private final FileSystemManager fileSystemManager;
+
+    private ExponentialBackoff errorBackoff;
+    private final AtomicLong errorAttempts = new AtomicLong(0);
+    private long errorMaxBackoffWaitMs;
 
     public HDFSRemoteStorageManager() {
         this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
@@ -129,30 +139,61 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         // Configure the FileSystemManager
         fileSystemManager.configure(configs);
 
+        long errorBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
+        errorMaxBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        errorBackoff = new ExponentialBackoff(errorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE, errorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
+
         registerMetrics(readCache);
         registerBufferPoolMetrics();
         registerHedgedReadMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
 
-        LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, ociBuckets: {}",
-                baseDir, cacheLineSize, cacheSize, fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets());
+        LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, " +
+                "ociBuckets: {}, errorBackoffWaitMs: {}, errorMaxBackoffWaitMs: {}", baseDir, cacheLineSize, cacheSize,
+                fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(), errorBackoffWaitMs, errorMaxBackoffWaitMs);
     }
 
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        return fileSystemManager.reconfigurableConfigs();
+        Set<String> reconfigurableConfigs = new HashSet<>();
+        reconfigurableConfigs.add(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
+        reconfigurableConfigs.add(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        reconfigurableConfigs.addAll(fileSystemManager.reconfigurableConfigs());
+        return reconfigurableConfigs;
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
         fileSystemManager.validateReconfiguration(configs);
+        String backoffMs = (String) configs.get(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
+        if (backoffMs != null && Long.parseLong(backoffMs) < 0) {
+            throw new ConfigException(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP, backoffMs, "value should be at least 0");
+        }
+        String maxBackoffMs = (String) configs.get(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        if (maxBackoffMs != null && Long.parseLong(maxBackoffMs) < 0) {
+            throw new ConfigException(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, maxBackoffMs, "value should be at least 0");
+        }
     }
 
     @Override
     public void reconfigure(Map<String, ?> configs) {
         fileSystemManager.reconfigure(configs);
+        String backoffMs = (String) configs.get(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
+        String maxBackoffMs = (String) configs.get(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        reconfigureBackoff(backoffMs, maxBackoffMs);
+    }
+
+    private void reconfigureBackoff(String backoffMs, String maxBackoffMs) {
+        long updatedErrorBackoffWaitMs = backoffMs != null ? Long.parseLong(backoffMs) : errorBackoffWaitMs();
+        long updatedErrorMaxBackoffWaitMs = maxBackoffMs != null ? Long.parseLong(maxBackoffMs) : errorMaxBackoffWaitMs;
+        if (updatedErrorBackoffWaitMs != errorBackoffWaitMs() || updatedErrorMaxBackoffWaitMs != errorMaxBackoffWaitMs) {
+            errorMaxBackoffWaitMs = updatedErrorMaxBackoffWaitMs;
+            errorBackoff = new ExponentialBackoff(updatedErrorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE,
+                    errorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
+            LOGGER.info("Reconfigured with errorBackoffWaitMs: {}, errorMaxBackoffWaitMs: {}", updatedErrorBackoffWaitMs, errorMaxBackoffWaitMs);
+        }
     }
 
     FileSystemManager fileSystemManager() {
@@ -342,6 +383,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         fileSystemManager.setDefaultHadoopConfiguration(configuration);
     }
 
+    void setTime(Time time) {
+        this.time = time;
+    }
+
     private void uploadFile(final java.nio.file.Path localSrc,
                             final FSDataOutputStream out) throws IOException {
         if (localSrc != null && localSrc.toFile().exists()) {
@@ -377,22 +422,60 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
+    /**
+     * Functional interface for operations that may throw IO exceptions.
+     */
+    @FunctionalInterface
+    private interface CheckedSupplier<T> {
+        T get() throws IOException;
+    }
+
+    /**
+     * Executes the given operation with standardized error handling and backoff.
+     *
+     * @param supplier The operation to execute that may throw IO exceptions
+     * @param errorMessageFormat The error message format to use if the operation fails
+     * @param errorParams Parameters to format into the error message
+     * @return The result of the operation
+     * @throws RemoteStorageException if the operation fails
+     */
+    private <T> T executeWithErrorHandling(
+            CheckedSupplier<T> supplier,
+            String errorMessageFormat,
+            Object... errorParams) throws RemoteStorageException {
+        boolean isFailed = false;
+        try {
+            return supplier.get();
+        } catch (Exception e) {
+            isFailed = true;
+            long backoffMs = errorBackoff.backoff(errorAttempts.getAndIncrement());
+            if (backoffMs > 0) {
+                time.sleep(backoffMs);
+            }
+            String message = String.format(errorMessageFormat, errorParams);
+            String enrichedMessage = message + " with backoffMs: " + backoffMs;
+            throw new RemoteStorageException(enrichedMessage, e);
+        } finally {
+            if (!isFailed) {
+                errorAttempts.set(0);
+            }
+        }
+    }
+
+
     private InputStream fetchAuxFile(RemoteLogSegmentMetadata metadata,
                                      LogSegmentDataHeader.FileType fileType) throws RemoteStorageException {
-        try {
+        return executeWithErrorHandling(() -> {
             String bucket = fileSystemManager.getBucket(metadata);
             return new AuxiliaryDataInputStream(metadata.remoteLogSegmentId(), bucket, fileType);
-        } catch (Exception e) {
-            throw new RemoteStorageException(
-                    String.format("Failed to fetch %s file from remote storage. Metadata: %s", fileType, metadata), e);
-        }
+        }, "Failed to fetch %s file from remote storage. Metadata: %s", fileType, metadata);
     }
 
     private InputStream fetchSegmentData(RemoteLogSegmentMetadata metadata,
                                          RemoteReadContext readContext,
                                          int startPosition,
                                          int endPosition) throws RemoteStorageException {
-        try {
+        return executeWithErrorHandling(() -> {
             String bucket = fileSystemManager.getBucket(metadata);
             RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
             boolean isHedgedReadsEnabled = storageProvider == RemoteStorageProvider.HDFS && readContext.isHedgedReadsEnabled();
@@ -402,10 +485,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             } else {
                 return new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider, startPosition, endPosition);
             }
-        } catch (Exception e) {
-            throw new RemoteStorageException(
-                    String.format("Failed to fetch SEGMENT file from remote storage. Metadata: %s", metadata), e);
-        }
+        }, "Failed to fetch SEGMENT file from remote storage. Metadata: %s", metadata);
     }
 
     FileSystem getFS(String bucket) {
@@ -432,6 +512,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     List<String> ociBuckets() {
         return fileSystemManager.getOciBuckets();
+    }
+
+    long errorBackoffWaitMs() {
+        return errorBackoff.initialInterval();
+    }
+
+    long errorMaxBackoffWaitMs() {
+        return errorMaxBackoffWaitMs;
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {

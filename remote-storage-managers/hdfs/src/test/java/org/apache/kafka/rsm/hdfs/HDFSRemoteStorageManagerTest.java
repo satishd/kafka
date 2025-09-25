@@ -84,6 +84,8 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_KEYTAB_PATH_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
@@ -156,6 +158,7 @@ public class HDFSRemoteStorageManagerTest {
         rsm = new HDFSRemoteStorageManager();
         rsm.setDefaultHadoopConfiguration(hadoopConf);
         rsm.configure(configs);
+        rsm.setTime(time);
         hdfs = rsm.getFS(defaultFsUri);
         baseDir = rsm.baseDir();
     }
@@ -565,12 +568,13 @@ public class HDFSRemoteStorageManagerTest {
     public void testReconfigurables() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
-
-            assertEquals(4, reconfigurableConfigs.size());
+            assertEquals(6, reconfigurableConfigs.size());
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_OCI_BUCKETS_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP));
         }
     }
 
@@ -673,12 +677,16 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
             assertEquals("1", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
             assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
+            assertEquals(50L, rsm.errorBackoffWaitMs());
+            assertEquals(500L, rsm.errorMaxBackoffWaitMs());
 
             // Reconfigure with new threshold
             Map<String, String> configs = new HashMap<>();
             configs.put(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, "100");
             configs.put(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, "5");
             configs.put(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, "200");
+            configs.put(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP, "10");
+            configs.put(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, "100");
 
             // Verify that all the configs are reconfigurable
             configs.keySet().forEach(key -> assertTrue(rsm.reconfigurableConfigs().contains(key)));
@@ -689,6 +697,8 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
             assertEquals("5", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
             assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
+            assertEquals(10L, rsm.errorBackoffWaitMs());
+            assertEquals(100L, rsm.errorMaxBackoffWaitMs());
         }
     }
 
@@ -703,6 +713,12 @@ public class HDFSRemoteStorageManagerTest {
         } catch (IllegalArgumentException | ConfigException e) {
             // expected exception for invalid OCI buckets
         }
+    }
+
+    @Test
+    public void testBackOffConfigValidation() {
+        assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(Collections.singletonMap(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP, "-1")));
+        assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(Collections.singletonMap(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, "-1")));
     }
 
     @Test
@@ -762,6 +778,7 @@ public class HDFSRemoteStorageManagerTest {
                     .thenReturn(spyFileSystem);
             doThrow(new IOException("Test exception")).when(spyFileSystem).create(any());
             rsm.configure(configs);
+            rsm.setTime(time);
             rsm.registerStreamMetrics();
 
             RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
@@ -784,6 +801,7 @@ public class HDFSRemoteStorageManagerTest {
                     .thenReturn(spyFileSystem);
 
             rsm.configure(configs);
+            rsm.setTime(time);
             rsm.registerStreamMetrics();
             ArgumentCaptor<Path> pathArgCaptor = ArgumentCaptor.forClass(Path.class);
             Mockito.doCallRealMethod().when(spyFileSystem).exists(pathArgCaptor.capture());
@@ -1059,14 +1077,18 @@ public class HDFSRemoteStorageManagerTest {
         rsm.deleteLogSegmentData(metadata);
         assertFalse(hdfs.exists(new Path(baseDir + Path.SEPARATOR + tp.topicId() + Path.SEPARATOR +
                 tp.topicPartition() + Path.SEPARATOR + uuid)));
+
+        long beforeMs = time.milliseconds();
         RemoteStorageException ex = assertThrows(RemoteStorageException.class, () ->
                 rsm.fetchLogSegment(metadata, 0));
-        assertEquals("Failed to fetch SEGMENT file from remote storage. Metadata: " + metadata,
-                ex.getMessage());
+        assertTrue(ex.getMessage().contains("Failed to fetch SEGMENT file from remote storage. Metadata: " + metadata + " with backoffMs: "));
+        assertTrue(time.milliseconds() > beforeMs);
+
+        beforeMs = time.milliseconds();
         ex = assertThrows(RemoteStorageException.class, () ->
                 rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET));
-        assertEquals("Failed to fetch OFFSET_INDEX file from remote storage. Metadata: " + metadata,
-                ex.getMessage());
+        assertTrue(ex.getMessage().contains("Failed to fetch OFFSET_INDEX file from remote storage. Metadata: " + metadata + " with backoffMs: "));
+        assertTrue(time.milliseconds() > beforeMs);
     }
 
     private void checkFileExistence(Uuid uuid) throws IOException {
