@@ -1043,7 +1043,8 @@ public class HDFSRemoteStorageManagerTest {
             assertDataEquals(buffer, stream);
             byteChannel.close();
             if (readContext.isHedgedReadsEnabled()) {
-                assertTrue(stream instanceof HDFSRemoteStorageManager.CachedInputStream);
+                SafeInputStream safeInputStream = (SafeInputStream) stream;
+                assertTrue(safeInputStream.delegate() instanceof HDFSRemoteStorageManager.CachedInputStream);
             }
         }
     }
@@ -1088,13 +1089,13 @@ public class HDFSRemoteStorageManagerTest {
         long beforeMs = time.milliseconds();
         RemoteStorageException ex = assertThrows(RemoteStorageException.class, () ->
                 rsm.fetchLogSegment(metadata, 0));
-        assertTrue(ex.getMessage().contains("Failed to fetch SEGMENT file from remote storage. Metadata: " + metadata + " with backoffMs: "));
+        assertTrue(ex.getMessage().contains("Failed to fetch SEGMENT file from remote storage. Metadata: " + metadata));
         assertTrue(time.milliseconds() > beforeMs);
 
         beforeMs = time.milliseconds();
         ex = assertThrows(RemoteStorageException.class, () ->
                 rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET));
-        assertTrue(ex.getMessage().contains("Failed to fetch OFFSET_INDEX file from remote storage. Metadata: " + metadata + " with backoffMs: "));
+        assertTrue(ex.getMessage().contains("Failed to fetch OFFSET_INDEX file from remote storage. Metadata: " + metadata));
         assertTrue(time.milliseconds() > beforeMs);
     }
 
