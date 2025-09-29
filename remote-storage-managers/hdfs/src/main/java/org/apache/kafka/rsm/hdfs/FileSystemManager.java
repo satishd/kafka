@@ -390,32 +390,12 @@ public class FileSystemManager {
                 Function<String, Number> parserFunc = entry.getValue();
                 Number oldValue = parserFunc.apply(hadoopConf.get(hadoopConfKey));
                 Number newValue = parserFunc.apply((String) configs.get(prop));
-                validate(prop, oldValue.longValue(), newValue.longValue());
+                RSMUtils.validateConfigValueRange(prop, oldValue.longValue(), newValue.longValue());
             }
         }
     }
 
-    /**
-     * Validates the new value against the current value.
-     *
-     * @param prop         the property name
-     * @param currentValue the current value
-     * @param newValue     the new value
-     * @throws ConfigException if the validation fails
-     */
-    private void validate(String prop, long currentValue, long newValue) {
-        String errorMsg = String.format("Dynamic config update validation failed for %s=%s", prop, newValue);
-        if (newValue != currentValue) {
-            if (newValue < currentValue / 2) {
-                throw new ConfigException(String.format("%s, value should be at least half the current value: %d",
-                        errorMsg, currentValue));
-            }
-            if (newValue > currentValue * 2) {
-                throw new ConfigException(String.format("%s, value should not be greater than double the current value: %d",
-                        errorMsg, currentValue));
-            }
-        }
-    }
+
 
     private void validateNonNumberConfigs(Map<String, ?> configs) {
         if (configs.containsKey(HDFS_OCI_BUCKETS_PROP)) {

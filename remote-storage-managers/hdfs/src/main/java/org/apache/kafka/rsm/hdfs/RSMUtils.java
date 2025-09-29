@@ -18,6 +18,7 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
@@ -108,5 +109,27 @@ public final class RSMUtils {
                 // Do nothing
             }
         };
+    }
+
+    /**
+     * Validates the new value against the current value.
+     *
+     * @param prop         the property name
+     * @param currentValue the current value
+     * @param newValue     the new value
+     * @throws ConfigException if the validation fails
+     */
+    public static void validateConfigValueRange(String prop, long currentValue, long newValue) {
+        String errorMsg = String.format("Dynamic config update validation failed for %s=%s", prop, newValue);
+        if (newValue != currentValue) {
+            if (newValue < currentValue / 2) {
+                throw new ConfigException(String.format("%s, value should be at least half the current value: %d",
+                    errorMsg, currentValue));
+            }
+            if (newValue > currentValue * 2) {
+                throw new ConfigException(String.format("%s, value should not be greater than double the current value: %d",
+                    errorMsg, currentValue));
+            }
+        }
     }
 }

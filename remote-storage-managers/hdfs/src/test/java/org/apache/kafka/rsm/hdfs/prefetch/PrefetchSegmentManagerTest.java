@@ -18,10 +18,10 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
-import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig;
 import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.PrefetchEnabledHDFSRemoteStorageManager;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
@@ -36,6 +36,8 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.File;
 import java.io.IOException;
@@ -56,6 +58,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
@@ -65,9 +74,11 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -116,13 +127,13 @@ public class PrefetchSegmentManagerTest {
 
         // Create a common configuration
         configs = new HashMap<>();
-        configs.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, HDFS_BASE_DIR);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP, tempDir.toString());
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 2);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 4);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 10);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_MAX_SIZE_PROP, 100);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, 30);
+        configs.put(HDFS_BASE_DIR_PROP, HDFS_BASE_DIR);
+        configs.put(PREFETCH_LOCAL_BASE_DIR_PROP, tempDir.toString());
+        configs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 2);
+        configs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 4);
+        configs.put(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 10);
+        configs.put(PREFETCH_CACHE_MAX_SIZE_PROP, 100);
+        configs.put(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, 30);
         configs.put(METRICS, new Metrics());
     }
 
@@ -369,9 +380,9 @@ public class PrefetchSegmentManagerTest {
     @Test
     public void testRejectedExecution() throws IOException, InterruptedException {
         clearKafkaMetrics();
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 1);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 1);
-        configs.put(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 1);
+        configs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 1);
+        configs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 1);
+        configs.put(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 1);
         segmentManager.configure(configs);
 
         // Verify initial metrics
@@ -504,6 +515,127 @@ public class PrefetchSegmentManagerTest {
         // Verify metrics after deleting first file
         verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 1);
         verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 200L);
+    }
+
+    /**
+     * Tests the validation logic for reconfiguring thread pool properties in the segment manager.
+     *
+     * @param prop           the configuration property to be validated.
+     * @param value          the value to set for the given property.
+     * @param currentCoreSize the current core pool size to set up in the executor.
+     * @param currentMaxSize  the current max pool size to set up in the executor.
+     * @param passValidation indicates whether the provided configuration should pass validation.
+     * @param failureReason   description of why validation fails, or empty if validation passes.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        // Valid core size updates
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",2,2,4,true,''",
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",3,2,4,true,''",
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",4,2,4,true,''",
+
+        // Invalid core size (less than half of current)
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",0,2,4,false,'value should be at least half the current value'",
+
+        // Invalid core size (more than double of current)
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",5,2,4,false,'value should not be greater than double the current value'",
+
+        // Invalid core size (greater than max)
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP + ",6,3,4,false,'core pool size (6) cannot be greater than maximum pool size (4)'",
+
+        // Valid max size updates
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",4,2,4,true,''",
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",6,2,4,true,''",
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",8,2,4,true,''",
+
+        // Invalid max size (less than half of current)
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",1,1,4,false,'value should be at least half the current value'",
+
+        // Invalid max size (more than double of current)
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",10,2,4,false,'value should not be greater than double the current value'",
+
+        // Invalid max size (less than core)
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP + ",2,3,4,false,'core pool size (3) cannot be greater than maximum pool size (2)'"
+    })
+    public void testValidateReconfiguration(String prop, String value, int currentCoreSize, int currentMaxSize, boolean passValidation, String failureReason) {
+        segmentManager.configure(configs);
+
+        // Set up a ThreadPoolExecutor with the specified core and max sizes
+        ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
+            currentCoreSize, currentMaxSize, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+        segmentManager.setThreadPoolExecutor(threadPoolExecutor);
+
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(prop, value);
+
+        if (passValidation) {
+            assertDoesNotThrow(() -> segmentManager.validateReconfiguration(configs));
+        } else {
+            ConfigException exception = assertThrows(ConfigException.class,
+                () -> segmentManager.validateReconfiguration(configs));
+            assertTrue(exception.getMessage().contains(failureReason),
+                "Expected error message to contain '" + failureReason + "', but was: " + exception.getMessage());
+        }
+    }
+
+    /**
+     * Tests validation of core and max pool size when both are updated at the same time.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        // Both valid and core <= max
+        "3,6,2,4,true,''",
+        // Both valid but core > max
+        "4,3,2,4,false,'core pool size (4) cannot be greater than maximum pool size (3)'",
+        // Core invalid range, max valid
+        "0,6,2,4,false,'value should be at least half the current value'",
+        // Core valid, max invalid range
+        "3,10,2,4,false,'value should not be greater than double the current value'",
+        // Both invalid range
+        "0,10,2,4,false,'value should be at least half the current value'"
+    })
+    public void testValidateReconfigurationBothProperties(String coreValue, String maxValue,
+                                                          int currentCoreSize, int currentMaxSize,
+                                                          boolean passValidation, String failureReason) {
+        segmentManager.configure(configs);
+
+        // Set up a ThreadPoolExecutor with the specified core and max sizes
+        ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
+            currentCoreSize, currentMaxSize, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
+        segmentManager.setThreadPoolExecutor(threadPoolExecutor);
+
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, coreValue);
+        configs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, maxValue);
+
+        if (passValidation) {
+            assertDoesNotThrow(() -> segmentManager.validateReconfiguration(configs));
+        } else {
+            ConfigException exception = assertThrows(ConfigException.class,
+                () -> segmentManager.validateReconfiguration(configs));
+            assertTrue(exception.getMessage().contains(failureReason),
+                "Expected error message to contain '" + failureReason + "', but was: " + exception.getMessage());
+        }
+    }
+
+
+    @Test
+    public void testReconfigure() {
+        segmentManager.configure(configs);
+
+        ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) Executors.newFixedThreadPool(2);
+        segmentManager.setThreadPoolExecutor(threadPoolExecutor);
+
+        assertEquals(2, threadPoolExecutor.getCorePoolSize());
+        assertEquals(2, threadPoolExecutor.getMaximumPoolSize());
+
+        Map<String, Object> newConfigs = new HashMap<>();
+        newConfigs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, "1");
+        newConfigs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, "4");
+
+        segmentManager.reconfigure(newConfigs);
+        assertEquals(1, threadPoolExecutor.getCorePoolSize());
+        assertEquals(4, threadPoolExecutor.getMaximumPoolSize());
     }
 
     private void verifyMeter(String name, long expectedCount) {

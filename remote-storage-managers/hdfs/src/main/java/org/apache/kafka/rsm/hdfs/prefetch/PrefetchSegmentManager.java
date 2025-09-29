@@ -27,6 +27,7 @@ import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.Quota;
 import org.apache.kafka.common.utils.ThreadUtils;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.DataFetcher;
 import org.apache.kafka.rsm.hdfs.FileSystemManager;
 import org.apache.kafka.rsm.hdfs.HDFSDataFetcher;
@@ -49,7 +50,6 @@ import java.io.InputStream;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -74,6 +74,11 @@ import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerCon
 
 public class PrefetchSegmentManager implements Reconfigurable {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
+
+    private static final Set<String> DYNAMIC_CONFIGS = Utils.mkSet(
+        PREFETCH_MAX_BYTES_PER_SECOND_PROP,
+        PREFETCH_THREAD_POOL_CORE_SIZE_PROP,
+        PREFETCH_THREAD_POOL_MAX_SIZE_PROP);
 
     private final Time time = Time.SYSTEM;
     private final FileSystemManager fileSystemManager;
@@ -140,12 +145,33 @@ public class PrefetchSegmentManager implements Reconfigurable {
 
     @Override
     public Set<String> reconfigurableConfigs() {
-        return Collections.singleton(PREFETCH_MAX_BYTES_PER_SECOND_PROP);
+        return DYNAMIC_CONFIGS;
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
-        // Currently no-op
+        int newCoreSize = this.threadPoolExecutor.getCorePoolSize();
+        int newMaxSize = this.threadPoolExecutor.getMaximumPoolSize();
+
+        // Update the new values if present in configs
+        if (configs.containsKey(PREFETCH_THREAD_POOL_CORE_SIZE_PROP)) {
+            newCoreSize = Integer.parseInt((String) configs.get(PREFETCH_THREAD_POOL_CORE_SIZE_PROP));
+            RSMUtils.validateConfigValueRange(PREFETCH_THREAD_POOL_CORE_SIZE_PROP,
+                this.threadPoolExecutor.getCorePoolSize(), newCoreSize);
+        }
+
+        if (configs.containsKey(PREFETCH_THREAD_POOL_MAX_SIZE_PROP)) {
+            newMaxSize = Integer.parseInt((String) configs.get(PREFETCH_THREAD_POOL_MAX_SIZE_PROP));
+            RSMUtils.validateConfigValueRange(PREFETCH_THREAD_POOL_MAX_SIZE_PROP,
+                this.threadPoolExecutor.getMaximumPoolSize(), newMaxSize);
+        }
+
+        // Validate that core size is never greater than max size
+        if (newCoreSize > newMaxSize) {
+            throw new ConfigException(String.format(
+                "Invalid thread pool configuration: core pool size (%d) cannot be greater than maximum pool size (%d)",
+                newCoreSize, newMaxSize));
+        }
     }
 
     @Override
@@ -153,6 +179,14 @@ public class PrefetchSegmentManager implements Reconfigurable {
         String prefetchMaxBytesPerSecond = (String) configs.get(PREFETCH_MAX_BYTES_PER_SECOND_PROP);
         if (prefetchMaxBytesPerSecond != null) {
             this.quotaManager.updateQuota(new Quota(Long.parseLong(prefetchMaxBytesPerSecond), true));
+        }
+        String corePoolSize = (String) configs.get(PREFETCH_THREAD_POOL_CORE_SIZE_PROP);
+        if (corePoolSize != null) {
+            this.threadPoolExecutor.setCorePoolSize(Integer.parseInt(corePoolSize));
+        }
+        String maxPoolSize = (String) configs.get(PREFETCH_THREAD_POOL_MAX_SIZE_PROP);
+        if (maxPoolSize != null) {
+            this.threadPoolExecutor.setMaximumPoolSize(Integer.parseInt(maxPoolSize));
         }
     }
 
