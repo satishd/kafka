@@ -26,14 +26,9 @@ java_standard:
   build_cmds:
   - 'RUN mkdir -p /etc/kafka /usr/share/kafka/lib /var/kafka-spool /usr/lib/kafka/intel_zlib /var/log/kafka /usr/local/bin /usr/share/man/man1'
   - 'RUN chmod 777 /etc/kafka'
-  - 'RUN apt-get update'
-  - 'RUN apt-get install openjdk-17-jre-headless -y'
+  - 'RUN apt-get update && apt-get install -y openjdk-17-jre-headless fabric gettext muttley-config python3-dev python3-pip'
   #  Please update the JAVA_HOME path in kafka-run-class.sh if sym link to /usr/lib/jvm/java-17-openjdk is changed
   - 'RUN ARCH=$(dpkg --print-architecture) && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-8-openjdk-amd64 && ln -s /usr/lib/jvm/java-17-openjdk-$ARCH /usr/lib/jvm/java-17-openjdk'
-  - 'RUN apt-get install fabric -y'
-  - 'RUN apt-get install gettext -y'
-  - 'RUN apt-get install muttley-config -y'
-  - 'RUN apt-get install python3-dev python3-pip -y'
   - 'RUN pip3 install python-dateutil'
   - 'RUN pip3 install kazoo'
   - 'RUN pip3 install numpy'
@@ -41,17 +36,12 @@ java_standard:
   - 'RUN pip3 install PyYAML'
   - 'RUN pip3 install m3'
   #  Before changing the kafka-tools-odin version, read this document: https://docs.google.com/document/d/1Gv9K2tlsxwtWq1DCSJO8dLMuQEdmihRb_kn237CnGTo/edit?usp=sharing
-  - 'RUN apt-get install kafka-tools-odin=2.0.1~14728.gbp78e365 -y'
+  - 'RUN apt-get update && apt-get install -y kafka-tools-odin=2.0.1~14728.gbp78e365'
   # Kerberos client libs are required to connect to
   #   1. secured HDFS cluster when remote storage option is enabled
   #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
-  - 'RUN DEBIAN_FRONTEND=noninteractive apt-get install krb5-user uber-data-krb5-conf -y'
-  - 'RUN apt-get install netcat -y'
-  - 'RUN apt-get install rsync -y'
-  - 'RUN apt-get install ngrep -y'
-  - 'RUN apt-get install sudo -y'
-  - 'RUN apt-get install telnet -y'
-  - 'RUN apt-get install vim -y'
+  - 'RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y krb5-user uber-data-krb5-conf'
+  - 'RUN apt-get update && apt-get install -y netcat rsync ngrep sudo telnet vim'
   - 'RUN udeploy/build.sh'
   - 'RUN mkdir -p /usr/share/jmx_exporter'
   - 'RUN curl -L http://artifactory.uber.internal:4587/artifactory/repo/io/prometheus/jmx/jmx_prometheus_httpserver/1.0.1/jmx_prometheus_httpserver-1.0.1.jar -o /usr/share/jmx_exporter/jmx_prometheus_httpserver-1.0.1.jar'
