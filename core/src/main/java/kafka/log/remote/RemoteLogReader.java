@@ -20,6 +20,7 @@ import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.server.BrokerTopicStats;
 
 import org.apache.kafka.common.errors.OffsetOutOfRangeException;
+import org.apache.kafka.common.errors.ReplicaNotAvailableException;
 import org.apache.kafka.storage.internals.log.FetchDataInfo;
 import org.apache.kafka.storage.internals.log.RemoteLogReadResult;
 import org.apache.kafka.storage.internals.log.RemoteStorageFetchInfo;
@@ -70,9 +71,13 @@ public class RemoteLogReader implements Callable<Void> {
         } catch (OffsetOutOfRangeException e) {
             result = new RemoteLogReadResult(Optional.empty(), Optional.of(e));
         } catch (Exception e) {
-            brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topic()).failedRemoteFetchRequestRate().mark();
-            brokerTopicStats.allTopicsStats().failedRemoteFetchRequestRate().mark();
-            LOGGER.error("Error occurred while reading the remote data for {}", fetchInfo.topicIdPartition, e);
+            if (e instanceof ReplicaNotAvailableException) {
+                LOGGER.debug("Skipping the call to read remote data for {} as the remote storage is not ready", fetchInfo.topicIdPartition, e);
+            } else {
+                brokerTopicStats.topicStats(fetchInfo.topicIdPartition.topic()).failedRemoteFetchRequestRate().mark();
+                brokerTopicStats.allTopicsStats().failedRemoteFetchRequestRate().mark();
+                LOGGER.error("Error occurred while reading the remote data for {}", fetchInfo.topicIdPartition, e);
+            }
             result = new RemoteLogReadResult(Optional.empty(), Optional.of(e));
         }
         LOGGER.debug("Finished reading records from remote storage for topic partition {}", fetchInfo.topicIdPartition);

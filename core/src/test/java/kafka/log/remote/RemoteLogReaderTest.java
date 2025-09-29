@@ -22,6 +22,7 @@ import kafka.utils.TestUtils;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.errors.ReplicaNotAvailableException;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.storage.internals.log.FetchDataInfo;
@@ -33,11 +34,15 @@ import com.yammer.metrics.core.Timer;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -99,9 +104,10 @@ public class RemoteLogReaderTest {
         assertEquals(0, brokerTopicStats.allTopicsStats().failedRemoteFetchRequestRate().count());
     }
 
-    @Test
-    public void testRemoteLogReaderWithError() throws RemoteStorageException, IOException {
-        when(mockRLM.read(any(RemoteStorageFetchInfo.class))).thenThrow(new RuntimeException("error"));
+    @ParameterizedTest
+    @MethodSource("parameters")
+    public void testRemoteLogReaderWithError(Exception ex, int expectedFailedRemoteFetchCount) throws RemoteStorageException, IOException {
+        when(mockRLM.read(any(RemoteStorageFetchInfo.class))).thenThrow(ex);
 
         Consumer<RemoteLogReadResult> callback = mock(Consumer.class);
         RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, new TopicIdPartition(Uuid.randomUuid(), 0, TOPIC), null, null, false);
@@ -121,13 +127,21 @@ public class RemoteLogReaderTest {
         verify(mockQuotaManager, times(1)).record(recordedArg.capture());
         assertEquals(0, recordedArg.getValue());
 
+        // when ReplicaNotAvailableException is thrown, then the failedRemoteFetchRequestRate metrics should not be updated.
         // Verify metrics for remote reads are updated correctly
         assertEquals(1, brokerTopicStats.topicStats(TOPIC).remoteFetchRequestRate().count());
         assertEquals(0, brokerTopicStats.topicStats(TOPIC).remoteFetchBytesRate().count());
-        assertEquals(1, brokerTopicStats.topicStats(TOPIC).failedRemoteFetchRequestRate().count());
+        assertEquals(expectedFailedRemoteFetchCount, brokerTopicStats.topicStats(TOPIC).failedRemoteFetchRequestRate().count());
         // Verify aggregate metrics
         assertEquals(1, brokerTopicStats.allTopicsStats().remoteFetchRequestRate().count());
         assertEquals(0, brokerTopicStats.allTopicsStats().remoteFetchBytesRate().count());
-        assertEquals(1, brokerTopicStats.allTopicsStats().failedRemoteFetchRequestRate().count());
+        assertEquals(expectedFailedRemoteFetchCount, brokerTopicStats.allTopicsStats().failedRemoteFetchRequestRate().count());
+    }
+
+    private static Stream<Arguments> parameters() {
+        return Stream.of(
+                Arguments.of(new RuntimeException("Error"), 1),
+                Arguments.of(new ReplicaNotAvailableException("Remote storage not ready!"), 0)
+        );
     }
 }
