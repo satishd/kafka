@@ -81,6 +81,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link FileSystemManager}.
@@ -533,6 +534,139 @@ public class FileSystemManagerTest {
                     readAheadConf.getInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, -1));
         }
     }
+
+    /**
+     * Tests the dynamic update and management of read-ahead configuration settings
+     * in {@code FileSystemManager}. Validates that changes to the read-ahead configuration
+     * result in the creation of updated {@code Configuration} instances and ensure no unnecessary
+     * recreation of {@code FileSystem} instances when configuration values remain unchanged.
+     * <p>
+     * Scenarios tested:
+     * 1. Verifies the initial configuration and ensures it matches the default values.
+     * 2. Confirms that no new {@code FileSystem} instance is created if the configuration values
+     * are set to their current defaults.
+     * 3. Validates the creation of updated {@code Configuration} instances when
+     * each of the read-ahead parameters—block count, block size, and thread count—are dynamically
+     * updated.
+     * 4. Ensures the correct number of {@code FileSystem} instances are created following changes
+     * to the configuration.
+     * <p>
+     * Assertions include:
+     * - Validation of initial default configuration values.
+     * - Ensuring that no new instance of {@code FileSystem} is created unless required by parameter changes.
+     * - Verification of updated configuration values following parameter changes.
+     * - Tracking the total number of {@code FileSystem} instances created.
+     * <p>
+     * The method uses mocks for {@code FileSystem} and {@code FileSystem.get()} to simulate behaviors
+     * and capture configuration updates for validation.
+     *
+     * @throws Exception if any error occurs during the test execution.
+     */
+    @Test
+    public void testUpdateReadAheadConfig() throws Exception {
+        // Initialize mock FileSystem
+        FileSystem mockFileSystem = mock(FileSystem.class);
+
+        // Create a new configs map for this test
+        Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
+        testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
+        testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
+
+        // Capture the Configuration object passed to FileSystem.get
+        ArgumentCaptor<Configuration> configCaptor = ArgumentCaptor.forClass(Configuration.class);
+
+        try (MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            // Mock FileSystem.get to return our mock FileSystem and capture the Configuration
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), configCaptor.capture()))
+                .thenReturn(mockFileSystem);
+
+            // Mock the FileSystem.getConf() to return the captured configuration
+            when(mockFileSystem.getConf()).thenAnswer(invocation -> configCaptor.getValue());
+
+            // Create and configure the FileSystemManager
+            FileSystemManager fileSystemManager = new FileSystemManager();
+            fileSystemManager.configure(testConfigs);
+
+            // Get a FileSystem with read-ahead enabled
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            fileSystemManager.getFS(readAheadOptions);
+
+            // 1. Test initial configuration with default values
+            Configuration originalConf = configCaptor.getValue();
+            verifyReadAheadConf(originalConf, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT,
+                DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE,
+                DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS);
+
+            // 2. Test no changes scenario - should not create new FileSystem instance
+            fileSystemManager.setReadAheadBlockCount(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT);
+            fileSystemManager.setReadAheadBlockSize(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE);
+            fileSystemManager.setReadAheadThreadCount(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS);
+
+            int creationCountBefore = configCaptor.getAllValues().size();
+            fileSystemManager.handleDynamicReadAheadConfigUpdates();
+
+            // Verify no new calls to create the filesystem
+            assertEquals(creationCountBefore, configCaptor.getAllValues().size(),
+                "No new FileSystem should be created when configuration hasn't changed");
+
+            // Verify previous and last captured conf are the same object instance
+            assertSame(originalConf, configCaptor.getValue(),
+                "Configuration should remain the same when values don't change");
+
+            // 3. Test changing read-ahead block count
+            int readAheadBlockCount = 2 * DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
+            fileSystemManager.setReadAheadBlockCount(readAheadBlockCount);
+            fileSystemManager.handleDynamicReadAheadConfigUpdates();
+
+            Configuration updatedConf = configCaptor.getValue();
+            assertNotSame(originalConf, updatedConf,
+                "New Configuration should be created when block count changes");
+
+            verifyReadAheadConf(updatedConf, readAheadBlockCount,
+                DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE,
+                DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS);
+
+            // 4. Test changing read-ahead block size
+            Configuration previousConf = updatedConf;
+            int readAheadBlockSize = 2 * DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
+            fileSystemManager.setReadAheadBlockSize(readAheadBlockSize);
+            fileSystemManager.handleDynamicReadAheadConfigUpdates();
+
+            updatedConf = configCaptor.getValue();
+            assertNotSame(previousConf, updatedConf,
+                "New Configuration should be created when block size changes");
+
+            verifyReadAheadConf(updatedConf, readAheadBlockCount, readAheadBlockSize,
+                DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS);
+
+            // 5. Test changing read-ahead thread count
+            previousConf = updatedConf;
+            int readAheadNumThreads = 2 * DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
+            fileSystemManager.setReadAheadThreadCount(readAheadNumThreads);
+            fileSystemManager.handleDynamicReadAheadConfigUpdates();
+
+            updatedConf = configCaptor.getValue();
+            assertNotSame(previousConf, updatedConf,
+                "New Configuration should be created when thread count changes");
+
+            verifyReadAheadConf(updatedConf, readAheadBlockCount, readAheadBlockSize, readAheadNumThreads);
+
+            // 6. Verify correct number of FileSystem creations
+            assertEquals(creationCountBefore + 3, configCaptor.getAllValues().size(),
+                "Should have created exactly 3 new FileSystem instances");
+        }
+    }
+
+    private void verifyReadAheadConf(Configuration conf,
+                                     int expectedReadAheadBlockCount,
+                                     int expectedReadAheadBlockSize,
+                                     int expectedReadAheadNumThreads) {
+        assertEquals(Integer.toString(expectedReadAheadBlockCount), conf.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
+        assertEquals(Integer.toString(expectedReadAheadBlockSize), conf.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
+        assertEquals(Integer.toString(expectedReadAheadNumThreads), conf.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+    }
+
 
     @Test
     public void shouldNotRecreateFileSystemInstanceAfterClose() {

@@ -25,8 +25,6 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
-import com.oracle.bmc.hdfs.BmcConstants;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
@@ -54,15 +52,22 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.oracle.bmc.hdfs.BmcConstants.NUM_READ_AHEAD_THREADS_KEY;
+import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY;
+import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP;
@@ -87,10 +92,29 @@ public class FileSystemManager {
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, MAX_SIZE_KEY)
     );
 
-    private static final Map<String, Function<String, Number>> CONFIG_PARSERS = Utils.mkMap(
+    static final Map<String, String> DYNAMIC_READ_AHEAD_CONFIG_MAP = Utils.mkMap(
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, READ_AHEAD_BLOCK_SIZE_KEY),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, READ_AHEAD_BLOCK_COUNT_KEY),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, NUM_READ_AHEAD_THREADS_KEY)
+    );
+
+    private final Map<String, BiConsumer<String, Map<String, ?>>> dynamicConfigHandlers = Utils.mkMap(
+        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, (k, c) -> setHedgedReadThresholdMillis(Long.parseLong((String) c.get(k)))),
+        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, (k, c) -> setReadThreadPoolCoreSize(Integer.parseInt((String) c.get(k)))),
+        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, (k, c) -> setReadThreadPoolMaxSize(Integer.parseInt((String) c.get(k)))),
+        Utils.mkEntry(HDFS_OCI_BUCKETS_PROP, (k, c) -> reconfigureBuckets((String) c.get(k))),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, (k, c) -> setReadAheadBlockCount(Integer.parseInt((String) c.get(k)))),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, (k, c) -> setReadAheadBlockSize(Integer.parseInt((String) c.get(k)))),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, (k, c) -> setReadAheadThreadCount(Integer.parseInt((String) c.get(k))))
+    );
+
+    private static final Map<String, Function<String, Number>> NUMBER_CONFIG_PARSERS = Utils.mkMap(
         Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, Long::parseLong),
         Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, Integer::parseInt),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt)
+        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, Integer::parseInt),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, Integer::parseInt),
+        Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, Integer::parseInt)
     );
 
     private String hdfsBucket;
@@ -98,10 +122,11 @@ public class FileSystemManager {
     private final Map<FileSystemKey, FileSystem> fileSystemByBucket = new ConcurrentHashMap<>();
     private final AtomicBoolean isHedgedReadsThresholdChanged = new AtomicBoolean();
     private final AtomicBoolean isHedgedReadsThreadConfigChanged = new AtomicBoolean();
+    private final AtomicBoolean isReadAheadConfigChanged = new AtomicBoolean();
 
     private Configuration defaultHadoopConf;
     private volatile Configuration hedgedReadsHadoopConf;
-    private Configuration readAheadHadoopConf;
+    private volatile Configuration readAheadHadoopConf;
 
     // TODO fix the thread factory name pattern
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
@@ -170,7 +195,10 @@ public class FileSystemManager {
 
         // Schedule periodic tasks
         executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
-        executor.scheduleWithFixedDelay(this::handleDynamicHedgedReadsConfigUpdates, 0, 1, TimeUnit.MINUTES);
+        executor.scheduleWithFixedDelay(() -> {
+            handleDynamicHedgedReadsConfigUpdates();
+            handleDynamicReadAheadConfigUpdates();
+        }, 0, 1, TimeUnit.MINUTES);
     }
 
     /**
@@ -187,9 +215,9 @@ public class FileSystemManager {
         Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
         Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
         Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
-        conf.setInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
-        conf.setInt(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
-        conf.setInt(BmcConstants.NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
+        conf.setInt(READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
+        conf.setInt(READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
+        conf.setInt(NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
         LOGGER.info("Hadoop configuration after setting read ahead properties for OCI : {}", confToString(conf));
     }
 
@@ -255,6 +283,67 @@ public class FileSystemManager {
         }
     }
 
+    public void handleDynamicReadAheadConfigUpdates() {
+        try {
+            if (isReadAheadConfigChanged.compareAndSet(true, false)) {
+                for (String ociBucket : ociBuckets) {
+                    FileSystemOptions readAheadOpts = new FileSystemOptions(ociBucket, false, true);
+                    FileSystem readAheadEnabledFs = getFS(readAheadOpts);
+                    if (shouldHandleReadAheadBlockCountChange(ociBucket, readAheadEnabledFs) ||
+                        shouldHandleReadAheadBlockSizeChange(ociBucket, readAheadEnabledFs) ||
+                        shouldHandleReadAheadNumThreadsChange(ociBucket, readAheadEnabledFs)) {
+                        FileSystemKey fileSystemKey = new FileSystemKey(ociBucket, false, true);
+                        FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(ociBucket, readAheadHadoopConf));
+                        Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + ociBucket + " with readAhead enabled");
+                        LOGGER.info("Dynamic readAhead config updated for bucket: {}", ociBucket);
+                    }
+                }
+                LOGGER.info("Dynamic read ahead config change handled");
+            }
+        } catch (Exception ex) {
+            LOGGER.error("Failed to handle dynamic read ahead config updates", ex);
+        }
+    }
+
+    private boolean shouldHandleReadAheadBlockCountChange(String ociBucket, FileSystem readAheadEnabledFs) {
+        String key = READ_AHEAD_BLOCK_COUNT_KEY;
+        int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
+
+        long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
+        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        if (currentValue != newValue) {
+            LOGGER.debug("Read ahead block count for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean shouldHandleReadAheadBlockSizeChange(String ociBucket, FileSystem readAheadEnabledFs) {
+        String key = READ_AHEAD_BLOCK_SIZE_KEY;
+        int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
+
+        long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
+        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        if (currentValue != newValue) {
+            LOGGER.debug("Read ahead block size for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean shouldHandleReadAheadNumThreadsChange(String ociBucket, FileSystem readAheadEnabledFs) {
+        String key = NUM_READ_AHEAD_THREADS_KEY;
+        int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
+
+        long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
+        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        if (currentValue != newValue) {
+            LOGGER.debug("Read ahead num threads for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Returns the set of reconfigurable configs.
      *
@@ -262,6 +351,7 @@ public class FileSystemManager {
      */
     public Set<String> reconfigurableConfigs() {
         Set<String> reconfigurableConfigs = new HashSet<>(DYNAMIC_HEDGED_READS_CONFIG_MAP.keySet());
+        reconfigurableConfigs.addAll(DYNAMIC_READ_AHEAD_CONFIG_MAP.keySet());
         reconfigurableConfigs.add(HDFS_OCI_BUCKETS_PROP);
         LOGGER.debug("Reconfigurable configs: {}", reconfigurableConfigs);
         return reconfigurableConfigs;
@@ -275,24 +365,32 @@ public class FileSystemManager {
      */
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
         LOGGER.debug("Validating dynamic configuration update: {}", configs);
-        for (Map.Entry<String, Function<String, Number>> entry : CONFIG_PARSERS.entrySet()) {
+        validateNumberConfigs(configs);
+        validateNonNumberConfigs(configs);
+    }
+
+    private void validateNumberConfigs(Map<String, ?> configs) {
+        for (Map.Entry<String, Function<String, Number>> entry : NUMBER_CONFIG_PARSERS.entrySet()) {
             String prop = entry.getKey();
-            Function<String, Number> parserFunc = entry.getValue();
             if (configs.containsKey(prop)) {
-                String hdfsConfig = DYNAMIC_HEDGED_READS_CONFIG_MAP.get(prop);
-                Number oldValue = parserFunc.apply(hedgedReadsHadoopConf.get(hdfsConfig));
+                // Find the corresponding Hadoop configuration property and configuration
+                String hadoopConfKey = DYNAMIC_HEDGED_READS_CONFIG_MAP.get(prop);
+                Configuration hadoopConf = hedgedReadsHadoopConf;
+
+                if (hadoopConfKey == null) {
+                    hadoopConfKey = DYNAMIC_READ_AHEAD_CONFIG_MAP.get(prop);
+                    hadoopConf = readAheadHadoopConf;
+                }
+
+                if (hadoopConfKey == null) {
+                    throw new ConfigException(
+                        String.format("Supplied property %s is neither a dynamic hedged reads config nor a dynamic readAhead config", prop));
+                }
+
+                Function<String, Number> parserFunc = entry.getValue();
+                Number oldValue = parserFunc.apply(hadoopConf.get(hadoopConfKey));
                 Number newValue = parserFunc.apply((String) configs.get(prop));
                 validate(prop, oldValue.longValue(), newValue.longValue());
-            }
-        }
-        if (configs.containsKey(HDFS_OCI_BUCKETS_PROP)) {
-            String newOciBuckets = (String) configs.get(HDFS_OCI_BUCKETS_PROP);
-            if (newOciBuckets == null || newOciBuckets.isEmpty()) {
-                throw new ConfigException(String.format("Dynamic config update validation failed for %s, value cannot be null or empty", HDFS_OCI_BUCKETS_PROP));
-            }
-            String[] ociBucketsArray = newOciBuckets.split(",");
-            for (String ociBucket : ociBucketsArray) {
-                validateScheme(ociBucket.trim(), RemoteStorageProvider.OCI);
             }
         }
     }
@@ -319,6 +417,19 @@ public class FileSystemManager {
         }
     }
 
+    private void validateNonNumberConfigs(Map<String, ?> configs) {
+        if (configs.containsKey(HDFS_OCI_BUCKETS_PROP)) {
+            String newOciBuckets = (String) configs.get(HDFS_OCI_BUCKETS_PROP);
+            if (newOciBuckets == null || newOciBuckets.isEmpty()) {
+                throw new ConfigException(String.format("Dynamic config update validation failed for %s, value cannot be null or empty", HDFS_OCI_BUCKETS_PROP));
+            }
+            String[] ociBucketsArray = newOciBuckets.split(",");
+            for (String ociBucket : ociBucketsArray) {
+                validateScheme(ociBucket.trim(), RemoteStorageProvider.OCI);
+            }
+        }
+    }
+
     /**
      * Reconfigures with the given configs.
      *
@@ -326,22 +437,12 @@ public class FileSystemManager {
      */
     public void reconfigure(Map<String, ?> configs) {
         LOGGER.info("Reconfiguring with configs: {}", configs);
-        String thresholdMillis = (String) configs.get(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP);
-        if (thresholdMillis != null) {
-            setHedgedReadThresholdMillis(Long.parseLong(thresholdMillis));
-        }
-        String coreSize = (String) configs.get(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP);
-        if (coreSize != null) {
-            setReadThreadPoolCoreSize(Integer.parseInt(coreSize));
-        }
-        String maxSize = (String) configs.get(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP);
-        if (maxSize != null) {
-            setReadThreadPoolMaxSize(Integer.parseInt(maxSize));
-        }
-        String newOciBucketsStr = (String) configs.get(HDFS_OCI_BUCKETS_PROP);
-        if (newOciBucketsStr != null) {
-            reconfigureBuckets(newOciBucketsStr);
-        }
+        dynamicConfigHandlers.forEach((key, handler) -> {
+            String value = (String) configs.get(key);
+            if (value != null) {
+                handler.accept(key, configs);
+            }
+        });
     }
 
     /**
@@ -422,6 +523,24 @@ public class FileSystemManager {
                         "updatedBuckets: {}", previousBuckets, bucketsToAdd, bucketsToRemove, ociBuckets);
     }
 
+    void setReadAheadBlockCount(int readAheadBlockCount) {
+        LOGGER.info("Setting read ahead block count to: {}", readAheadBlockCount);
+        updateReadAheadHadoopConf(READ_AHEAD_BLOCK_COUNT_KEY, String.valueOf(readAheadBlockCount));
+        isReadAheadConfigChanged.set(true);
+    }
+
+    void setReadAheadBlockSize(int readAheadBlockSize) {
+        LOGGER.info("Setting read ahead block size to: {}", readAheadBlockSize);
+        updateReadAheadHadoopConf(READ_AHEAD_BLOCK_SIZE_KEY, String.valueOf(readAheadBlockSize));
+        isReadAheadConfigChanged.set(true);
+    }
+
+    void setReadAheadThreadCount(int readAheadThreadCount) {
+        LOGGER.info("Setting read ahead thread count to: {}", readAheadThreadCount);
+        updateReadAheadHadoopConf(NUM_READ_AHEAD_THREADS_KEY, String.valueOf(readAheadThreadCount));
+        isReadAheadConfigChanged.set(true);
+    }
+
     /**
      * Updates the hedged reads Hadoop configuration.
      *
@@ -436,6 +555,25 @@ public class FileSystemManager {
         Configuration hadoopConf = new Configuration(hedgedReadsHadoopConf);
         hadoopConf.set(key, value);
         this.hedgedReadsHadoopConf = hadoopConf;
+    }
+
+    /**
+     * Updates the read-ahead configuration in the Hadoop configuration object.
+     * If the provided key is not in the allowed list of dynamic read-ahead configurations,
+     * an exception will be thrown.
+     *
+     * @param key   the configuration key to be updated
+     * @param value the new value for the configuration key
+     * @throws IllegalArgumentException if the provided key is not allowed for updates
+     */
+    private void updateReadAheadHadoopConf(String key, String value) {
+        if (!DYNAMIC_READ_AHEAD_CONFIG_MAP.containsValue(key)) {
+            throw new IllegalArgumentException(String.format("ReadAhead configuration: %s is not allowed for updates", key));
+        }
+
+        Configuration hadoopConf = new Configuration(readAheadHadoopConf);
+        hadoopConf.set(key, value);
+        this.readAheadHadoopConf = hadoopConf;
     }
 
     public FileSystem getFS(FileSystemOptions options) {

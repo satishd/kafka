@@ -88,6 +88,9 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
@@ -568,13 +571,17 @@ public class HDFSRemoteStorageManagerTest {
     public void testReconfigurables() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
-            assertEquals(6, reconfigurableConfigs.size());
+
+            assertEquals(9, reconfigurableConfigs.size());
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_OCI_BUCKETS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP));
+            assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP));
+            assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP));
+            assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP));
         }
     }
 
