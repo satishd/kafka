@@ -1,3 +1,9 @@
+# Release Kafka 3.9.7-uber build (09/30/2025)
+- Make OCI readAhead and prefetch configs as dynamic
+- Don't mark the remote-read requests as failed when ReplicaNotAvailableException thrown
+- Ensure update instructions are not used alone in Dockerfiles
+- Use SafeInputStream to handle server-side backoff wait on remote-read errors
+
 # Release Kafka 3.9.6-uber build (09/25/2025)
 - Simplify finding the remote metadata partition script for given topics.
 - Revert "DKAFC-5965: Enable privileged FetchSession for remote log metadata client."
