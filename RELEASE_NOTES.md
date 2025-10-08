@@ -1,3 +1,6 @@
+# Release Kafka 3.9.8-uber build (10/08/2025)
+- Revert parallel remote reads feature for remote storage.
+
 # Release Kafka 3.9.7-uber build (09/30/2025)
 - Make OCI readAhead and prefetch configs as dynamic
 - Don't mark the remote-read requests as failed when ReplicaNotAvailableException thrown
