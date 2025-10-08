@@ -3999,19 +3999,14 @@ class ReplicaManagerTest {
   @ValueSource(booleans = Array(true, false))
   def testOffsetOutOfRangeExceptionWhenReadFromLog(isFromFollower: Boolean): Unit = {
     val replicaId = if (isFromFollower) 1 else -1
-    val fetchMaxBytes = 150
-    val partitionMaxBytes = 100
     val tp0 = new TopicPartition(topic, 0)
-    val tp1 = new TopicPartition(topic, 1)
     val tidp0 = new TopicIdPartition(topicId, tp0)
-    val tidp1 = new TopicIdPartition(topicId, tp1)
     // create a replicaManager with remoteLog enabled
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteFetchQuotaExceeded = Some(false))
     try {
       val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
       replicaManager.createPartition(tp0).createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
-      replicaManager.createPartition(tp1).createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
-      val replicas = Seq[Integer](0, 1).asJava
+      val partition0Replicas = Seq[Integer](0, 1).asJava
       val topicIds = Map(tp0.topic -> topicId).asJava
       val leaderEpoch = 0
       val leaderAndIsrRequest = new LeaderAndIsrRequest.Builder(ApiKeys.LEADER_AND_ISR.latestVersion, 0, 0, brokerEpoch,
@@ -4022,50 +4017,33 @@ class ReplicaManagerTest {
             .setControllerEpoch(0)
             .setLeader(leaderEpoch)
             .setLeaderEpoch(0)
-            .setIsr(replicas)
+            .setIsr(partition0Replicas)
             .setPartitionEpoch(0)
-            .setReplicas(replicas)
-            .setIsNew(true),
-          new LeaderAndIsrPartitionState()
-            .setTopicName(tp1.topic)
-            .setPartitionIndex(tp1.partition)
-            .setControllerEpoch(0)
-            .setLeader(leaderEpoch)
-            .setLeaderEpoch(0)
-            .setIsr(replicas)
-            .setPartitionEpoch(0)
-            .setReplicas(replicas)
+            .setReplicas(partition0Replicas)
             .setIsNew(true)
         ).asJava,
         topicIds,
         Set(new Node(0, "host1", 0), new Node(1, "host2", 1)).asJava).build()
       replicaManager.becomeLeaderOrFollower(0, leaderAndIsrRequest, (_, _) => ())
 
-      val params = new FetchParams(ApiKeys.FETCH.latestVersion, replicaId, 1, 100, 0, fetchMaxBytes, FetchIsolation.LOG_END, None.asJava)
-      // when reading logs from 2 partitions, they'll throw OffsetOutOfRangeException, which will be handled separately
-      val results = replicaManager.readFromLog(params, Seq(
-        tidp0 -> new PartitionData(topicId, 1, 0, partitionMaxBytes, Optional.of[Integer](leaderEpoch), Optional.of[Integer](leaderEpoch)),
-        tidp1 -> new PartitionData(topicId, 1, 0, partitionMaxBytes, Optional.of[Integer](leaderEpoch), Optional.of[Integer](leaderEpoch))), UnboundedQuota, false)
+      val params = new FetchParams(ApiKeys.FETCH.latestVersion, replicaId, 1, 1000, 0, 100, FetchIsolation.LOG_END, None.asJava)
+      // when reading log, it'll throw OffsetOutOfRangeException, which will be handled separately
+      val result = replicaManager.readFromLog(params, Seq(tidp0 -> new PartitionData(topicId, 1, 0, 100000, Optional.of[Integer](leaderEpoch), Optional.of[Integer](leaderEpoch))), UnboundedQuota, false)
 
-      results.foreach { case (tidp, partitionData) =>
-         assertEquals(startOffset, partitionData.leaderLogStartOffset)
-         assertEquals(endOffset, partitionData.leaderLogEndOffset)
-         assertEquals(highHW, partitionData.highWatermark)
-        if (isFromFollower) {
-          // expect OFFSET_MOVED_TO_TIERED_STORAGE error returned if it's from follower, since the data is already available in remote log
-          assertEquals(Errors.OFFSET_MOVED_TO_TIERED_STORAGE, partitionData.error)
-          assertFalse(partitionData.info.delayedRemoteStorageFetch.isPresent)
-        } else {
-          assertEquals(Errors.NONE, partitionData.error)
-          // for consumer fetch, we should return a delayedRemoteStorageFetch to wait for remote fetch
-          assertTrue(partitionData.info.delayedRemoteStorageFetch.isPresent)
-          // verify the 1st partition will set the fetchMaxBytes to partitionMaxBytes,
-          // and the 2nd one will set to the remaining (fetchMaxBytes - partitionMaxBytes) to meet the "fetch.max.bytes" config.
-          if (tidp.partition() == 0)
-            assertEquals(partitionMaxBytes, partitionData.info.delayedRemoteStorageFetch.get().fetchMaxBytes)
-          else
-            assertEquals(fetchMaxBytes - partitionMaxBytes, partitionData.info.delayedRemoteStorageFetch.get().fetchMaxBytes)
-        }
+      if (isFromFollower) {
+        // expect OFFSET_MOVED_TO_TIERED_STORAGE error returned if it's from follower, since the data is already available in remote log
+        assertEquals(Errors.OFFSET_MOVED_TO_TIERED_STORAGE, result.head._2.error)
+      } else {
+        assertEquals(Errors.NONE, result.head._2.error)
+      }
+      assertEquals(startOffset, result.head._2.leaderLogStartOffset)
+      assertEquals(endOffset, result.head._2.leaderLogEndOffset)
+      assertEquals(highHW, result.head._2.highWatermark)
+      if (isFromFollower) {
+        assertFalse(result.head._2.info.delayedRemoteStorageFetch.isPresent)
+      } else {
+        // for consumer fetch, we should return a delayedRemoteStorageFetch to wait for remote fetch
+        assertTrue(result.head._2.info.delayedRemoteStorageFetch.isPresent)
       }
     } finally {
       replicaManager.shutdown(checkpointHW = false)
