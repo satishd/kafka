@@ -1867,7 +1867,7 @@ public class RemoteLogManager implements Closeable {
 
     public FetchDataInfo read(RemoteStorageFetchInfo remoteStorageFetchInfo) throws RemoteStorageException, IOException {
         int fetchMaxBytes = remoteStorageFetchInfo.fetchMaxBytes;
-        TopicPartition tp = remoteStorageFetchInfo.topicIdPartition.topicPartition();
+        TopicPartition tp = remoteStorageFetchInfo.topicPartition;
         FetchRequest.PartitionData fetchInfo = remoteStorageFetchInfo.fetchInfo;
 
         boolean includeAbortedTxns = remoteStorageFetchInfo.fetchIsolation == FetchIsolation.TXN_COMMITTED;
@@ -1942,8 +1942,6 @@ public class RemoteLogManager implements Closeable {
             if (!remoteStorageFetchInfo.minOneMessage &&
                     !remoteStorageFetchInfo.hardMaxBytesLimit &&
                     firstBatchSize > maxBytes) {
-                LOGGER.debug("Returning empty record for offset {} in partition {} because the first batch size {} " +
-                        "is greater than max fetch bytes {}", offset, tp, firstBatchSize, maxBytes);
                 return new FetchDataInfo(new LogOffsetMetadata(offset), MemoryRecords.EMPTY);
             }
 
