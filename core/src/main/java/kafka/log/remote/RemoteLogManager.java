@@ -455,6 +455,7 @@ public class RemoteLogManager implements Closeable {
         Supplier<RemoteLogMetadataManager> supplier = () -> remoteLogMetadataManager;
         rsmProps.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, supplier);
         rsmProps.put(METRICS, metrics);
+        rsmProps.put(LOG_DIR_CONFIG, logDir);
         remoteLogStorageManager.configure(rsmProps);
     }
 

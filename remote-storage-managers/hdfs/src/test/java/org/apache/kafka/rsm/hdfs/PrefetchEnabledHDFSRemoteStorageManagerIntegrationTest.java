@@ -53,6 +53,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFA
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_SUCCESS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
+import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,6 +115,7 @@ public class PrefetchEnabledHDFSRemoteStorageManagerIntegrationTest {
             configs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
             configs.put(HDFS_DEFAULT_FS_URI_PROP, hdfsUri);
             configs.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, rlmmSupplier);
+            configs.put(LOG_DIR_CONFIG, "log-dir");
             configs.put(METRICS, metrics);
             rsm.configure(configs);
 

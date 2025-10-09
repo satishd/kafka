@@ -57,6 +57,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP;
@@ -73,6 +74,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
+import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -135,6 +137,8 @@ public class PrefetchSegmentManagerTest {
         configs.put(PREFETCH_CACHE_MAX_SIZE_PROP, 100);
         configs.put(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, 30);
         configs.put(METRICS, new Metrics());
+        // Ensure log dir is set and different from local prefetch dir
+        configs.put(LOG_DIR_CONFIG, tempDir.resolve("kafka-logs").toString());
     }
 
     @Test
@@ -618,6 +622,51 @@ public class PrefetchSegmentManagerTest {
         }
     }
 
+    @Test
+    public void testConfigureThrowsWhenLogDirMissing() {
+        // Missing LOG_DIR_CONFIG should cause IllegalArgumentException
+        Map<String, Object> badConfigs = new HashMap<>(configs);
+        badConfigs.remove(LOG_DIR_CONFIG);
+
+        assertThrows(IllegalArgumentException.class, () -> segmentManager.configure(badConfigs));
+    }
+
+    @Test
+    public void testConfigureThrowsWhenLocalBaseDirSameAsLogDir(@TempDir Path tmp) {
+        Map<String, Object> sameDirConfigs = new HashMap<>(configs);
+        String dir = tmp.toString();
+        sameDirConfigs.put(LOG_DIR_CONFIG, dir);
+        sameDirConfigs.put(PREFETCH_LOCAL_BASE_DIR_PROP, dir);
+
+        assertThrows(ConfigException.class, () -> segmentManager.configure(sameDirConfigs));
+    }
+
+    @Test
+    public void testConfigureCreatesAndCleansLocalPrefetchDir(@TempDir Path tmp) throws IOException {
+        // Create a sub-dir for prefetch and a stale file inside it
+        Path prefetchDir = tmp.resolve("prefetch");
+        Files.createDirectories(prefetchDir);
+        Path stale = prefetchDir.resolve("stale.dat");
+        Files.write(stale, new byte[]{1, 2, 3});
+        // Sanity: file exists
+        assertTrue(Files.exists(stale));
+        assertTrue(fileCount(prefetchDir) > 0);
+
+        Map<String, Object> cfg = new HashMap<>(configs);
+        cfg.put(LOG_DIR_CONFIG, tmp.resolve("logdir").toString()); // ensure not equal to prefetch dir
+        cfg.put(PREFETCH_LOCAL_BASE_DIR_PROP, prefetchDir.toString());
+
+        // Should not throw and should delete stale files
+        assertDoesNotThrow(() -> segmentManager.configure(cfg));
+        assertTrue(Files.exists(prefetchDir));
+        assertEquals(0, fileCount(prefetchDir));
+    }
+
+    private long fileCount(Path directory) throws IOException {
+        try (Stream<Path> stream = Files.list(directory)) {
+            return stream.count();
+        }
+    }
 
     @Test
     public void testReconfigure() {
