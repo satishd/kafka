@@ -44,10 +44,10 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -75,6 +75,7 @@ import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerCon
 
 public class PrefetchSegmentManager implements Reconfigurable {
     private static final Logger LOGGER = LoggerFactory.getLogger(PrefetchSegmentManager.class);
+    static final String PREFETCH_SUBDIRECTORY_NAME = "prefetch";
 
     private static final Set<String> DYNAMIC_CONFIGS = Utils.mkSet(
         PREFETCH_MAX_BYTES_PER_SECOND_PROP,
@@ -89,7 +90,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
 
     private RLMQuotaManager quotaManager;
     private DataFetcher dataFetcher;
-    private String localBaseDir;
+    private String prefetchDir;
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
 
@@ -104,8 +105,8 @@ public class PrefetchSegmentManager implements Reconfigurable {
         String hadoopBaseDir = KLOAK_USER + conf.getString(HDFS_BASE_DIR_PROP);
         this.dataFetcher = new HDFSDataFetcher(hadoopBaseDir, fileSystemManager);
 
-        this.localBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_PROP);
-        validateLocalPrefetchDir(configs, this.localBaseDir);
+        String prefetchLocalBaseDir = conf.getString(PREFETCH_LOCAL_BASE_DIR_PROP);
+        this.prefetchDir = localPrefetchDir(configs, prefetchLocalBaseDir);
 
         int corePoolSize = conf.getInt(PREFETCH_THREAD_POOL_CORE_SIZE_PROP);
         int maxPoolSize = conf.getInt(PREFETCH_THREAD_POOL_MAX_SIZE_PROP);
@@ -124,7 +125,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
                 .recordStats()
                 .build();
 
-        rsmMetrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.localBaseDir);
+        rsmMetrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.prefetchDir);
 
         RLMQuotaManagerConfig rlmQuotaManagerConfig = fetchQuotaManagerConfig(conf);
         Metrics metrics = (Metrics) configs.get(METRICS);
@@ -132,30 +133,36 @@ public class PrefetchSegmentManager implements Reconfigurable {
             "Tracking prefetch byte-rate for Remote Log Manager", time);
     }
 
-    void validateLocalPrefetchDir(Map<String, ?> configs, String localBaseDir) {
+    String localPrefetchDir(Map<String, ?> configs, String localBaseDir) {
         String logDir = (String) configs.get(LOG_DIR_CONFIG);
         if (logDir == null || logDir.isEmpty()) {
             throw new IllegalArgumentException(String.format("Missing '%s' property", LOG_DIR_CONFIG));
         }
 
-        if (logDir.equals(localBaseDir)) {
-            throw new ConfigException("Local prefetch base directory: " + localBaseDir + " cannot be the same as log directory: " + logDir);
+        if (localBaseDir.startsWith(logDir)) {
+            throw new ConfigException("Local prefetch base directory: " + localBaseDir +
+                " cannot be within the log directory: " + logDir);
         }
 
-        File baseDir = new File(localBaseDir);
-        if (baseDir.exists()) {
-            // Delete the existing directory (and its contents)
+        Path prefetchDirPath = Paths.get(localBaseDir, PREFETCH_SUBDIRECTORY_NAME);
+
+        // Clean up the existing directory if present
+        if (Files.exists(prefetchDirPath)) {
             try {
-                Utils.delete(baseDir);
+                Utils.delete(prefetchDirPath.toFile());
             } catch (IOException e) {
-                LOGGER.warn("Failed to delete stale prefetch folder: {}", baseDir.getAbsolutePath(), e);
+                LOGGER.warn("Failed to delete stale prefetch directory: {}", prefetchDirPath, e);
             }
         }
 
-        // Ensure an empty prefetch directory is created
-        if (!baseDir.mkdirs()) {
-            throw new RuntimeException("Unable to create directory: " + baseDir.getAbsolutePath());
+        // Create the prefetch directory
+        try {
+            Files.createDirectories(prefetchDirPath);
+        } catch (IOException e) {
+            throw new RuntimeException("Unable to create directory: " + prefetchDirPath, e);
         }
+
+        return prefetchDirPath.toString();
     }
 
     static RLMQuotaManagerConfig fetchQuotaManagerConfig(HDFSRemoteStorageManagerConfig config) {
@@ -282,7 +289,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
     }
 
     private void signalDownloadSuccess(RemoteLogSegmentMetadata segmentMetadata, FileChannel fileChannel) {
-        Path filePath = Paths.get(RSMUtils.segmentPrefetchPath(localBaseDir, segmentMetadata));
+        Path filePath = Paths.get(RSMUtils.segmentPrefetchPath(prefetchDir, segmentMetadata));
         segmentCache.put(segmentMetadata.remoteLogSegmentId(), new CacheValue(PrefetchStatus.SUCCESS, filePath, fileChannel));
         rsmMetrics.markPrefetchRequestSuccess();
     }
@@ -298,7 +305,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
 
         public Task(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
             this.remoteLogSegmentMetadata = remoteLogSegmentMetadata;
-            this.downloadTask = new DownloadTask(time, localBaseDir, dataFetcher, rsmMetrics, remoteLogSegmentMetadata, quotaManager, lock, lockCondition);
+            this.downloadTask = new DownloadTask(time, prefetchDir, dataFetcher, rsmMetrics, remoteLogSegmentMetadata, quotaManager, lock, lockCondition);
         }
 
         @Override

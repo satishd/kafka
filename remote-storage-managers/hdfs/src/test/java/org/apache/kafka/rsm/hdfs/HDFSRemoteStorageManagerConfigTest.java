@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.rsm.hdfs;
 
+import org.apache.kafka.common.config.ConfigException;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -23,6 +25,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HDFSRemoteStorageManagerConfigTest {
@@ -54,6 +57,21 @@ public class HDFSRemoteStorageManagerConfigTest {
         assertEquals(10, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
         assertEquals(30, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP));
         assertFalse(config.getBoolean(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP));
+    }
+
+    @Test
+    public void testPrefetchLocalBaseDir() {
+        Map<String, String> props = defaultProps();
+
+        // Verify default value
+        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
+        assertEquals(HDFSRemoteStorageManagerConfig.DEFAULT_PREFETCH_LOCAL_BASE_DIR,
+            config.getString(HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP));
+
+        // Verify Config exception is thrown for an empty string
+        props.put(HDFSRemoteStorageManagerConfig.PREFETCH_LOCAL_BASE_DIR_PROP, "");
+        assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(props, false),
+            "Invalid value  for configuration prefetch.local.base.dir: String must be non-empty");
     }
 
     private static Map<String, String> defaultProps() {

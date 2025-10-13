@@ -73,6 +73,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUEST_SUCCESS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_SEGMENT_READS_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC;
+import static org.apache.kafka.rsm.hdfs.prefetch.PrefetchSegmentManager.PREFETCH_SUBDIRECTORY_NAME;
 import static org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils.clearKafkaMetrics;
 import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
@@ -92,6 +93,9 @@ import static org.mockito.Mockito.when;
 public class PrefetchSegmentManagerTest {
 
     static final String HDFS_BASE_DIR = "/user/kloak/";
+    static final String PREFETCH_BASE_DIR = "prefetch-base-dir";
+    static final String KAFKA_LOGS_DIR = "kafka-logs";
+
     private PrefetchSegmentManager segmentManager;
     private DataFetcher mockDataFetcher;
     private RemoteLogSegmentMetadata metadata;
@@ -130,7 +134,7 @@ public class PrefetchSegmentManagerTest {
         // Create a common configuration
         configs = new HashMap<>();
         configs.put(HDFS_BASE_DIR_PROP, HDFS_BASE_DIR);
-        configs.put(PREFETCH_LOCAL_BASE_DIR_PROP, tempDir.toString());
+        configs.put(PREFETCH_LOCAL_BASE_DIR_PROP, tempDir.resolve(PREFETCH_BASE_DIR).toString());
         configs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 2);
         configs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 4);
         configs.put(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 10);
@@ -138,17 +142,17 @@ public class PrefetchSegmentManagerTest {
         configs.put(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, 30);
         configs.put(METRICS, new Metrics());
         // Ensure log dir is set and different from local prefetch dir
-        configs.put(LOG_DIR_CONFIG, tempDir.resolve("kafka-logs").toString());
+        configs.put(LOG_DIR_CONFIG, tempDir.resolve(KAFKA_LOGS_DIR).toString());
     }
 
     @Test
     public void testConfigure() {
         segmentManager.configure(configs);
 
-        // Verify that the local base directory was created
-        File localBaseDir = new File(tempDir.toString());
-        assertTrue(localBaseDir.exists());
-        assertTrue(localBaseDir.isDirectory());
+        // Verify that the prefetch directory was created
+        File prefetchDir = new File(tempDir.resolve(PREFETCH_BASE_DIR).resolve(PREFETCH_SUBDIRECTORY_NAME).toString());
+        assertTrue(prefetchDir.exists());
+        assertTrue(prefetchDir.isDirectory());
     }
 
     @Test
@@ -178,7 +182,8 @@ public class PrefetchSegmentManagerTest {
         verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 0);
 
         // Create a test file and add it to the cache
-        String filePath = RSMUtils.segmentPrefetchPath(tempDir.toString(), metadata);
+        String downloadDir = tempDir.resolve(PREFETCH_BASE_DIR).resolve(PREFETCH_SUBDIRECTORY_NAME).toString();
+        String filePath = RSMUtils.segmentPrefetchPath(downloadDir, metadata);
         File file = new File(filePath);
         file.getParentFile().mkdirs();
         FileChannel fileChannel = FileChannel.open(Paths.get(filePath),
@@ -486,8 +491,8 @@ public class PrefetchSegmentManagerTest {
         verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT, 0);
         verifyGauge(PREFETCH_DOWNLOAD_DIRECTORY_SIZE, 0L);
 
-        // Create test files in the download directory
-        File downloadDir = new File(tempDir.toString());
+        // Create test files in the actual prefetch download directory
+        File downloadDir = new File(tempDir.resolve(PREFETCH_BASE_DIR).resolve(PREFETCH_SUBDIRECTORY_NAME).toString());
 
         // Create first test file with known content
         File file1 = new File(downloadDir, "test-file-1.txt");
@@ -642,9 +647,21 @@ public class PrefetchSegmentManagerTest {
     }
 
     @Test
+    public void testConfigureThrowsWhenLocalBaseDirWithinLogDir(@TempDir Path tmp) {
+        Map<String, Object> cfg = new HashMap<>(configs);
+        String logDir = tmp.resolve(KAFKA_LOGS_DIR).toString();
+        String prefetchBaseDir = tmp.resolve(KAFKA_LOGS_DIR).resolve(PREFETCH_BASE_DIR).toString();
+
+        cfg.put(LOG_DIR_CONFIG, logDir);
+        cfg.put(PREFETCH_LOCAL_BASE_DIR_PROP, prefetchBaseDir);
+
+        assertThrows(ConfigException.class, () -> segmentManager.configure(cfg));
+    }
+
+    @Test
     public void testConfigureCreatesAndCleansLocalPrefetchDir(@TempDir Path tmp) throws IOException {
         // Create a sub-dir for prefetch and a stale file inside it
-        Path prefetchDir = tmp.resolve("prefetch");
+        Path prefetchDir = tmp.resolve(PREFETCH_BASE_DIR).resolve(PREFETCH_SUBDIRECTORY_NAME);
         Files.createDirectories(prefetchDir);
         Path stale = prefetchDir.resolve("stale.dat");
         Files.write(stale, new byte[]{1, 2, 3});
@@ -653,10 +670,10 @@ public class PrefetchSegmentManagerTest {
         assertTrue(fileCount(prefetchDir) > 0);
 
         Map<String, Object> cfg = new HashMap<>(configs);
-        cfg.put(LOG_DIR_CONFIG, tmp.resolve("logdir").toString()); // ensure not equal to prefetch dir
-        cfg.put(PREFETCH_LOCAL_BASE_DIR_PROP, prefetchDir.toString());
+        cfg.put(LOG_DIR_CONFIG, tmp.resolve(KAFKA_LOGS_DIR).toString());
+        cfg.put(PREFETCH_LOCAL_BASE_DIR_PROP, tmp.resolve(PREFETCH_BASE_DIR).toString());
 
-        // Should not throw and should delete stale files
+        // Should not throw and should delete stale files in baseDir/prefetch
         assertDoesNotThrow(() -> segmentManager.configure(cfg));
         assertTrue(Files.exists(prefetchDir));
         assertEquals(0, fileCount(prefetchDir));
