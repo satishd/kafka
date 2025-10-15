@@ -36,7 +36,7 @@ java_standard:
   - 'RUN pip3 install PyYAML'
   - 'RUN pip3 install m3'
   #  Before changing the kafka-tools-odin version, read this document: https://docs.google.com/document/d/1Gv9K2tlsxwtWq1DCSJO8dLMuQEdmihRb_kn237CnGTo/edit?usp=sharing
-  - 'RUN apt-get update && apt-get install -y kafka-tools-odin=2.0.1~14728.gbp78e365'
+  - 'RUN apt-get update && apt-get install -y kafka-tools-odin=2.0.1~14906.gbp2108c5'
   # Kerberos client libs are required to connect to
   #   1. secured HDFS cluster when remote storage option is enabled
   #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
