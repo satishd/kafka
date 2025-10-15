@@ -1,3 +1,7 @@
+# Release Kafka 3.9.9-uber build (10/15/2025)
+- Guardrails for prefetch directory
+- Ensure no stale segments in prefetch directory
+
 # Release Kafka 3.9.8-uber build (10/08/2025)
 - Revert parallel remote reads feature for remote storage.
 
