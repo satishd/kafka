@@ -20,7 +20,8 @@ import kafka.log.remote.quota.RLMQuotaManager;
 import kafka.server.BrokerTopicStats;
 import kafka.utils.TestUtils;
 
-import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.ReplicaNotAvailableException;
 import org.apache.kafka.common.record.Records;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
@@ -75,7 +76,7 @@ public class RemoteLogReaderTest {
         when(mockRLM.read(any(RemoteStorageFetchInfo.class))).thenReturn(fetchDataInfo);
 
         Consumer<RemoteLogReadResult> callback = mock(Consumer.class);
-        RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, new TopicPartition(TOPIC, 0), null, null, false);
+        RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, new TopicIdPartition(Uuid.randomUuid(), 0, TOPIC), null, null, false);
         RemoteLogReader remoteLogReader =
                 new RemoteLogReader(remoteStorageFetchInfo, mockRLM, callback, brokerTopicStats, mockQuotaManager, timer);
         remoteLogReader.call();
@@ -109,7 +110,7 @@ public class RemoteLogReaderTest {
         when(mockRLM.read(any(RemoteStorageFetchInfo.class))).thenThrow(ex);
 
         Consumer<RemoteLogReadResult> callback = mock(Consumer.class);
-        RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, new TopicPartition(TOPIC, 0), null, null, false);
+        RemoteStorageFetchInfo remoteStorageFetchInfo = new RemoteStorageFetchInfo(0, false, new TopicIdPartition(Uuid.randomUuid(), 0, TOPIC), null, null, false);
         RemoteLogReader remoteLogReader =
                 new RemoteLogReader(remoteStorageFetchInfo, mockRLM, callback, brokerTopicStats, mockQuotaManager, timer);
         remoteLogReader.call();
