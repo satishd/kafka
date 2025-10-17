@@ -4436,7 +4436,7 @@ class ReplicaManagerTest {
       assertEquals(2, capturedFetchInfos.size, "Should have 2 remote storage fetch info calls")
 
       val capturedTopicPartitions = capturedFetchInfos.map(_.topicIdPartition.topicPartition).toSet
-      assertTrue(capturedTopicPartitions.contains(tp0), "Should contain " + tp0)
+      assertEquals(tp0, capturedTopicPartitions.head, "Should contain " + tp0 + " as first item")
       assertTrue(capturedTopicPartitions.contains(tp1), "Should contain " + tp1)
 
       // Verify the fetch info details are correct for both partitions
@@ -4449,6 +4449,7 @@ class ReplicaManagerTest {
           assertTrue(fetchInfo.minOneMessage)
         } else {
           assertEquals(fetchOffsetTp1, fetchInfo.fetchInfo.fetchOffset)
+          assertFalse(fetchInfo.minOneMessage)
         }
       }
 
@@ -4575,7 +4576,7 @@ class ReplicaManagerTest {
       assertEquals(2, capturedFetchInfos.size, "Should have 2 remote storage fetch info calls")
 
       val capturedTopicPartitions = capturedFetchInfos.map(_.topicIdPartition.topicPartition).toSet
-      assertTrue(capturedTopicPartitions.contains(tp0), "Should contain " + tp0)
+      assertEquals(tp0, capturedTopicPartitions.head, "Should contain " + tp0 + " as first item")
       assertTrue(capturedTopicPartitions.contains(tp1), "Should contain " + tp1)
 
       // Verify the fetch info details are correct for both partitions
@@ -4588,6 +4589,7 @@ class ReplicaManagerTest {
           assertTrue(fetchInfo.minOneMessage)
         } else {
           assertEquals(fetchOffsetTp1, fetchInfo.fetchInfo.fetchOffset)
+          assertFalse(fetchInfo.minOneMessage)
         }
       }
 
