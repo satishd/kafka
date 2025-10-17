@@ -355,9 +355,12 @@ class ReplicaManager(val config: KafkaConfig,
   val delayedElectLeaderPurgatory = delayedElectLeaderPurgatoryParam.getOrElse(
     DelayedOperationPurgatory[DelayedElectLeader](
       purgatoryName = "ElectLeader", brokerId = config.brokerId))
+  // delayedRemoteFetchPurgatory purgeInterval is set to 0 to release the references of completed DelayedRemoteFetch
+  // instances immediately for GC. The DelayedRemoteFetch instance internally holds the RemoteLogReadResult that can be
+  // up to the size of `fetch.max.bytes` which defaults to 50 MB.
   val delayedRemoteFetchPurgatory = delayedRemoteFetchPurgatoryParam.getOrElse(
     DelayedOperationPurgatory[DelayedRemoteFetch](
-      purgatoryName = "RemoteFetch", brokerId = config.brokerId))
+      purgatoryName = "RemoteFetch", brokerId = config.brokerId, 0))
   val delayedRemoteListOffsetsPurgatory = delayedRemoteListOffsetsPurgatoryParam.getOrElse(
     DelayedOperationPurgatory[DelayedRemoteListOffsets](
       purgatoryName = "RemoteListOffsets", brokerId = config.brokerId))
@@ -1728,7 +1731,7 @@ class ReplicaManager(val config: KafkaConfig,
                                    params: FetchParams,
                                    responseCallback: Seq[(TopicIdPartition, FetchPartitionData)] => Unit,
                                    logReadResults: Seq[(TopicIdPartition, LogReadResult)],
-                                   remoteFetchPartitionStatus: Seq[(TopicIdPartition, FetchPartitionStatus)]): Unit = {
+                                   fetchPartitionStatus: Seq[(TopicIdPartition, FetchPartitionStatus)]): Unit = {
     val remoteFetchTasks = new util.HashMap[TopicIdPartition, Future[Void]]
     val remoteFetchResults = new util.HashMap[TopicIdPartition, CompletableFuture[RemoteLogReadResult]]
 
@@ -1740,10 +1743,12 @@ class ReplicaManager(val config: KafkaConfig,
 
     val remoteFetchMaxWaitMs = config.remoteLogManagerConfig.remoteFetchMaxWaitMs().toLong
     val remoteFetch = new DelayedRemoteFetch(remoteFetchTasks, remoteFetchResults, remoteFetchInfos, remoteFetchMaxWaitMs,
-      remoteFetchPartitionStatus, params, logReadResults, this, responseCallback)
+      fetchPartitionStatus, params, logReadResults, this, responseCallback)
 
     // create a list of (topic, partition) pairs to use as keys for this delayed fetch operation
-    val delayedFetchKeys = remoteFetchPartitionStatus.map { case (tp, _) => TopicPartitionOperationKey(tp) }.toList
+    val delayedFetchKeys = remoteFetchTasks.asScala.map { case (tp, _) => TopicPartitionOperationKey(tp) }.toList
+    // We only guarantee eventual cleanup via the next FETCH request for the same set of partitions or
+    // using reaper-thread
     delayedRemoteFetchPurgatory.tryCompleteElseWatch(remoteFetch, delayedFetchKeys)
   }
 
@@ -2029,11 +2034,14 @@ class ReplicaManager(val config: KafkaConfig,
             Optional.empty[RemoteStorageFetchInfo]()
           )
         } else {
-          // For consume fetch requests, create a dummy FetchDataInfo with the remote storage fetch information.
-          // For the topic-partitions that need remote data, we will use this information to read the data in another thread.
-          new FetchDataInfo(new LogOffsetMetadata(offset), MemoryRecords.EMPTY, false, Optional.empty(),
-            Optional.of(new RemoteStorageFetchInfo(adjustedMaxBytes, minOneMessage, tp,
-              fetchInfo, params.isolation, params.hardMaxBytesLimit())))
+          val remoteStorageFetchInfoOpt = if (adjustedMaxBytes > 0) {
+            // For consume fetch requests, create a dummy FetchDataInfo with the remote storage fetch information.
+            // For the topic-partitions that need remote data, we will use this information to read the data in another thread.
+            Optional.of(new RemoteStorageFetchInfo(adjustedMaxBytes, minOneMessage, tp, fetchInfo, params.isolation, params.hardMaxBytesLimit()))
+          } else {
+            Optional.empty[RemoteStorageFetchInfo]()
+          }
+          new FetchDataInfo(new LogOffsetMetadata(offset), MemoryRecords.EMPTY, false, Optional.empty(), remoteStorageFetchInfoOpt)
         }
 
         LogReadResult(fetchDataInfo,
