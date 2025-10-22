@@ -1735,10 +1735,13 @@ class ReplicaManager(val config: KafkaConfig,
     val remoteFetchTasks = new util.HashMap[TopicIdPartition, Future[Void]]
     val remoteFetchResults = new util.HashMap[TopicIdPartition, CompletableFuture[RemoteLogReadResult]]
 
-    remoteFetchInfos.forEach { (topicIdPartition, remoteFetchInfo) =>
+    // If the `fetchAllPartitions` is false, then the first entry gets executed, and the remaining entries are skipped.
+    val fetchAllPartitions: Boolean = isRemoteMultiPartitionFetchEnabled(remoteFetchInfos.keySet())
+    remoteFetchInfos.asScala.forall { case (topicIdPartition, remoteFetchInfo) =>
       val (task, result) = processRemoteFetch(remoteFetchInfo)
       remoteFetchTasks.put(topicIdPartition, task)
       remoteFetchResults.put(topicIdPartition, result)
+      fetchAllPartitions
     }
 
     val remoteFetchMaxWaitMs = config.remoteLogManagerConfig.remoteFetchMaxWaitMs().toLong
@@ -1750,6 +1753,12 @@ class ReplicaManager(val config: KafkaConfig,
     // We only guarantee eventual cleanup via the next FETCH request for the same set of partitions or
     // using reaper-thread
     delayedRemoteFetchPurgatory.tryCompleteElseWatch(remoteFetch, delayedFetchKeys)
+  }
+
+  private[server] def isRemoteMultiPartitionFetchEnabled(partitions: util.Set[TopicIdPartition]): Boolean = {
+    config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabled ||
+      (config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabledOnPrefetch &&
+    partitions.stream().allMatch(tpId => getLogConfig(tpId.topicPartition()).exists(_.remoteStoragePrefetchEnable())))
   }
 
   /**

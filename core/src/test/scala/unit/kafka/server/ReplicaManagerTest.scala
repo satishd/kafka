@@ -75,7 +75,7 @@ import org.apache.kafka.storage.log.metrics.BrokerTopicMetrics
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterAll, AfterEach, BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.{EnumSource, ValueSource}
+import org.junit.jupiter.params.provider.{CsvSource, EnumSource, ValueSource}
 import org.mockito.ArgumentMatchers._
 import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
@@ -4363,7 +4363,10 @@ class ReplicaManagerTest {
     val tidp1 = new TopicIdPartition(topicId, tp1)
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2),
       // Increased the `remote.max.wait.ms` to avoid flaky test due to usage of SystemTimer
-      propsModifier = props => props.put(RemoteLogManagerConfig.REMOTE_FETCH_MAX_WAIT_MS_PROP, 120000.toString),
+      propsModifier = props => {
+        props.put(RemoteLogManagerConfig.REMOTE_FETCH_MAX_WAIT_MS_PROP, 120000.toString)
+        props.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, true.toString)
+      },
       enableRemoteStorage = true, shouldMockLog = true, remoteFetchQuotaExceeded = Some(false), remoteFetchReaperEnabled = true)
     try {
       val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
@@ -4488,7 +4491,10 @@ class ReplicaManagerTest {
     val tidp2 = new TopicIdPartition(topicId, tp2)
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2),
       // Increased the `remote.max.wait.ms` to avoid flaky test due to usage of SystemTimer
-      propsModifier = props => props.put(RemoteLogManagerConfig.REMOTE_FETCH_MAX_WAIT_MS_PROP, 120000.toString),
+      propsModifier = props => {
+        props.put(RemoteLogManagerConfig.REMOTE_FETCH_MAX_WAIT_MS_PROP, 120000.toString)
+        props.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, true.toString)
+      },
       enableRemoteStorage = true, shouldMockLog = true, remoteFetchQuotaExceeded = Some(false), remoteFetchReaperEnabled = true)
 
     try {
@@ -4633,6 +4639,76 @@ class ReplicaManagerTest {
       case m: Meter => m.count()
       case m: Timer => m.count()
       case m => fail(s"Unexpected broker metric of class ${m.getClass}")
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource(Array(
+    "true, true, true, true",
+    "true, true, false, true",
+    "true, false, true, true",
+    "true, false, false, true",
+    "false, true, true, true",
+    "false, true, false, false",
+    "false, false, true, false",
+    "false, false, false, false"
+  ))
+  def testIsRemoteMultiPartitionFetchEnabled(isRemoteMultiPartitionFetchEnabled: Boolean,
+                                             isRemoteMultiPartitionFetchEnabledOnPrefetch: Boolean,
+                                             isPrefetchEnabledOnTopic: Boolean,
+                                             expected: Boolean): Unit = {
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.put(RemoteLogManagerConfig.REMOTE_LOG_STORAGE_SYSTEM_ENABLE_PROP, true.toString)
+    props.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, isRemoteMultiPartitionFetchEnabled.toString)
+    props.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP, isRemoteMultiPartitionFetchEnabledOnPrefetch.toString)
+    val config = KafkaConfig.fromProps(props)
+    val logDirFiles = config.logDirs.map(new File(_))
+    val logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
+
+    val logProps = new Properties()
+    logProps.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, true.toString)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, isPrefetchEnabledOnTopic.toString)
+    val logManager = TestUtils.createLogManager(logDirFiles, defaultConfig = new LogConfig(logProps), time = time)
+    val replicaManager = new ReplicaManager(
+      metrics = metrics,
+      config = config,
+      time = time,
+      scheduler = time.scheduler,
+      logManager = logManager,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = logDirFailureChannel,
+      alterPartitionManager = alterPartitionManager,
+      threadNamePrefix = Option(this.getClass.getName),
+      zkClient = None,
+    )
+    try {
+      logManager.startup(Set.empty[String])
+      replicaManager.startup()
+
+      val partitions = new util.HashSet[TopicIdPartition]()
+      val offsetCheckpoints = new LazyOffsetCheckpoints(replicaManager.highWatermarkCheckpoints)
+      def createPartition(tpId: TopicIdPartition): Unit = {
+        replicaManager.createPartition(tpId.topicPartition())
+          .createLogIfNotExists(isNew = false, isFutureReplica = false, offsetCheckpoints, None)
+        partitions.add(tpId)
+      }
+      val testTopicP0 = new TopicIdPartition(topicId, new TopicPartition(topic, 0))
+      val testTopic1P0 = new TopicIdPartition(Uuid.randomUuid(), new TopicPartition("test-topic1", 0))
+      createPartition(testTopicP0)
+      createPartition(testTopic1P0)
+      assertEquals(expected, replicaManager.isRemoteMultiPartitionFetchEnabled(partitions))
+
+      if (!isRemoteMultiPartitionFetchEnabled && isRemoteMultiPartitionFetchEnabledOnPrefetch) {
+        // invert the prefetch flag only for test-topic1
+        val overrides = new Properties()
+        overrides.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, (!isPrefetchEnabledOnTopic).toString)
+        val newLogConfig = LogConfig.fromProps(logProps, overrides)
+        logManager.getLog(testTopic1P0.topicPartition()).map(log => log.updateConfig(newLogConfig))
+        assertFalse(replicaManager.isRemoteMultiPartitionFetchEnabled(partitions))
+      }
+    } finally {
+      replicaManager.shutdown(checkpointHW = false)
     }
   }
 

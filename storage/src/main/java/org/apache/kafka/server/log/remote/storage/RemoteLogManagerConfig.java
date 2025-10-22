@@ -211,6 +211,17 @@ public final class RemoteLogManagerConfig {
             "is full, LIST_OFFSETS requests are served with an error.";
     public static final int DEFAULT_REMOTE_LOG_OFFSET_READER_MAX_PENDING_TASKS = 10000;
 
+    // This property is not a log / topic config. It applies only at broker and cluster level.
+    public static final String REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP = "remote.multi.partition.fetch.enable";
+    public static final String REMOTE_MULTI_PARTITION_FETCH_ENABLE_DOC = "To enable multi-partition remote fetch in a single FETCH request";
+    public static final boolean DEFAULT_REMOTE_MULTI_PARTITION_FETCH_ENABLE = false;
+
+    // This property is not a log / topic config. It applies only at broker and cluster level.
+    public static final String REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP = "remote.multi.partition.fetch.enable.on.prefetch";
+    public static final String REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_DOC = "To enable multi-partition remote fetch in a single FETCH request when prefetch feature is enabled. " +
+            "When remote.multi.partition.fetch.enable is set to true, then this property is ignored.";
+    public static final boolean DEFAULT_REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH = true;
+
     private final AbstractConfig config;
 
     public static ConfigDef configDef() {
@@ -410,7 +421,19 @@ public final class RemoteLogManagerConfig {
                         DEFAULT_LOG_REMOTE_STORAGE_PREFETCH_ENABLE,
                         null,
                         MEDIUM,
-                        LOG_REMOTE_STORAGE_PREFETCH_ENABLE_DOC);
+                        LOG_REMOTE_STORAGE_PREFETCH_ENABLE_DOC)
+                .defineInternal(REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP,
+                        BOOLEAN,
+                        DEFAULT_REMOTE_MULTI_PARTITION_FETCH_ENABLE,
+                        null,
+                        MEDIUM,
+                        REMOTE_MULTI_PARTITION_FETCH_ENABLE_DOC)
+                .defineInternal(REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP,
+                        BOOLEAN,
+                        DEFAULT_REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH,
+                        null,
+                        MEDIUM,
+                        REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_DOC);
     }
     
     public RemoteLogManagerConfig(AbstractConfig config) {
@@ -560,8 +583,16 @@ public final class RemoteLogManagerConfig {
         return config.getString(LOG_REMOTE_STORAGE_PROVIDER_PROP);
     }
 
-    public Boolean isLogRemoteStoragePrefetchEnabled() {
+    public boolean isLogRemoteStoragePrefetchEnabled() {
         return config.getBoolean(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP);
+    }
+
+    public boolean isRemoteMultiPartitionFetchEnabled() {
+        return config.getBoolean(REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP);
+    }
+
+    public boolean isRemoteMultiPartitionFetchEnabledOnPrefetch() {
+        return config.getBoolean(REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP);
     }
 
     public static void main(String[] args) {

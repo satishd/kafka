@@ -1148,6 +1148,66 @@ class DynamicBrokerConfigTest {
   }
 
   @Test
+  def testDynamicRemoteMultiPartitionFetchEnableConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config = KafkaConfig(props)
+    config.dynamicConfig.initialize(None, None)
+
+    // Default should be false
+    assertFalse(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabled)
+
+    val dynamicLogConfig = new DynamicLogConfig(mock(classOf[LogManager]), mock(classOf[KafkaServer]))
+    config.dynamicConfig.addBrokerReconfigurable(dynamicLogConfig)
+
+    val newProps = new Properties()
+    // update with invalid-value
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, "invalid_provider")
+    assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(newProps, perBrokerConfig = false))
+
+    // update default-config
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, "true")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(newProps)
+    assertTrue(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabled)
+
+    // update per broker config
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_PROP, "false")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
+    config.dynamicConfig.updateBrokerConfig(0, newProps)
+    assertFalse(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabled)
+  }
+
+  @Test
+  def testDynamicRemoteMultiPartitionFetchEnableOnPrefetchConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config = KafkaConfig(props)
+    config.dynamicConfig.initialize(None, None)
+
+    // Default should be true
+    assertTrue(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabledOnPrefetch)
+
+    val dynamicLogConfig = new DynamicLogConfig(mock(classOf[LogManager]), mock(classOf[KafkaServer]))
+    config.dynamicConfig.addBrokerReconfigurable(dynamicLogConfig)
+
+    val newProps = new Properties()
+    // update with invalid-value
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP, "invalid_provider")
+    assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(newProps, perBrokerConfig = false))
+
+    // update default-config
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP, "false")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(newProps)
+    assertFalse(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabledOnPrefetch)
+
+    // update per broker config
+    newProps.put(RemoteLogManagerConfig.REMOTE_MULTI_PARTITION_FETCH_ENABLE_ON_PREFETCH_PROP, "true")
+    config.dynamicConfig.validate(newProps, perBrokerConfig = true)
+    config.dynamicConfig.updateBrokerConfig(0, newProps)
+    assertTrue(config.remoteLogManagerConfig.isRemoteMultiPartitionFetchEnabledOnPrefetch)
+  }
+
+  @Test
   def testDynamicReplicaStartOffsetStrategyConfig(): Unit = {
     val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
     val oldConfig = KafkaConfig.fromProps(props)
