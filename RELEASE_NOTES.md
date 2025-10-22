@@ -1,3 +1,7 @@
+# Release Kafka 3.9.10-uber build (10/22/2025)
+- Enable parallel remote reads feature for remote storage with fix for heap-memory leak.
+- Added feature flag to enable/disable parallel remote reads feature.
+
 # Release Kafka 3.9.9-uber build (10/15/2025)
 - Guardrails for prefetch directory
 - Ensure no stale segments in prefetch directory
