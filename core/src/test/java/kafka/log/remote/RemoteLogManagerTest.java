@@ -796,6 +796,37 @@ public class RemoteLogManagerTest {
     }
 
     @Test
+    void testRemoteLogSegmentsAndBytesLagIsNonNegative() throws Exception {
+        // leader epoch preparation
+        checkpoint.write(totalEpochEntries);
+        LeaderEpochFileCache cache = new LeaderEpochFileCache(leaderTopicIdPartition.topicPartition(), checkpoint, scheduler);
+        when(mockLog.leaderEpochCache()).thenReturn(Option.apply(cache));
+        when(remoteLogMetadataManager.highestOffsetForEpoch(any(TopicIdPartition.class), anyInt()))
+                .thenReturn(Optional.of(125L));
+
+        long activeSegmentStartOffset = 100L;
+        when(mockLog.topicPartition()).thenReturn(leaderTopicIdPartition.topicPartition());
+        when(mockLog.logStartOffset()).thenReturn(0L);
+        when(mockLog.localLogStartOffset()).thenReturn(activeSegmentStartOffset);
+        when(mockLog.lastStableOffset()).thenReturn(150L);
+        when(mockLog.logEndOffset()).thenReturn(150L);
+
+        LogSegment activeSegment = mock(LogSegment.class);
+        when(activeSegment.baseOffset()).thenReturn(activeSegmentStartOffset);
+        when(mockLog.activeSegment()).thenReturn(activeSegment);
+        when(mockLog.logSegments(anyLong(), anyLong()))
+                .thenReturn(JavaConverters.collectionAsScalaIterable(Collections.singletonList(activeSegment)));
+
+        when(mockLog.onlyLocalLogSegmentsSize()).thenReturn(0L);
+        when(mockLog.onlyLocalLogSegmentsCount()).thenReturn(0L);
+        when(activeSegment.size()).thenReturn(100);
+        RemoteLogManager.RLMCopyTask task = remoteLogManager.new RLMCopyTask(leaderTopicIdPartition, 128);
+        task.copyLogSegmentsToRemote(mockLog);
+        assertEquals(0, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagBytes());
+        assertEquals(0, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagSegments());
+    }
+
+    @Test
     void testLeadershipChangesWithoutRemoteLogManagerConfiguring() {
         assertThrows(KafkaException.class, () -> {
             remoteLogManager.onLeadershipChange(

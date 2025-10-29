@@ -1223,8 +1223,8 @@ public class RemoteLogManager implements Closeable {
         }
 
         private void recordLagStats(UnifiedLog log) {
-            long bytesLag = log.onlyLocalLogSegmentsSize() - log.activeSegment().size();
-            long segmentsLag = log.onlyLocalLogSegmentsCount() - 1;
+            long bytesLag = Math.max(0, log.onlyLocalLogSegmentsSize() - log.activeSegment().size());
+            long segmentsLag = Math.max(0, log.onlyLocalLogSegmentsCount() - 1);
             recordLagStats(bytesLag, segmentsLag);
         }
 
