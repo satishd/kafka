@@ -121,6 +121,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             lastErrorAttemptTimestampMs.set(time.milliseconds());
             long backoffMs = errorBackoff.backoff(errorAttempts.getAndIncrement());
             if (backoffMs > 0) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("Error backoff for {} ms", backoffMs);
+                }
                 time.sleep(backoffMs);
             }
         }
@@ -920,8 +923,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 }
                 readableSegmentLen = Math.max(0, validSegmentLen - startPos);
                 inputStream.seek(dataPosition.getPos() + startPos);
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +
+                if (LOGGER.isTraceEnabled()) {
+                    LOGGER.trace("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +
                                     "readableSegmentLen: {}, realFileLen: {}, cacheLineSize: {}",
                             getString(segmentId), startPos, endPos, readableSegmentLen, realFileLen, cacheLineSize);
                 }
