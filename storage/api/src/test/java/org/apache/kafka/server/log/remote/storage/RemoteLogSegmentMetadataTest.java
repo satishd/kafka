@@ -23,6 +23,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.Custo
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -74,5 +75,13 @@ class RemoteLogSegmentMetadataTest {
         assertEquals(eventTimestamp, segmentMetadata.eventTimestampMs());
         assertEquals(segmentSize, segmentMetadata.segmentSizeInBytes());
         assertEquals(segmentLeaderEpochs, segmentMetadata.segmentLeaderEpochs());
+    }
+
+    @Test
+    public void testOCIUriInCustomMetadata() {
+        String ociUriWithGarbage = ",oci://uber-staging-sfyhu@ax9estk6tuja/lwrka^@";
+        RemoteLogSegmentMetadata.CustomMetadata customMetadata =
+                new RemoteLogSegmentMetadata.CustomMetadata(ociUriWithGarbage.getBytes(StandardCharsets.UTF_8));
+        assertEquals("CustomMetadata{oci://uber-staging-sfyhu@ax9estk6tuja/lwrka}", customMetadata.toString());
     }
 }

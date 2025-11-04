@@ -27,6 +27,8 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * It describes the metadata about a topic partition's remote log segment in the remote storage. This is uniquely
@@ -385,6 +387,9 @@ public class RemoteLogSegmentMetadata extends RemoteLogMetadata {
      * the {@code remote.log.metadata.custom.metadata.max.bytes} setting.
      */
     public static class CustomMetadata {
+        // Regex pattern to match OCI URI to drop garbage characters. CustomMetadata is specifically used to store
+        // the OCI bucket name.
+        private static final Pattern OCI_URI_PATTERN = Pattern.compile("(oci://[\\w-]+@[\\w]+/[\\w]+)");
         private final byte[] value;
 
         public CustomMetadata(byte[] value) {
@@ -414,7 +419,13 @@ public class RemoteLogSegmentMetadata extends RemoteLogMetadata {
 
         @Override
         public String toString() {
-            return "CustomMetadata{" + new String(value, StandardCharsets.UTF_8) + "}";
+            return "CustomMetadata{" + valueAsString() + "}";
+        }
+
+        private String valueAsString() {
+            String input = new String(value, StandardCharsets.UTF_8);
+            Matcher matcher = OCI_URI_PATTERN.matcher(input);
+            return matcher.find() ? matcher.group(1) : input;
         }
     }
 }
