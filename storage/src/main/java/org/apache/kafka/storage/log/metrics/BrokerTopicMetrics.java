@@ -117,6 +117,10 @@ public class BrokerTopicMetrics {
             metricGaugeTypeMap.put(RemoteStorageMetrics.REMOTE_LOG_METADATA_COUNT_METRIC.getName(), new GaugeWrapper(RemoteStorageMetrics.REMOTE_LOG_METADATA_COUNT_METRIC.getName()));
             metricGaugeTypeMap.put(RemoteStorageMetrics.REMOTE_LOG_SIZE_COMPUTATION_TIME_METRIC.getName(), new GaugeWrapper(RemoteStorageMetrics.REMOTE_LOG_SIZE_COMPUTATION_TIME_METRIC.getName()));
             metricGaugeTypeMap.put(RemoteStorageMetrics.REMOTE_LOG_SIZE_BYTES_METRIC.getName(), new GaugeWrapper(RemoteStorageMetrics.REMOTE_LOG_SIZE_BYTES_METRIC.getName()));
+
+            // custom Uber metrics for remote storage
+            metricTypeMap.put(RemoteStorageMetrics.REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC.getName(), new MeterWrapper(RemoteStorageMetrics.REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC.getName(), "requests"));
+            metricTypeMap.put(RemoteStorageMetrics.FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC.getName(), new MeterWrapper(RemoteStorageMetrics.FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC.getName(), "requests"));
         }
 
         maxLookbackMs = new AtomicLong(0);
@@ -313,6 +317,10 @@ public class BrokerTopicMetrics {
         return metricTypeMap.get(RemoteStorageMetrics.REMOTE_FETCH_REQUESTS_PER_SEC_METRIC.getName()).meter();
     }
 
+    public Meter remoteListOffsetsRequestRate() {
+        return metricTypeMap.get(RemoteStorageMetrics.REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC.getName()).meter();
+    }
+
     public Meter remoteCopyRequestRate() {
         return metricTypeMap.get(RemoteStorageMetrics.REMOTE_COPY_REQUESTS_PER_SEC_METRIC.getName()).meter();
     }
@@ -327,6 +335,10 @@ public class BrokerTopicMetrics {
 
     public Meter failedRemoteFetchRequestRate() {
         return metricTypeMap.get(RemoteStorageMetrics.FAILED_REMOTE_FETCH_PER_SEC_METRIC.getName()).meter();
+    }
+
+    public Meter failedRemoteListOffsetsRequestRate() {
+        return metricTypeMap.get(RemoteStorageMetrics.FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC.getName()).meter();
     }
 
     public Meter failedRemoteCopyRequestRate() {

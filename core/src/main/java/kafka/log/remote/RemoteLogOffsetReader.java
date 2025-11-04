@@ -16,6 +16,8 @@
  */
 package kafka.log.remote;
 
+import kafka.server.BrokerTopicStats;
+
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.FileRecords;
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
@@ -42,6 +44,7 @@ public class RemoteLogOffsetReader implements Callable<Void> {
     private final LeaderEpochFileCache leaderEpochCache;
     private final Supplier<Option<FileRecords.TimestampAndOffset>> searchInLocalLog;
     private final Consumer<Either<Exception, Option<FileRecords.TimestampAndOffset>>> callback;
+    private final BrokerTopicStats brokerTopicStats;
 
     public RemoteLogOffsetReader(RemoteLogManager rlm,
                                  TopicPartition tp,
@@ -49,7 +52,8 @@ public class RemoteLogOffsetReader implements Callable<Void> {
                                  long startingOffset,
                                  LeaderEpochFileCache leaderEpochCache,
                                  Supplier<Option<FileRecords.TimestampAndOffset>> searchInLocalLog,
-                                 Consumer<Either<Exception, Option<FileRecords.TimestampAndOffset>>> callback) {
+                                 Consumer<Either<Exception, Option<FileRecords.TimestampAndOffset>>> callback,
+                                 BrokerTopicStats brokerTopicStats) {
         this.rlm = rlm;
         this.tp = tp;
         this.timestamp = timestamp;
@@ -57,12 +61,15 @@ public class RemoteLogOffsetReader implements Callable<Void> {
         this.leaderEpochCache = leaderEpochCache;
         this.searchInLocalLog = searchInLocalLog;
         this.callback = callback;
+        this.brokerTopicStats = brokerTopicStats;
     }
 
     @Override
     public Void call() throws Exception {
         Either<Exception, Option<FileRecords.TimestampAndOffset>> result;
         try {
+            brokerTopicStats.topicStats(tp.topic()).remoteListOffsetsRequestRate().mark();
+            brokerTopicStats.allTopicsStats().remoteListOffsetsRequestRate().mark();
             // If it is not found in remote storage, then search in the local storage starting with local log start offset.
             Option<FileRecords.TimestampAndOffset> timestampAndOffsetOpt =
                     OptionConverters.toScala(rlm.findOffsetByTimestamp(tp, timestamp, startingOffset, leaderEpochCache))
@@ -71,6 +78,8 @@ public class RemoteLogOffsetReader implements Callable<Void> {
         } catch (Exception e) {
             // NOTE: All the exceptions from the secondary storage are catched instead of only the KafkaException.
             LOGGER.error("Error occurred while reading the remote log offset for {}", tp, e);
+            brokerTopicStats.topicStats(tp.topic()).failedRemoteListOffsetsRequestRate().mark();
+            brokerTopicStats.allTopicsStats().failedRemoteListOffsetsRequestRate().mark();
             result = Left.apply(e);
         }
         callback.accept(result);

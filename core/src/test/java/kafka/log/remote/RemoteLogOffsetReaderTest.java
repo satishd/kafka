@@ -33,6 +33,7 @@ import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel;
 
 import com.yammer.metrics.core.Gauge;
+import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.Metric;
 import com.yammer.metrics.core.MetricName;
 
@@ -99,6 +100,8 @@ class RemoteLogOffsetReaderTest {
         assertTrue(result.isRight());
         assertEquals(Option.apply(new TimestampAndOffset(100L, 90L, Optional.of(3))),
                 result.right().get());
+        assertEquals(1L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsRequestsPerSec,topic=test"));
+        assertEquals(1L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsRequestsPerSec"));
     }
 
     @Test
@@ -117,7 +120,7 @@ class RemoteLogOffsetReaderTest {
                 holderList.add(rlm.asyncOffsetRead(topicPartition, time.milliseconds(), 0L, cache, Option::empty)));
 
         holderList.get(2).jobFuture().cancel(false);
-        assertEquals(1, yammerGaugeValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
+        assertEquals(1, yammerValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
 
         rlm.resume();
         for (AsyncOffsetReadFutureHolder<Either<Exception, Option<TimestampAndOffset>>> holder : holderList) {
@@ -128,7 +131,9 @@ class RemoteLogOffsetReaderTest {
         assertEquals(3, holderList.size());
         assertEquals(2, holderList.stream().filter(h -> h.taskFuture().isDone()).count());
         assertEquals(1, holderList.stream().filter(h -> !h.taskFuture().isDone()).count());
-        assertEquals(0, yammerGaugeValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
+        assertEquals(0, yammerValue("org.apache.kafka.storage.internals.log:type=RemoteStorageOffsetReaderThreadPool,name=RemoteLogOffsetReaderTaskQueueSize"));
+        assertEquals(2L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsRequestsPerSec,topic=test"));
+        assertEquals(2L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsRequestsPerSec"));
     }
 
     @Test
@@ -150,10 +155,12 @@ class RemoteLogOffsetReaderTest {
             assertTrue(futureHolder.taskFuture().isDone());
             assertTrue(futureHolder.taskFuture().get().isLeft());
             assertEquals(exception, futureHolder.taskFuture().get().left().get());
+            assertEquals(1L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsErrorsPerSec,topic=test"));
+            assertEquals(1L, yammerValue("kafka.server:type=BrokerTopicMetrics,name=RemoteListOffsetsErrorsPerSec"));
         }
     }
 
-    private Object yammerGaugeValue(String name) {
+    private Object yammerValue(String name) {
         Map<MetricName, Metric> allMetrics = KafkaYammerMetrics.defaultRegistry().allMetrics();
         Map.Entry<MetricName, Metric> entry = allMetrics.entrySet().stream()
                 .filter(e -> e.getKey().getMBeanName().startsWith(name))
@@ -163,6 +170,8 @@ class RemoteLogOffsetReaderTest {
         Metric metric = entry.getValue();
         if (metric instanceof Gauge) {
             return ((Gauge<?>) metric).value();
+        } else if (metric instanceof Meter) {
+            return ((Meter) metric).count();
         } else {
             throw new AssertionError("Unexpected broker metric of class " + metric.getClass());
         }

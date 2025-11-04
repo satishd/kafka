@@ -61,7 +61,8 @@ public class RemoteStorageMetrics {
     public static final Set<String> REMOTE_STORAGE_THREAD_POOL_METRICS = Collections.unmodifiableSet(
             new HashSet<>(Arrays.asList(REMOTE_LOG_READER_TASK_QUEUE_SIZE, REMOTE_LOG_READER_AVG_IDLE_PERCENT)));
     public static final String REMOTE_LOG_MANAGER_TASK_COUNT_MATCH_METRIC = "RemoteLogManagerTaskCountMatch";
-
+    private static final String REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC = "RemoteListOffsetsRequestsPerSec";
+    private static final String FAILED_REMOTE_LIST_OFFSETS_PER_SEC = "RemoteListOffsetsErrorsPerSec";
 
     public static final MetricName REMOTE_COPY_BYTES_PER_SEC_METRIC = getMetricName(
             "kafka.server", "BrokerTopicMetrics", REMOTE_COPY_BYTES_PER_SEC);
@@ -124,6 +125,11 @@ public class RemoteStorageMetrics {
     public static final MetricName LOCAL_SIZE_IN_PERCENT_METRIC = getMetricName(
             "kafka.log.remote", "RemoteLogManager", LOCAL_SIZE_IN_PERCENT);
 
+    public static final MetricName REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC = getMetricName(
+            "kafka.server", "BrokerTopicMetrics", REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC);
+    public static final MetricName FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC = getMetricName(
+            "kafka.server", "BrokerTopicMetrics", FAILED_REMOTE_LIST_OFFSETS_PER_SEC);
+
     public static Set<MetricName> allMetrics() {
         Set<MetricName> metrics = new HashSet<>();
 
@@ -150,6 +156,8 @@ public class RemoteStorageMetrics {
 
         metrics.add(REMOTE_LOG_OFFSET_READER_TASK_QUEUE_SIZE_METRIC);
         metrics.add(REMOTE_LOG_OFFSET_READER_AVG_IDLE_PERCENT_METRIC);
+        metrics.add(REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC);
+        metrics.add(FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC);
         return metrics;
     }
 
@@ -174,6 +182,8 @@ public class RemoteStorageMetrics {
         metrics.add(REMOTE_DELETE_LAG_BYTES_METRIC);
         metrics.add(REMOTE_DELETE_LAG_SEGMENTS_METRIC);
 
+        metrics.add(REMOTE_LIST_OFFSETS_REQUESTS_PER_SEC_METRIC);
+        metrics.add(FAILED_REMOTE_LIST_OFFSETS_PER_SEC_METRIC);
         return metrics;
     }
 

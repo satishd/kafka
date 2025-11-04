@@ -2256,6 +2256,7 @@ class UnifiedLogTest {
   @Test
   def testFetchOffsetByTimestampFromRemoteStorage(): Unit = {
     val config: KafkaConfig = createKafkaConfigWithRLM
+    val brokerTopicStats = new BrokerTopicStats(true)
     val purgatory = DelayedOperationPurgatory[DelayedRemoteListOffsets]("RemoteListOffsets", config.brokerId)
     val remoteLogManager = spy[RemoteLogManager](new RemoteLogManager(config.remoteLogManagerConfig,
       0,
@@ -2323,6 +2324,7 @@ class UnifiedLogTest {
 
     assertEquals(OffsetResultHolder(Some(new TimestampAndOffset(ListOffsetsResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(2)))),
       log.fetchOffsetByTimestamp(ListOffsetsRequest.LATEST_TIMESTAMP, Some(remoteLogManager)))
+    brokerTopicStats.close()
   }
 
   @Test
@@ -2353,6 +2355,7 @@ class UnifiedLogTest {
   @Test
   def testFetchLatestTieredTimestampWithRemoteStorage(): Unit = {
     val config: KafkaConfig = createKafkaConfigWithRLM
+    val brokerTopicStats = new BrokerTopicStats(true)
     val purgatory = DelayedOperationPurgatory[DelayedRemoteListOffsets]("RemoteListOffsets", config.brokerId)
     val remoteLogManager = spy[RemoteLogManager](new RemoteLogManager(config.remoteLogManagerConfig,
       0,
@@ -2425,6 +2428,7 @@ class UnifiedLogTest {
 
     assertEquals(OffsetResultHolder(Some(new TimestampAndOffset(ListOffsetsResponse.UNKNOWN_TIMESTAMP, 2L, Optional.of(2)))),
       log.fetchOffsetByTimestamp(ListOffsetsRequest.LATEST_TIMESTAMP, Some(remoteLogManager)))
+    brokerTopicStats.close()
   }
 
   private def createKafkaConfigWithRLM: KafkaConfig = {

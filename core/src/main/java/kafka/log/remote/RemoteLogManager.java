@@ -758,7 +758,7 @@ public class RemoteLogManager implements Closeable {
                     TopicPartitionOperationKey key = new TopicPartitionOperationKey(topicPartition.topic(), topicPartition.partition());
                     taskFuture.complete(result);
                     delayedRemoteListOffsetsPurgatory.checkAndComplete(key);
-                })
+                }, brokerTopicStats)
         );
         return new AsyncOffsetReadFutureHolder<>(jobFuture, taskFuture);
     }
