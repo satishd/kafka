@@ -77,6 +77,8 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.Predicate;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
@@ -674,7 +676,7 @@ public class HDFSRemoteStorageManagerTest {
     }
 
     @Test
-    public void testReconfigure() throws Exception {
+    public void testReconfigure() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             rsm.setDefaultHadoopConfiguration(hadoopConf);
             rsm.configure(configs);
@@ -684,8 +686,8 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
             assertEquals("1", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
             assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
-            assertEquals(50L, rsm.errorBackoffWaitMs());
-            assertEquals(500L, rsm.errorMaxBackoffWaitMs());
+            assertEquals(DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS, rsm.errorBackoffWaitMs());
+            assertEquals(DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS, rsm.errorMaxBackoffWaitMs());
 
             // Reconfigure with new threshold
             Map<String, String> configs = new HashMap<>();

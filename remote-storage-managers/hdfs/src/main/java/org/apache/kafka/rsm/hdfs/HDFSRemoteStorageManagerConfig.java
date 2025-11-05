@@ -66,7 +66,7 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
      
     public static final String HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP = "hdfs.read.error.max.backoff.wait.ms";
     public static final String HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_DOC = "The maximum amount of time to wait before sending the error response back to the client when it encounters remote read errors.";
-    public static final long DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS = 500;
+    public static final long DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS = 5000;
 
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP = "hdfs.dfs.client.hedged.read.threshold.millis";
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC = "When hedged reads are enabled, " +
