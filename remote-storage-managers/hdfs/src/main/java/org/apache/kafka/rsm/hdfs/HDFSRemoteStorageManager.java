@@ -36,6 +36,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -61,11 +62,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP;
@@ -106,28 +110,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final AtomicInteger openOutputStreamCount = new AtomicInteger();
     private final FileSystemManager fileSystemManager;
 
-    private volatile ExponentialBackoff errorBackoff;
-    private volatile long errorMaxBackoffWaitMs;
-    private final Consumer<IOException> errorHandler = new Consumer<IOException>() {
-        private final AtomicLong lastErrorAttemptTimestampMs = new AtomicLong(0);
-        private final AtomicLong errorAttempts = new AtomicLong(0);
-
-        @Override
-        public void accept(IOException e) {
-            // reset the error attempt counter if there is no error observed in the last 5 mins
-            if (lastErrorAttemptTimestampMs.get() + 300_000L < time.milliseconds()) {
-                errorAttempts.set(0);
-            }
-            lastErrorAttemptTimestampMs.set(time.milliseconds());
-            long backoffMs = errorBackoff.backoff(errorAttempts.getAndIncrement());
-            if (backoffMs > 0) {
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("Error backoff for {} ms", backoffMs);
-                }
-                time.sleep(backoffMs);
-            }
-        }
-    };
+    private volatile ExponentialBackoff fetchErrorBackoff;
+    private volatile long fetchErrorMaxBackoffWaitMs;
+    private final ReadErrorHandler fetchErrorHandler = new ReadErrorHandler(Duration.ofMinutes(5));
+    private final CircuitBreaker copyErrorBreaker = CircuitBreaker.ofDefaults("copy-circuit-breaker");
+    private final CircuitBreaker deleteErrorBreaker = CircuitBreaker.ofDefaults("delete-circuit-breaker");
 
     public HDFSRemoteStorageManager() {
         this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
@@ -159,9 +146,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         // Configure the FileSystemManager
         fileSystemManager.configure(configs);
 
-        long errorBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
-        errorMaxBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
-        errorBackoff = new ExponentialBackoff(errorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE, errorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
+        long fetchErrorBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
+        fetchErrorMaxBackoffWaitMs = conf.getLong(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        fetchErrorBackoff = new ExponentialBackoff(fetchErrorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE, fetchErrorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
 
         registerMetrics(readCache);
         registerBufferPoolMetrics();
@@ -170,8 +157,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerStreamMetrics();
 
         LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, " +
-                "ociBuckets: {}, errorBackoffWaitMs: {}, errorMaxBackoffWaitMs: {}", baseDir, cacheLineSize, cacheSize,
-                fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(), errorBackoffWaitMs, errorMaxBackoffWaitMs);
+                "ociBuckets: {}, fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}", baseDir, cacheLineSize, cacheSize,
+                fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(), fetchErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs);
     }
 
 
@@ -206,13 +193,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private void reconfigureErrorBackoff(Map<String, ?> configs) {
         String backoffMs = (String) configs.get(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
         String maxBackoffMs = (String) configs.get(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
-        long updatedErrorBackoffWaitMs = backoffMs != null ? Long.parseLong(backoffMs) : errorBackoffWaitMs();
-        long updatedErrorMaxBackoffWaitMs = maxBackoffMs != null ? Long.parseLong(maxBackoffMs) : errorMaxBackoffWaitMs;
-        if (updatedErrorBackoffWaitMs != errorBackoffWaitMs() || updatedErrorMaxBackoffWaitMs != errorMaxBackoffWaitMs) {
-            errorMaxBackoffWaitMs = updatedErrorMaxBackoffWaitMs;
-            errorBackoff = new ExponentialBackoff(updatedErrorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE,
-                    errorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
-            LOGGER.info("Reconfigured with errorBackoffWaitMs: {}, errorMaxBackoffWaitMs: {}", updatedErrorBackoffWaitMs, errorMaxBackoffWaitMs);
+        long updatedErrorBackoffWaitMs = backoffMs != null ? Long.parseLong(backoffMs) : fetchErrorBackoffWaitMs();
+        long updatedErrorMaxBackoffWaitMs = maxBackoffMs != null ? Long.parseLong(maxBackoffMs) : fetchErrorMaxBackoffWaitMs;
+        if (updatedErrorBackoffWaitMs != fetchErrorBackoffWaitMs() || updatedErrorMaxBackoffWaitMs != fetchErrorMaxBackoffWaitMs) {
+            fetchErrorMaxBackoffWaitMs = updatedErrorMaxBackoffWaitMs;
+            fetchErrorBackoff = new ExponentialBackoff(updatedErrorBackoffWaitMs, ERROR_BACKOFF_EXP_BASE,
+                    fetchErrorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
+            LOGGER.info("Reconfigured with fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}", updatedErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs);
         }
     }
 
@@ -263,6 +250,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
+        if (!copyErrorBreaker.tryAcquirePermission()) {
+            throw new RetriableRemoteStorageException("Remote copy circuit is open. Skipping the current call");
+        }
+        final long start = time.milliseconds();
         final RemoteStorageProvider provider = segmentData.storageProvider();
         final String bucket = fileSystemManager.findBucket(provider, metadata.remoteLogSegmentId());
         final Path path = new Path(bucket + getSegmentRemoteDir(metadata.remoteLogSegmentId()));
@@ -281,7 +272,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 }
                 uploadFile(segmentData.logSegment(), fsOut);
                 fsOut.flush();
+                copyErrorBreaker.onSuccess(time.milliseconds() - start, TimeUnit.MILLISECONDS);
             } catch (Exception e) {
+                copyErrorBreaker.onError(time.milliseconds() - start, TimeUnit.MILLISECONDS, e);
                 throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
             } finally {
                 openOutputStreamCount.decrementAndGet();
@@ -339,6 +332,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void deleteLogSegmentData(RemoteLogSegmentMetadata segmentMetadata) throws RemoteStorageException {
+        if (!deleteErrorBreaker.tryAcquirePermission()) {
+            throw new RetriableRemoteStorageException("Remote deletion circuit is open. Skipping the current call");
+        }
+        long start = time.milliseconds();
         boolean delete;
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
@@ -352,7 +349,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 LOGGER.warn("Skipping the call to delete log segment data: {} as the segment file doesn't exists",
                         segmentMetadata);
             }
+            deleteErrorBreaker.onSuccess(time.milliseconds() - start, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
+            deleteErrorBreaker.onError(time.milliseconds() - start, TimeUnit.MILLISECONDS, e);
             throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                     segmentMetadata.remoteLogSegmentId(), e);
         }
@@ -405,6 +404,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     void setTime(Time time) {
         this.time = time;
+        fetchErrorHandler.setTime(time);
     }
 
     private void uploadFile(final java.nio.file.Path localSrc,
@@ -447,9 +447,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         try {
             String bucket = fileSystemManager.getBucket(metadata);
             InputStream stream = new AuxiliaryDataInputStream(metadata.remoteLogSegmentId(), bucket, fileType);
-            return new SafeInputStream(stream, errorHandler);
+            return new SafeInputStream(stream, fetchErrorHandler);
         } catch (IOException e) {
-            errorHandler.accept(e);
+            fetchErrorHandler.accept(e);
             throw new RemoteStorageException("Failed to fetch " + fileType + " file from remote storage. Metadata: " + metadata, e);
         }
     }
@@ -469,9 +469,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             } else {
                 stream = new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider, startPosition, endPosition);
             }
-            return new SafeInputStream(stream, errorHandler);
+            return new SafeInputStream(stream, fetchErrorHandler);
         } catch (IOException e) {
-            errorHandler.accept(e);
+            fetchErrorHandler.accept(e);
             throw new RemoteStorageException("Failed to fetch SEGMENT file from remote storage. Metadata: " + metadata, e);
         }
     }
@@ -502,12 +502,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         return fileSystemManager.getOciBuckets();
     }
 
-    long errorBackoffWaitMs() {
-        return errorBackoff.initialInterval();
+    long fetchErrorBackoffWaitMs() {
+        return fetchErrorBackoff.initialInterval();
     }
 
     long errorMaxBackoffWaitMs() {
-        return errorMaxBackoffWaitMs;
+        return fetchErrorMaxBackoffWaitMs;
     }
 
     private String getSegmentRemoteDir(RemoteLogSegmentId remoteLogSegmentId) {
@@ -516,6 +516,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private String getPartitionRemoteDir(TopicIdPartition partition) {
         return RSMUtils.getPartitionRemoteDir(baseDir, partition);
+    }
+
+    CircuitBreaker copyErrorBreaker() {
+        return copyErrorBreaker;
+    }
+
+    CircuitBreaker deleteErrorBreaker() {
+        return deleteErrorBreaker;
     }
 
     /**
@@ -1048,4 +1056,34 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
+    private class ReadErrorHandler implements Consumer<IOException> {
+        private final AtomicLong lastErrorAttemptTimestampMs = new AtomicLong(0);
+        private final AtomicLong errorAttempts = new AtomicLong(0);
+        private final long waitDurationInOpenStateMs;
+        private Time time = Time.SYSTEM;
+
+        private ReadErrorHandler(Duration waitDurationInOpenState) {
+            this.waitDurationInOpenStateMs = waitDurationInOpenState.toMillis();
+        }
+
+        @Override
+        public void accept(IOException e) {
+            // reset the error attempt counter if there is no error observed in the last waitDurationInOpenStateMs
+            if (lastErrorAttemptTimestampMs.get() + waitDurationInOpenStateMs <= time.milliseconds()) {
+                errorAttempts.set(0);
+            }
+            lastErrorAttemptTimestampMs.set(time.milliseconds());
+            long backoffMs = fetchErrorBackoff.backoff(errorAttempts.getAndIncrement());
+            if (backoffMs > 0) {
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("Error backoff for {} ms", backoffMs);
+                }
+                time.sleep(backoffMs);
+            }
+        }
+
+        void setTime(Time time) {
+            this.time = time;
+        }
+    }
 }

@@ -34,6 +34,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
 import org.apache.kafka.test.TestUtils;
 
 import com.yammer.metrics.core.Gauge;
@@ -113,6 +114,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -120,8 +122,10 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 public class HDFSRemoteStorageManagerTest {
@@ -686,7 +690,7 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
             assertEquals("1", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
             assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
-            assertEquals(DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS, rsm.errorBackoffWaitMs());
+            assertEquals(DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS, rsm.fetchErrorBackoffWaitMs());
             assertEquals(DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS, rsm.errorMaxBackoffWaitMs());
 
             // Reconfigure with new threshold
@@ -706,7 +710,7 @@ public class HDFSRemoteStorageManagerTest {
             assertEquals("100", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
             assertEquals("5", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
             assertEquals("200", rsm.getFS(defaultFsUri, true).getConf().get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
-            assertEquals(10L, rsm.errorBackoffWaitMs());
+            assertEquals(10L, rsm.fetchErrorBackoffWaitMs());
             assertEquals(100L, rsm.errorMaxBackoffWaitMs());
         }
     }
@@ -879,6 +883,75 @@ public class HDFSRemoteStorageManagerTest {
             verifyTimerCount(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0L);
             verifyTimerQuantile(SEGMENT_WRITE_RATE_AND_TIME_MS, ociTags, 0.5, value -> value == 0);
             verifyMeter(SEGMENT_WRITE_BYTES_PER_SEC, ociTags, 0L);
+        }
+    }
+
+    @Test
+    public void shouldThrowRetriableExceptionWhenCopyCircuitIsOpen() throws Exception {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+            doThrow(new IOException("Test exception")).when(spyFileSystem).create(any());
+            rsm.configure(configs);
+            rsm.setTime(time);
+            rsm.registerStreamMetrics();
+
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
+                    0, 100, 0, 0, 1L, 1024, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils
+                    .createLogSegmentData(logDir, 0, 1024, false);
+            for (int i = 0; i < 150; i++) {
+                // circuit breaker should be open after 100 error calls, further calls should not hit the OCI.
+                assertThrows(RemoteStorageException.class, () -> rsm.copyLogSegmentData(segmentMetadata, segmentData));
+            }
+            try {
+                rsm.copyLogSegmentData(segmentMetadata, segmentData);
+                fail("Should have thrown RetriableRemoteStorageException");
+            } catch (RemoteStorageException ex) {
+                assertInstanceOf(RetriableRemoteStorageException.class, ex);
+            }
+            verify(spyFileSystem, times(100)).create(any());
+            rsm.copyErrorBreaker().reset();
+            assertThrows(RemoteStorageException.class, () -> rsm.copyLogSegmentData(segmentMetadata, segmentData));
+            verify(spyFileSystem, times(101)).create(any());
+            verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
+        }
+    }
+
+    @Test
+    public void shouldThrowRetriableExceptionWhenDeletionCircuitIsOpen() throws Exception {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+            doReturn(true).when(spyFileSystem).exists(any());
+            doThrow(new IOException("Test exception")).when(spyFileSystem).delete(any(), anyBoolean());
+            rsm.configure(configs);
+            rsm.setTime(time);
+
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
+                    0, 100, 0, 0, 1L, 1024, Collections.singletonMap(0, 0L));
+            for (int i = 0; i < 150; i++) {
+                // circuit breaker should be open after 100 error calls, further calls should not hit the OCI.
+                assertThrows(RemoteStorageException.class, () -> rsm.deleteLogSegmentData(segmentMetadata));
+            }
+            try {
+                rsm.deleteLogSegmentData(segmentMetadata);
+                fail("Should have thrown RetriableRemoteStorageException");
+            } catch (RemoteStorageException ex) {
+                assertInstanceOf(RetriableRemoteStorageException.class, ex);
+            }
+            verify(spyFileSystem, times(100)).delete(any(), anyBoolean());
+            rsm.deleteErrorBreaker().reset();
+            assertThrows(RemoteStorageException.class, () -> rsm.deleteLogSegmentData(segmentMetadata));
+            verify(spyFileSystem, times(101)).delete(any(), anyBoolean());
         }
     }
 

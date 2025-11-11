@@ -70,6 +70,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
 import org.apache.kafka.server.metrics.KafkaMetricsGroup;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.epoch.LeaderEpochFileCache;
@@ -963,7 +964,7 @@ public class RemoteLogManager implements Closeable {
                 if (!isCancelled()) {
                     logger.warn("Current thread for partition {} is interrupted", topicIdPartition, ex);
                 }
-            } catch (RetriableException ex) {
+            } catch (RetriableException | RetriableRemoteStorageException ex) {
                 logger.debug("Encountered a retryable error while executing current task for partition {}", topicIdPartition, ex);
             } catch (Exception ex) {
                 if (!isCancelled()) {
@@ -996,7 +997,7 @@ public class RemoteLogManager implements Closeable {
         }
 
         @Override
-        protected void execute(UnifiedLog log) throws InterruptedException {
+        protected void execute(UnifiedLog log) throws InterruptedException, RetriableRemoteStorageException {
             // In the first run after completing altering logDir within broker, we should make sure the state is reset. (KAFKA-16711)
             if (!log.parentDir().equals(logDirectory.orElse(null))) {
                 copiedOffsetOption = Optional.empty();
@@ -1055,7 +1056,7 @@ public class RemoteLogManager implements Closeable {
             return candidateLogSegments;
         }
 
-        public void copyLogSegmentsToRemote(UnifiedLog log) throws InterruptedException {
+        public void copyLogSegmentsToRemote(UnifiedLog log) throws InterruptedException, RetriableRemoteStorageException {
             if (isCancelled())
                 return;
 
@@ -1124,7 +1125,7 @@ public class RemoteLogManager implements Closeable {
                 brokerTopicStats.topicStats(log.topicPartition().topic()).failedRemoteCopyRequestRate().mark();
                 brokerTopicStats.allTopicsStats().failedRemoteCopyRequestRate().mark();
                 this.cancel();
-            } catch (InterruptedException | RetriableException ex) {
+            } catch (InterruptedException | RetriableException | RetriableRemoteStorageException ex) {
                 throw ex;
             } catch (Exception ex) {
                 if (!isCancelled()) {
@@ -1170,6 +1171,9 @@ public class RemoteLogManager implements Closeable {
 
             try {
                 customMetadata = remoteWriteTimer.time(() -> remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData));
+            } catch (RetriableRemoteStorageException e) {
+                // deletion is not required since the copy didn't happen
+                throw e;
             } catch (Exception e) {
                 logger.info("Copy failed, cleaning segment {}", copySegmentStartedRlsm.remoteLogSegmentId());
                 try {
@@ -1704,8 +1708,10 @@ public class RemoteLogManager implements Closeable {
             try {
                 remoteLogStorageManager.deleteLogSegmentData(segmentMetadata);
             } catch (RemoteStorageException e) {
-                brokerTopicStats.topicStats(topic).failedRemoteDeleteRequestRate().mark();
-                brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().mark();
+                if (!(e instanceof RetriableRemoteStorageException)) {
+                    brokerTopicStats.topicStats(topic).failedRemoteDeleteRequestRate().mark();
+                    brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().mark();
+                }
                 throw e;
             }
 

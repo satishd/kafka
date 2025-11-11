@@ -62,6 +62,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException;
 import org.apache.kafka.server.metrics.KafkaMetricsGroup;
 import org.apache.kafka.server.metrics.KafkaYammerMetrics;
 import org.apache.kafka.server.util.MockScheduler;
@@ -187,6 +188,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -771,7 +773,7 @@ public class RemoteLogManagerTest {
         // throw exception when copyLogSegmentData
         when(remoteStorageManager.copyLogSegmentData(any(RemoteLogSegmentMetadata.class), any(LogSegmentData.class)))
                 .thenThrow(new RemoteStorageException("test"));
-        RemoteLogManager.RLMCopyTask task = remoteLogManager.new RLMCopyTask(leaderTopicIdPartition, 128);
+        final RemoteLogManager.RLMCopyTask task = remoteLogManager.new RLMCopyTask(leaderTopicIdPartition, 128);
         task.copyLogSegmentsToRemote(mockLog);
         // assert that bytesLag and segmentsLag are emitted during error
         assertEquals(10, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagBytes());
@@ -792,6 +794,23 @@ public class RemoteLogManagerTest {
         // Verify aggregate metrics
         assertEquals(1, brokerTopicStats.allTopicsStats().remoteCopyRequestRate().count());
         assertEquals(0, brokerTopicStats.allTopicsStats().remoteCopyBytesRate().count());
+        assertEquals(1, brokerTopicStats.allTopicsStats().failedRemoteCopyRequestRate().count());
+
+        // Throw RetriableRemoteStorageException when copying segment data
+        reset(remoteStorageManager);
+        when(remoteStorageManager.copyLogSegmentData(any(RemoteLogSegmentMetadata.class), any(LogSegmentData.class)))
+                .thenThrow(new RetriableRemoteStorageException("test"));
+        assertThrows(RetriableRemoteStorageException.class, () -> task.copyLogSegmentsToRemote(mockLog));
+        // assert that bytesLag and segmentsLag are emitted during error
+        assertEquals(10, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagBytes());
+        assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagSegments());
+
+        // deletion should not be called on RetriableRemoteStorageException and the failedRemoteCopyRequest value
+        // should remain same
+        verify(remoteStorageManager, times(0)).deleteLogSegmentData(any());
+        assertEquals(2, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyRequestRate().count());
+        assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).failedRemoteCopyRequestRate().count());
+        assertEquals(2, brokerTopicStats.allTopicsStats().remoteCopyRequestRate().count());
         assertEquals(1, brokerTopicStats.allTopicsStats().failedRemoteCopyRequestRate().count());
     }
 
@@ -2491,7 +2510,7 @@ public class RemoteLogManagerTest {
         Thread copyThread  = new Thread(() -> {
             try {
                 copyTask.copyLogSegmentsToRemote(mockLog);
-            } catch (InterruptedException e) {
+            } catch (InterruptedException | RetriableRemoteStorageException e) {
                 throw new RuntimeException(e);
             }
         });
@@ -2902,7 +2921,7 @@ public class RemoteLogManagerTest {
         List<RemoteLogSegmentMetadata> metadataList =
                 listRemoteLogSegmentMetadata(leaderTopicIdPartition, 1, 100, 1024, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
         when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
-                .thenReturn(metadataList.iterator());
+                .thenAnswer(ans -> metadataList.iterator());
         when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition, 0))
                 .thenAnswer(ans -> metadataList.iterator());
         when(remoteLogMetadataManager.updateRemoteLogSegmentMetadata(any(RemoteLogSegmentMetadataUpdate.class)))
@@ -2930,10 +2949,20 @@ public class RemoteLogManagerTest {
         assertEquals(1, brokerTopicStats.allTopicsStats().remoteDeleteRequestRate().count());
         assertEquals(1, brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().count());
 
+        // Throw RetriableRemoteStorageException and ensure that the failedRemoteDeleteRequestRate remain same
+        reset(remoteStorageManager);
+        doThrow(new RetriableRemoteStorageException("Failed to delete segment")).when(remoteStorageManager).deleteLogSegmentData(any());
+        assertThrows(RetriableRemoteStorageException.class, task::cleanupExpiredRemoteLogSegments);
+        assertEquals(2, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteDeleteRequestRate().count());
+        assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).failedRemoteDeleteRequestRate().count());
+        assertEquals(2, brokerTopicStats.allTopicsStats().remoteDeleteRequestRate().count());
+        assertEquals(1, brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().count());
+        verify(remoteStorageManager, times(1)).deleteLogSegmentData(metadataList.get(0));
+
         // make sure we'll retry the deletion in next run
         doNothing().when(remoteStorageManager).deleteLogSegmentData(any());
         task.cleanupExpiredRemoteLogSegments();
-        verify(remoteStorageManager).deleteLogSegmentData(metadataList.get(0));
+        verify(remoteStorageManager, times(2)).deleteLogSegmentData(metadataList.get(0));
     }
 
     @ParameterizedTest(name = "testDeleteLogSegmentDueToRetentionSizeBreach segmentCount={0} deletableSegmentCount={1}")

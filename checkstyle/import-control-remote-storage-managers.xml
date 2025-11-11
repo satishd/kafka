@@ -39,6 +39,7 @@
         <allow pkg="org.apache.kafka.rsm.hdfs"/>
         <allow pkg="com.github.benmanes.caffeine.cache"/>
         <allow pkg="com.oracle.bmc.hdfs"/>
+        <allow pkg="io.github.resilience4j.circuitbreaker"/>
 
         <!-- tests -->
         <allow pkg="com.google.common.annotations"/>
