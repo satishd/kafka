@@ -72,6 +72,8 @@ import java.util.stream.Collectors;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_REMOTE_READ_BYTES_PROP;
@@ -167,6 +169,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         Set<String> reconfigurableConfigs = new HashSet<>();
         reconfigurableConfigs.add(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP);
         reconfigurableConfigs.add(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
+        reconfigurableConfigs.add(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP);
+        reconfigurableConfigs.add(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
         reconfigurableConfigs.addAll(fileSystemManager.reconfigurableConfigs());
         return reconfigurableConfigs;
     }
@@ -188,6 +192,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     public void reconfigure(Map<String, ?> configs) {
         fileSystemManager.reconfigure(configs);
         reconfigureErrorBackoff(configs);
+        reconfigureCircuitBreakerState(configs);
     }
 
     private void reconfigureErrorBackoff(Map<String, ?> configs) {
@@ -201,6 +206,35 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     fetchErrorMaxBackoffWaitMs, ERROR_BACKOFF_JITTER);
             LOGGER.info("Reconfigured with fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}", updatedErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs);
         }
+    }
+
+    void reconfigureCircuitBreakerState(Map<String, ?> configs) {
+        String copyCircuitBreakerState = (String) configs.get(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP);
+        String deleteCircuitBreakerState = (String) configs.get(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
+        if (copyCircuitBreakerState != null) {
+            transitionState(copyErrorBreaker, copyCircuitBreakerState);
+        }
+        if (deleteCircuitBreakerState != null) {
+            transitionState(deleteErrorBreaker, deleteCircuitBreakerState);
+        }
+    }
+
+    private void transitionState(CircuitBreaker breaker, String newState) {
+        CircuitBreaker.State state = CircuitBreaker.State.valueOf(newState);
+        switch (state) {
+            case FORCED_OPEN:
+                breaker.transitionToForcedOpenState();
+                break;
+            case CLOSED:
+                breaker.transitionToClosedState();
+                break;
+            case DISABLED:
+                breaker.transitionToDisabledState();
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid state: " + newState);
+        }
+        LOGGER.info("Transitioned to {} state for breaker: {}", state, breaker.getName());
     }
 
     FileSystemManager fileSystemManager() {

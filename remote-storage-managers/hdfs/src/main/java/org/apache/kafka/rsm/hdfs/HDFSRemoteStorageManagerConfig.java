@@ -19,8 +19,13 @@ package org.apache.kafka.rsm.hdfs;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
+import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.CLOSED;
+import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.DISABLED;
+import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.FORCED_OPEN;
 import static org.apache.kafka.common.config.ConfigDef.Importance.HIGH;
 import static org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
@@ -67,6 +72,23 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP = "hdfs.read.error.max.backoff.wait.ms";
     public static final String HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_DOC = "The maximum amount of time to wait before sending the error response back to the client when it encounters remote read errors.";
     public static final long DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS = 5000;
+
+    static final List<String> ALLOWED_CIRCUIT_BREAKER_VALUES = Arrays.asList(FORCED_OPEN.name(), CLOSED.name(), DISABLED.name());
+    public static final String HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP = "hdfs.copy.circuit.breaker.state";
+    public static final String HDFS_COPY_CIRCUIT_BREAKER_STATE_DOC = "The state of the circuit-breaker used for copying the segment. " +
+        "The possible values are " + ALLOWED_CIRCUIT_BREAKER_VALUES  + "\n" +
+        "If the state is FORCED_OPEN, then all client copy requests gets blocked.\n" +
+        "If the state is CLOSED, then the circuit-breaker gets enabled and the client will send remote copy requests based on the circuit-breaker config.\n" +
+        "If the state is DISABLED, then the circuit-breaker gets disabled and client sends the copy requests without any restrictions.";
+    public static final String DEFAULT_HDFS_COPY_CIRCUIT_BREAKER_STATE = CLOSED.name();
+
+    public static final String HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP = "hdfs.delete.circuit.breaker.state";
+    public static final String HDFS_DELETE_CIRCUIT_BREAKER_STATE_DOC = "The state of the circuit-breaker used for segment deletion. " +
+            "The possible values are " + ALLOWED_CIRCUIT_BREAKER_VALUES  + "\n" +
+        "If the state is FORCED_OPEN, then all client delete requests gets blocked.\n" +
+        "If the state is CLOSED, then the circuit-breaker gets enabled and the client will send remote delete requests based on the circuit-breaker config.\n" +
+        "If the state is DISABLED, then the circuit-breaker gets disabled and client sends the delete requests without any restrictions.";
+    public static final String DEFAULT_HDFS_DELETE_CIRCUIT_BREAKER_STATE = CLOSED.name();
 
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP = "hdfs.dfs.client.hedged.read.threshold.millis";
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC = "When hedged reads are enabled, " +
@@ -168,6 +190,8 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE, atLeast(128), MEDIUM, HDFS_REMOTE_READ_CACHE_BUFFER_POOL_MAX_SIZE_DOC)
             .define(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP, LONG, DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS, atLeast(0), MEDIUM, HDFS_READ_ERROR_BACKOFF_WAIT_MS_DOC)
             .define(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, LONG, DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS, atLeast(0), MEDIUM, HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_DOC)
+            .define(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_COPY_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_COPY_CIRCUIT_BREAKER_STATE_DOC)
+            .define(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_DELETE_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_DELETE_CIRCUIT_BREAKER_STATE_DOC)
             .define(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, LONG, DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC)
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_DOC)
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_DOC)

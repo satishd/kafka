@@ -78,10 +78,14 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.Predicate;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
@@ -577,14 +581,15 @@ public class HDFSRemoteStorageManagerTest {
     public void testReconfigurables() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
-
-            assertEquals(9, reconfigurableConfigs.size());
+            assertEquals(11, reconfigurableConfigs.size());
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_OCI_BUCKETS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP));
@@ -953,6 +958,39 @@ public class HDFSRemoteStorageManagerTest {
             assertThrows(RemoteStorageException.class, () -> rsm.deleteLogSegmentData(segmentMetadata));
             verify(spyFileSystem, times(101)).delete(any(), anyBoolean());
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP,
+            HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP,
+    })
+    public void testInvalidCircuitBreakerState(String circuitBreakerProp) {
+        Map<String, String> updatedConfigs = new HashMap<>(configs);
+        updatedConfigs.put(circuitBreakerProp, "invalid");
+        assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(updatedConfigs, false));
+    }
+
+    @Test
+    public void testCircuitBreakerStateChange() {
+        assertEquals(CircuitBreaker.State.CLOSED, rsm.copyErrorBreaker().getState());
+        assertEquals(CircuitBreaker.State.CLOSED, rsm.deleteErrorBreaker().getState());
+        for (String state1 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
+            verifyCircuitBreakerState(state1);
+            for (String state2 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
+                verifyCircuitBreakerState(state2);
+            }
+        }
+    }
+
+    private void verifyCircuitBreakerState(String state) {
+        Map<String, String> updatedConfigs = new HashMap<>();
+        updatedConfigs.put(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, state);
+        updatedConfigs.put(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP, state);
+        rsm.reconfigureCircuitBreakerState(updatedConfigs);
+        CircuitBreaker.State expectedBreakerState = CircuitBreaker.State.valueOf(state);
+        assertEquals(expectedBreakerState, rsm.copyErrorBreaker().getState());
+        assertEquals(expectedBreakerState, rsm.deleteErrorBreaker().getState());
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
