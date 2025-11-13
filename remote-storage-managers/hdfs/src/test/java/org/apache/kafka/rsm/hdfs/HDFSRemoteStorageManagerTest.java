@@ -967,8 +967,11 @@ public class HDFSRemoteStorageManagerTest {
     })
     public void testInvalidCircuitBreakerState(String circuitBreakerProp) {
         Map<String, String> updatedConfigs = new HashMap<>(configs);
-        updatedConfigs.put(circuitBreakerProp, "invalid");
+        updatedConfigs.put(circuitBreakerProp, "xyz");
         assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(updatedConfigs, false));
+        ConfigException ex = assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(updatedConfigs));
+        assertEquals("Invalid value xyz for configuration " + circuitBreakerProp +
+                ": Valid values are: [FORCED_OPEN, CLOSED, DISABLED]", ex.getMessage());
     }
 
     @Test

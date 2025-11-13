@@ -56,6 +56,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -70,7 +71,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP;
@@ -115,8 +119,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private volatile ExponentialBackoff fetchErrorBackoff;
     private volatile long fetchErrorMaxBackoffWaitMs;
     private final ReadErrorHandler fetchErrorHandler = new ReadErrorHandler(Duration.ofMinutes(5));
-    private final CircuitBreaker copyErrorBreaker = CircuitBreaker.ofDefaults("copy-circuit-breaker");
-    private final CircuitBreaker deleteErrorBreaker = CircuitBreaker.ofDefaults("delete-circuit-breaker");
+    private final CircuitBreaker copyErrorBreaker = CircuitBreaker.of("copy-circuit-breaker", circuitBreakerConfig());
+    private final CircuitBreaker deleteErrorBreaker = CircuitBreaker.of("delete-circuit-breaker", circuitBreakerConfig());
 
     public HDFSRemoteStorageManager() {
         this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
@@ -186,6 +190,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         if (maxBackoffMs != null && Long.parseLong(maxBackoffMs) < 0) {
             throw new ConfigException(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, maxBackoffMs, "value should be at least 0");
         }
+        for (String breakerProp : Arrays.asList(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP)) {
+            String breakerState = (String) configs.get(breakerProp);
+            if (breakerState != null && !ALLOWED_CIRCUIT_BREAKER_VALUES.contains(breakerState)) {
+                throw new ConfigException(breakerProp, breakerState, "Valid values are: " + ALLOWED_CIRCUIT_BREAKER_VALUES);
+            }
+        }
     }
 
     @Override
@@ -210,10 +220,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     void reconfigureCircuitBreakerState(Map<String, ?> configs) {
         String copyCircuitBreakerState = (String) configs.get(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP);
-        String deleteCircuitBreakerState = (String) configs.get(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
         if (copyCircuitBreakerState != null) {
             transitionState(copyErrorBreaker, copyCircuitBreakerState);
         }
+        String deleteCircuitBreakerState = (String) configs.get(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
         if (deleteCircuitBreakerState != null) {
             transitionState(deleteErrorBreaker, deleteCircuitBreakerState);
         }
@@ -558,6 +568,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     CircuitBreaker deleteErrorBreaker() {
         return deleteErrorBreaker;
+    }
+
+    private CircuitBreakerConfig circuitBreakerConfig() {
+        return CircuitBreakerConfig.custom()
+                .waitIntervalFunctionInOpenState(IntervalFunction.ofRandomized(Duration.ofMinutes(5), 0.8))
+                .build();
     }
 
     /**
