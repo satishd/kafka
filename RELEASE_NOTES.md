@@ -1,3 +1,11 @@
+# Release Kafka 3.9.11-uber build (11/13/2025)
+- Streaming tool version: 2.0.1~14962.gbp6f3bf2
+- Fix negative remote data pending upload metric.
+- Added metrics to configure alert for remote LIST_OFFSETS requests and errors.
+- Removed garbage characters when printing CustomMetadata in the RemoteLogSegmentMetadata.
+- Added circuit-breaker to reduce the copy / delete segment calls from Kafka to OCI when there is degradation in the object storage.
+- Provision to dynamically change the state of the circuit breaker for the copy / delete segment calls. 
+
 # Release Kafka 3.9.10-uber build (10/22/2025)
 - Enable parallel remote reads feature for remote storage with fix for heap-memory leak.
 - Added feature flag to enable/disable parallel remote reads feature.
