@@ -47,6 +47,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+
 public class HDFSRemoteStorageManagerMetrics {
     private static final Logger LOGGER = LoggerFactory.getLogger(HDFSRemoteStorageManagerMetrics.class);
 
@@ -113,6 +115,10 @@ public class HDFSRemoteStorageManagerMetrics {
     // Tracks the number of open streams
     static final String FS_OPEN_INPUT_STREAM = "fs-open-input-stream";
     static final String FS_OPEN_OUTPUT_STREAM = "fs-open-output-stream";
+
+    // Tracks the state of the circuit breaker
+    static final String COPY_CIRCUIT_BREAKER_STATE = "copy-circuit-breaker-state";
+    static final String DELETE_CIRCUIT_BREAKER_STATE = "delete-circuit-breaker-state";
 
     private final Map<RemoteStorageProvider, Timer> segmentReadTimerByProvider = new HashMap<>();
     private final Map<RemoteStorageProvider, Timer> segmentHeaderReadTimerByProvider = new HashMap<>();
@@ -413,6 +419,24 @@ public class HDFSRemoteStorageManagerMetrics {
                     @Override
                     public Integer value() {
                         return openOutputStreamCount.get();
+                    }
+                });
+    }
+
+    void registerCircuitBreakerMetrics(CircuitBreaker copyCircuitBreaker, CircuitBreaker deleteCircuitBreaker) {
+        Class<?> klass = HDFSRemoteStorageManager.class;
+        KafkaYammerMetrics.defaultRegistry().newGauge(
+                metricName(klass, COPY_CIRCUIT_BREAKER_STATE), new Gauge<Integer>() {
+                    @Override
+                    public Integer value() {
+                        return copyCircuitBreaker.getState().getOrder();
+                    }
+                });
+        KafkaYammerMetrics.defaultRegistry().newGauge(
+                metricName(klass, DELETE_CIRCUIT_BREAKER_STATE), new Gauge<Integer>() {
+                    @Override
+                    public Integer value() {
+                        return deleteCircuitBreaker.getState().getOrder();
                     }
                 });
     }

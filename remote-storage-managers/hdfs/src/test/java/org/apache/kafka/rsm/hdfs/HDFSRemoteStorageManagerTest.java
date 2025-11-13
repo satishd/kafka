@@ -98,6 +98,8 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_USER
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.COPY_CIRCUIT_BREAKER_STATE;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.DELETE_CIRCUIT_BREAKER_STATE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
@@ -976,8 +978,12 @@ public class HDFSRemoteStorageManagerTest {
 
     @Test
     public void testCircuitBreakerStateChange() {
-        assertEquals(CircuitBreaker.State.CLOSED, rsm.copyErrorBreaker().getState());
-        assertEquals(CircuitBreaker.State.CLOSED, rsm.deleteErrorBreaker().getState());
+        CircuitBreaker.State defaultState = CircuitBreaker.State.CLOSED;
+        assertEquals(defaultState, rsm.copyErrorBreaker().getState());
+        verifyGauge(COPY_CIRCUIT_BREAKER_STATE, defaultState.getOrder());
+
+        assertEquals(defaultState, rsm.deleteErrorBreaker().getState());
+        verifyGauge(DELETE_CIRCUIT_BREAKER_STATE, defaultState.getOrder());
         for (String state1 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
             verifyCircuitBreakerState(state1);
             for (String state2 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
@@ -991,9 +997,12 @@ public class HDFSRemoteStorageManagerTest {
         updatedConfigs.put(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, state);
         updatedConfigs.put(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP, state);
         rsm.reconfigureCircuitBreakerState(updatedConfigs);
+
         CircuitBreaker.State expectedBreakerState = CircuitBreaker.State.valueOf(state);
         assertEquals(expectedBreakerState, rsm.copyErrorBreaker().getState());
+        verifyGauge(COPY_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
         assertEquals(expectedBreakerState, rsm.deleteErrorBreaker().getState());
+        verifyGauge(DELETE_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {

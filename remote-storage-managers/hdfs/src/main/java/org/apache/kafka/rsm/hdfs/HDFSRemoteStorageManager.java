@@ -161,6 +161,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerHedgedReadMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
+        registerCircuitBreakerMetrics();
 
         LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, " +
                 "ociBuckets: {}, fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}", baseDir, cacheLineSize, cacheSize,
@@ -277,6 +278,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     void registerStreamMetrics() {
         metrics.registerStreamMetrics(openInputStreamCount, openOutputStreamCount);
+    }
+
+    void registerCircuitBreakerMetrics() {
+        metrics.registerCircuitBreakerMetrics(copyErrorBreaker, deleteErrorBreaker);
     }
 
     Set<String> getBuckets(List<RemoteLogSegmentMetadata> metadataList) {
