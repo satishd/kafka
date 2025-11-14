@@ -55,6 +55,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -922,7 +923,7 @@ public class HDFSRemoteStorageManagerTest {
                 assertInstanceOf(RetriableRemoteStorageException.class, ex);
             }
             verify(spyFileSystem, times(100)).create(any());
-            rsm.copyErrorBreaker().reset();
+            rsm.copyCircuitBreaker().reset();
             assertThrows(RemoteStorageException.class, () -> rsm.copyLogSegmentData(segmentMetadata, segmentData));
             verify(spyFileSystem, times(101)).create(any());
             verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
@@ -956,7 +957,7 @@ public class HDFSRemoteStorageManagerTest {
                 assertInstanceOf(RetriableRemoteStorageException.class, ex);
             }
             verify(spyFileSystem, times(100)).delete(any(), anyBoolean());
-            rsm.deleteErrorBreaker().reset();
+            rsm.deleteCircuitBreaker().reset();
             assertThrows(RemoteStorageException.class, () -> rsm.deleteLogSegmentData(segmentMetadata));
             verify(spyFileSystem, times(101)).delete(any(), anyBoolean());
         }
@@ -979,16 +980,44 @@ public class HDFSRemoteStorageManagerTest {
     @Test
     public void testCircuitBreakerStateChange() {
         CircuitBreaker.State defaultState = CircuitBreaker.State.CLOSED;
-        assertEquals(defaultState, rsm.copyErrorBreaker().getState());
+        assertEquals(defaultState, rsm.copyCircuitBreaker().getState());
         verifyGauge(COPY_CIRCUIT_BREAKER_STATE, defaultState.getOrder());
 
-        assertEquals(defaultState, rsm.deleteErrorBreaker().getState());
+        assertEquals(defaultState, rsm.deleteCircuitBreaker().getState());
         verifyGauge(DELETE_CIRCUIT_BREAKER_STATE, defaultState.getOrder());
         for (String state1 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
             verifyCircuitBreakerState(state1);
             for (String state2 : HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES) {
                 verifyCircuitBreakerState(state2);
             }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"oci://uber-staging@abcd, 0", "hdfs://abcd, 1"})
+    public void testExistsAPIForDeleteCalls(String bucket,
+                                            int expectedExistsCallCount) throws IOException, RemoteStorageException {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+            doReturn(true).when(spyFileSystem).exists(any());
+            doReturn(true).when(spyFileSystem).delete(any(), anyBoolean());
+            rsm.configure(configs);
+            rsm.setTime(time);
+
+            String updatedBucket = bucket.startsWith("hdfs://") ? defaultFsUri : bucket;
+            RemoteLogSegmentMetadata.CustomMetadata customMetadata = HDFSRemoteStorageManager.createCustomMetadata(updatedBucket);
+            RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
+                    0, 100, 0, 0, 1L, 1024,
+                    Optional.of(customMetadata), RemoteLogSegmentState.DELETE_SEGMENT_STARTED,
+                    Collections.singletonMap(0, 0L));
+            rsm.deleteLogSegmentData(segmentMetadata);
+            verify(spyFileSystem, times(expectedExistsCallCount)).exists(any());
+            verify(spyFileSystem, times(1)).delete(any(), anyBoolean());
         }
     }
 
@@ -999,9 +1028,9 @@ public class HDFSRemoteStorageManagerTest {
         rsm.reconfigureCircuitBreakerState(updatedConfigs);
 
         CircuitBreaker.State expectedBreakerState = CircuitBreaker.State.valueOf(state);
-        assertEquals(expectedBreakerState, rsm.copyErrorBreaker().getState());
+        assertEquals(expectedBreakerState, rsm.copyCircuitBreaker().getState());
         verifyGauge(COPY_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
-        assertEquals(expectedBreakerState, rsm.deleteErrorBreaker().getState());
+        assertEquals(expectedBreakerState, rsm.deleteCircuitBreaker().getState());
         verifyGauge(DELETE_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
     }
 

@@ -119,8 +119,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private volatile ExponentialBackoff fetchErrorBackoff;
     private volatile long fetchErrorMaxBackoffWaitMs;
     private final ReadErrorHandler fetchErrorHandler = new ReadErrorHandler(Duration.ofMinutes(5));
-    private final CircuitBreaker copyErrorBreaker = CircuitBreaker.of("copy-circuit-breaker", circuitBreakerConfig());
-    private final CircuitBreaker deleteErrorBreaker = CircuitBreaker.of("delete-circuit-breaker", circuitBreakerConfig());
+    private final CircuitBreaker copyCircuitBreaker = CircuitBreaker.of("copy-circuit-breaker", circuitBreakerConfig());
+    private final CircuitBreaker deleteCircuitBreaker = CircuitBreaker.of("delete-circuit-breaker", circuitBreakerConfig());
 
     public HDFSRemoteStorageManager() {
         this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
@@ -222,11 +222,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     void reconfigureCircuitBreakerState(Map<String, ?> configs) {
         String copyCircuitBreakerState = (String) configs.get(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP);
         if (copyCircuitBreakerState != null) {
-            transitionState(copyErrorBreaker, copyCircuitBreakerState);
+            transitionState(copyCircuitBreaker, copyCircuitBreakerState);
         }
         String deleteCircuitBreakerState = (String) configs.get(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
         if (deleteCircuitBreakerState != null) {
-            transitionState(deleteErrorBreaker, deleteCircuitBreakerState);
+            transitionState(deleteCircuitBreaker, deleteCircuitBreakerState);
         }
     }
 
@@ -281,7 +281,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     void registerCircuitBreakerMetrics() {
-        metrics.registerCircuitBreakerMetrics(copyErrorBreaker, deleteErrorBreaker);
+        metrics.registerCircuitBreakerMetrics(copyCircuitBreaker, deleteCircuitBreaker);
     }
 
     Set<String> getBuckets(List<RemoteLogSegmentMetadata> metadataList) {
@@ -299,10 +299,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata, LogSegmentData segmentData) throws RemoteStorageException {
-        if (!copyErrorBreaker.tryAcquirePermission()) {
+        if (!copyCircuitBreaker.tryAcquirePermission()) {
             throw new RetriableRemoteStorageException("Remote copy circuit is open. Skipping the current call");
         }
-        final long start = time.milliseconds();
+        final long startMs = time.milliseconds();
         final RemoteStorageProvider provider = segmentData.storageProvider();
         final String bucket = fileSystemManager.findBucket(provider, metadata.remoteLogSegmentId());
         final Path path = new Path(bucket + getSegmentRemoteDir(metadata.remoteLogSegmentId()));
@@ -321,9 +321,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 }
                 uploadFile(segmentData.logSegment(), fsOut);
                 fsOut.flush();
-                copyErrorBreaker.onSuccess(time.milliseconds() - start, TimeUnit.MILLISECONDS);
+                copyCircuitBreaker.onSuccess(time.milliseconds() - startMs, TimeUnit.MILLISECONDS);
             } catch (Exception e) {
-                copyErrorBreaker.onError(time.milliseconds() - start, TimeUnit.MILLISECONDS, e);
+                copyCircuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
                 throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
             } finally {
                 openOutputStreamCount.decrementAndGet();
@@ -381,32 +381,27 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void deleteLogSegmentData(RemoteLogSegmentMetadata segmentMetadata) throws RemoteStorageException {
-        if (!deleteErrorBreaker.tryAcquirePermission()) {
+        if (!deleteCircuitBreaker.tryAcquirePermission()) {
             throw new RetriableRemoteStorageException("Remote deletion circuit is open. Skipping the current call");
         }
-        long start = time.milliseconds();
-        boolean delete;
+        long startMs = time.milliseconds();
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
             String bucket = fileSystemManager.getBucket(segmentMetadata);
             Path path = new Path(bucket + getSegmentRemoteDir(segmentMetadata.remoteLogSegmentId()));
             FileSystem fs = getFS(bucket);
-            if (fs.exists(path)) {
-                delete = fs.delete(path, true);
+            boolean fileExists = !bucket.equals(fileSystemManager.getHdfsBucket()) || fs.exists(path);
+            if (fileExists) {
+                fs.delete(path, true);
             } else {
-                delete = true;
                 LOGGER.warn("Skipping the call to delete log segment data: {} as the segment file doesn't exists",
                         segmentMetadata);
             }
-            deleteErrorBreaker.onSuccess(time.milliseconds() - start, TimeUnit.MILLISECONDS);
+            deleteCircuitBreaker.onSuccess(time.milliseconds() - startMs, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            deleteErrorBreaker.onError(time.milliseconds() - start, TimeUnit.MILLISECONDS, e);
+            deleteCircuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
             throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                     segmentMetadata.remoteLogSegmentId(), e);
-        }
-        if (!delete) {
-            throw new RemoteStorageException("Failed to delete remote log segment with id: " +
-                    segmentMetadata.remoteLogSegmentId());
         }
     }
 
@@ -567,12 +562,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         return RSMUtils.getPartitionRemoteDir(baseDir, partition);
     }
 
-    CircuitBreaker copyErrorBreaker() {
-        return copyErrorBreaker;
+    CircuitBreaker copyCircuitBreaker() {
+        return copyCircuitBreaker;
     }
 
-    CircuitBreaker deleteErrorBreaker() {
-        return deleteErrorBreaker;
+    CircuitBreaker deleteCircuitBreaker() {
+        return deleteCircuitBreaker;
     }
 
     private CircuitBreakerConfig circuitBreakerConfig() {
