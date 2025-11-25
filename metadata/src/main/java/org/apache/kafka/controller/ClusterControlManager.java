@@ -46,12 +46,15 @@ import org.apache.kafka.metadata.ControllerRegistration;
 import org.apache.kafka.metadata.FinalizedControllerFeatures;
 import org.apache.kafka.metadata.ListenerInfo;
 import org.apache.kafka.metadata.VersionRange;
+import org.apache.kafka.metadata.placement.CanarySpec;
+import org.apache.kafka.metadata.placement.PodReplicaPlacer;
 import org.apache.kafka.metadata.placement.ReplicaPlacer;
 import org.apache.kafka.metadata.placement.StripedReplicaPlacer;
 import org.apache.kafka.metadata.placement.UberReplicaPlacer;
 import org.apache.kafka.metadata.placement.UsableBroker;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.server.common.MetadataVersion;
+import org.apache.kafka.server.config.CanaryConfigs;
 import org.apache.kafka.timeline.SnapshotRegistry;
 import org.apache.kafka.timeline.TimelineHashMap;
 
@@ -83,6 +86,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
  */
 public class ClusterControlManager {
     static final long DEFAULT_SESSION_TIMEOUT_NS = NANOSECONDS.convert(9, TimeUnit.SECONDS);
+    static final String CANARY_POD_NAME = "canary-broker";
 
     static class Builder {
         private LogContext logContext = null;
@@ -166,8 +170,9 @@ public class ClusterControlManager {
                 throw new RuntimeException("ConfigurationControlManager cannot be null");
             }
             if (replicaPlacer == null) {
-                replicaPlacer = new UberReplicaPlacer(
-                    new StripedReplicaPlacer(new Random()), () -> configurationControl.computeEffectiveBrokerConfig());
+                double canaryPercent = Double.parseDouble(configurationControl.currentControllerConfig().getOrDefault(CanaryConfigs.CANARY_PARTITION_PERCENTAGE, String.valueOf(CanaryConfigs.CANARY_PARTITION_PERCENTAGE_DEFAULT)));
+                CanarySpec canarySpec = new CanarySpec(CANARY_POD_NAME, canaryPercent);
+                replicaPlacer = new UberReplicaPlacer(new PodReplicaPlacer(new StripedReplicaPlacer(new Random()), canarySpec.toMap()), () -> configurationControl.computeEffectiveBrokerConfig());
             }
             if (featureControl == null) {
                 throw new RuntimeException("You must specify FeatureControlManager");

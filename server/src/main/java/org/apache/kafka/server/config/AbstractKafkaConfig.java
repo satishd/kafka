@@ -64,7 +64,8 @@ public abstract class AbstractKafkaConfig extends AbstractConfig {
             QuotaConfigs.CONFIG_DEF,
             BrokerSecurityConfigs.CONFIG_DEF,
             DelegationTokenManagerConfigs.CONFIG_DEF,
-            PasswordEncoderConfigs.CONFIG_DEF
+            PasswordEncoderConfigs.CONFIG_DEF,
+            CanaryConfigs.CONFIG_DEF
         ));
     public AbstractKafkaConfig(ConfigDef definition, Map<?, ?> originals, Map<String, ?> configProviderProps, boolean doLog) {
         super(definition, originals, configProviderProps, doLog);
