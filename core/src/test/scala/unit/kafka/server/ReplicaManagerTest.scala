@@ -7361,6 +7361,254 @@ class ReplicaManagerTest {
     }
   }
 
+  @Test
+  def testUpdateIsrBlocklistWithZkClient(): Unit = {
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+    val mockZkClient = mock(classOf[KafkaZkClient])
+
+    // Mock ZK client to return some broker IDs
+    when(mockZkClient.getISRBlackList).thenReturn(Seq("2", "3", "4"))
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = config,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = Some(mockZkClient)
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist
+      rm.updateIsrBlacklist()
+
+      // Verify ZK client was called
+      verify(mockZkClient).getISRBlackList
+
+      // Check that blocklist contains ZK entries (converted to Int) plus any config entries
+      val expectedBlocklist = Set(2, 3, 4).asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testUpdateIsrBlocklistWithoutZkClient(): Unit = {
+    val mockLogMgr = TestUtils.createLogManager(config.logDirs.map(new File(_)))
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = config,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = None
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist
+      rm.updateIsrBlacklist()
+
+      // Check that blocklist only contains config entries (which should be empty by default)
+      val expectedBlocklist = Set().asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testUpdateIsrBlocklistWithConfigAndZkEntries(): Unit = {
+    // Create config with some ISR block list entries
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.put("isr.block.list", "1:5:6")
+    val configWithBlockList = KafkaConfig.fromProps(props)
+
+    val mockLogMgr = TestUtils.createLogManager(configWithBlockList.logDirs.map(new File(_)))
+    val mockZkClient = mock(classOf[KafkaZkClient])
+
+    // Mock ZK client to return some broker IDs (some overlapping with config)
+    when(mockZkClient.getISRBlackList).thenReturn(Seq("5", "7", "8"))
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = configWithBlockList,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(configWithBlockList.brokerId, configWithBlockList.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(configWithBlockList.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = Some(mockZkClient)
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist
+      rm.updateIsrBlacklist()
+
+      // Verify ZK client was called
+      verify(mockZkClient).getISRBlackList
+
+      // Check that blocklist contains union of config and ZK entries
+      // Config: [1, 5, 6], ZK: [5, 7, 8] -> Union: [1, 5, 6, 7, 8]
+      val expectedBlocklist = Set(1, 5, 6, 7, 8).asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testUpdateIsrBlocklistWithZkException(): Unit = {
+    // Create config with some ISR block list entries
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.put("isr.block.list", "1:5:6")
+    val configWithBlockList = KafkaConfig.fromProps(props)
+
+    val mockLogMgr = TestUtils.createLogManager(configWithBlockList.logDirs.map(new File(_)))
+    val mockZkClient = mock(classOf[KafkaZkClient])
+
+    // Mock ZK client to throw exception
+    when(mockZkClient.getISRBlackList).thenThrow(new RuntimeException("ZK connection failed"))
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = configWithBlockList,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(configWithBlockList.brokerId, configWithBlockList.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(configWithBlockList.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = Some(mockZkClient)
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist - should handle exception gracefully
+      rm.updateIsrBlacklist()
+
+      // Verify ZK client was called
+      verify(mockZkClient).getISRBlackList
+
+      // Check that blocklist only contains config entries
+      val expectedBlocklist = Set(1, 5, 6).asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testUpdateIsrBlocklistWithInvalidZkData(): Unit = {
+    // Create config with some ISR block list entries
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.put("isr.block.list", "1:5:6")
+    val configWithBlockList = KafkaConfig.fromProps(props)
+
+    val mockLogMgr = TestUtils.createLogManager(configWithBlockList.logDirs.map(new File(_)))
+    val mockZkClient = mock(classOf[KafkaZkClient])
+
+    // Mock ZK client to return invalid broker ID data
+    when(mockZkClient.getISRBlackList).thenReturn(Seq("2", "invalid", "4"))
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = configWithBlockList,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(config.brokerId, config.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = Some(mockZkClient)
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist - should handle NumberFormatException gracefully
+      rm.updateIsrBlacklist()
+
+      // Verify ZK client was called
+      verify(mockZkClient).getISRBlackList
+
+      // Check that blocklist only contains config entries
+      val expectedBlocklist = Set(1, 5, 6).asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
+  @Test
+  def testUpdateIsrBlacklistEmptyZkResponse(): Unit = {
+    // Create config with some ISR block list entries
+    val props = TestUtils.createBrokerConfig(1, TestUtils.MockZkConnect)
+    props.put("isr.block.list", "1:5:6")
+    val configWithBlockList = KafkaConfig.fromProps(props)
+
+    val mockLogMgr = TestUtils.createLogManager(configWithBlockList.logDirs.map(new File(_)))
+    val mockZkClient = mock(classOf[KafkaZkClient])
+
+    // Mock ZK client to return empty sequence
+    when(mockZkClient.getISRBlackList).thenReturn(Seq.empty[String])
+
+    val rm = new ReplicaManager(
+      metrics = metrics,
+      config = configWithBlockList,
+      time = time,
+      scheduler = new MockScheduler(time),
+      logManager = mockLogMgr,
+      quotaManagers = quotaManager,
+      metadataCache = MetadataCache.zkMetadataCache(configWithBlockList.brokerId, configWithBlockList.interBrokerProtocolVersion),
+      logDirFailureChannel = new LogDirFailureChannel(configWithBlockList.logDirs.size),
+      alterPartitionManager = alterPartitionManager,
+      zkClient = Some(mockZkClient)
+    )
+
+    try {
+      // Initial blocklist should be empty
+      assertTrue(rm.isrBlacklist.isEmpty)
+
+      // Update blocklist
+      rm.updateIsrBlacklist()
+
+      // Verify ZK client was called
+      verify(mockZkClient).getISRBlackList
+
+      // Check that blocklist only contains config entries
+      val expectedBlocklist = Set(1, 5, 6).asJava
+      assertEquals(expectedBlocklist, rm.isrBlacklist)
+    } finally {
+      rm.shutdown(checkpointHW = false)
+    }
+  }
+
   // Some threads are closed, but the state didn't reflect in the JVM immediately, so add some wait time for it
   private def assertNoNonDaemonThreadsWithWaiting(threadNamePrefix: String, waitTimeMs: Long = 500L): Unit = {
     var nonDemonThreads: mutable.Set[Thread] = mutable.Set.empty[Thread]

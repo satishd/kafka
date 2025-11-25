@@ -104,7 +104,8 @@ object DynamicBrokerConfig {
     DynamicDeleteTopicEnableConfig.ReconfigurableConfigs ++
     DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs ++
     DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs ++
-    DynamicExcludedClientsFromConsumptionMetricsConfig.ReconfigurableConfigs
+    DynamicExcludedClientsFromConsumptionMetricsConfig.ReconfigurableConfigs ++
+    DynamicIsrBlockListConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -289,6 +290,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicRecreateRecentlyDeletedTopicsEnableConfig)
     addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicExcludedClientsFromConsumptionMetricsConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicIsrBlockListConfig(kafkaServer))
   }
 
   /**
@@ -1521,5 +1523,33 @@ class DynamicExcludedClientsFromConsumptionMetricsConfig(server: KafkaBroker) ex
     val newExcludedClients = newConfig.getList(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_CONFIG)
     server.replicaManager.updateExcludedClientPrefixesForConsumptionMetrics(newExcludedClients.asScala.toList)
     info("Updated excluded clients from consumption metrics to: " + newExcludedClients + ". old value: " + oldExcludedClients)
+  }
+}
+
+object DynamicIsrBlockListConfig {
+  val ReconfigurableConfigs = Set(ReplicationConfigs.ISR_BLOCK_LIST_CONFIG)
+}
+
+class DynamicIsrBlockListConfig(server: KafkaBroker) extends BrokerReconfigurable {
+  override def reconfigurableConfigs: Set[String] = DynamicIsrBlockListConfig.ReconfigurableConfigs
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == ReplicationConfigs.ISR_BLOCK_LIST_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        newValue.split(":").map(_.trim).filter(_.nonEmpty).map(b => {
+          try {
+            b.toInt
+          } catch {
+            case _: NumberFormatException =>
+              throw new ConfigException(s"Invalid broker ID '$b' in ISR block list. All broker IDs must be valid integers.")
+          }
+        })
+      }
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    server.replicaManager.updateIsrBlacklist()
   }
 }

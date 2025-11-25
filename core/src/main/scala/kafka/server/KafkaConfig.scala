@@ -552,6 +552,8 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   def leaderDeprioritizedList: scala.Seq[Int] = leaderDeprioritizedListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
   def newReplicaExcludeListString: String = getString(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
   def newReplicaExcludeList: scala.Seq[Int] = newReplicaExcludeListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
+  def isrBlockListString: String = getString(ReplicationConfigs.ISR_BLOCK_LIST_CONFIG)
+  def isrBlockList: Set[Int] = isrBlockListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSet
 
 
   // We keep the user-provided String as `MetadataVersion.fromVersionString` can choose a slightly different version (eg if `0.10.0`

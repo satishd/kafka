@@ -46,8 +46,10 @@ import org.apache.kafka.storage.internals.log.{CleanerConfig, LogConfig, Produce
 import org.apache.kafka.test.MockMetricsReporter
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.{ValueSource, CsvSource}
 import org.mockito.ArgumentMatchers.anyString
-import org.mockito.Mockito.{mock, verify, verifyNoMoreInteractions, when}
+import org.mockito.Mockito.{mock, times, verify, verifyNoMoreInteractions, when}
 import org.mockito.{ArgumentCaptor, ArgumentMatchers, Mockito}
 
 import scala.annotation.nowarn
@@ -1652,6 +1654,64 @@ class DynamicBrokerConfigTest {
     } catch {
       case e: ConfigException => // expected exception
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource(value = Array(
+    "1,1",
+    "1:2,1|2",
+    "1::2,1|2", // double colon handling
+    "1:2:,1|2", // trailing colon handling
+    ":1:2,1|2", // leading colon handling
+    ":1:2:,1|2" // leading and trailing colon handling
+  ))
+  def testDynamicIsrBlockListConfig(input: String, expectedListAsString: String): Unit = {
+    val origProps = TestUtils.createBrokerConfig(0, null, port = 8181)
+    val config = KafkaConfig.fromProps(origProps)
+    assertEquals(ReplicationConfigs.ISR_BLOCK_LIST_DEFAULT, config.isrBlockListString)
+
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+    val replicaManager = Mockito.mock(classOf[ReplicaManager])
+    Mockito.when(serverMock.config).thenReturn(config)
+    Mockito.when(serverMock.replicaManager).thenReturn(replicaManager)
+
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicIsrBlockListConfig(serverMock))
+
+    val props = new Properties()
+    props.put(ReplicationConfigs.ISR_BLOCK_LIST_CONFIG, input)
+    config.dynamicConfig.validate(props, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(props)
+
+    val expected = expectedListAsString.split("\\|").toSeq.map(_.toInt).toSet
+    assertEquals(expected, config.isrBlockList, s"Failed for input: $input")
+
+    verify(replicaManager, times(1)).updateIsrBlacklist()
+    verifyNoMoreInteractions(replicaManager)
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = Array("abc", "1:abc:2", "1.5:2"))
+  def testDynamicIsrBlockListConfigWithInvalidValues(input: String): Unit = {
+    val origProps = TestUtils.createBrokerConfig(0, null, port = 8181)
+    val config = KafkaConfig.fromProps(origProps)
+
+    val serverMock = Mockito.mock(classOf[KafkaBroker])
+    val replicaManager = Mockito.mock(classOf[ReplicaManager])
+    Mockito.when(serverMock.config).thenReturn(config)
+    Mockito.when(serverMock.replicaManager).thenReturn(replicaManager)
+
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicIsrBlockListConfig(serverMock))
+
+    val props = new Properties()
+    props.put(ReplicationConfigs.ISR_BLOCK_LIST_CONFIG, input)
+    assertThrows(classOf[ConfigException],
+      () => config.dynamicConfig.validate(props, perBrokerConfig = false),
+      s"Should throw ConfigException for invalid input: $input")
+
+    // Verify no interactions with replica manager for invalid configs
+    verifyNoMoreInteractions(replicaManager)
   }
 
   @Test

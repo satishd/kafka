@@ -3188,16 +3188,21 @@ class ReplicaManager(val config: KafkaConfig,
     )
   }
 
-  private[server] def updateIsrBlacklist(): Unit = {
-    try {
-      isrBlacklist = zkClient match {
-        case Some(client) => client.getISRBlackList.map(_.toInt).toSet.asJava
-        case None => Collections.emptySet()
+  private[server] def updateIsrBlacklist(): Unit = this.synchronized {
+    def zkIsrBlockList(): Seq[Int] = {
+      try {
+        zkClient match {
+          case Some(client) => client.getISRBlackList.map(_.toInt)
+          case None => Seq()
+        }
+      } catch {
+        case e: Exception =>
+          error("Error fetching isr_blacklist from zookeeper", e)
+          Seq()
       }
-      info("Updated Isr blacklist: " + isrBlacklist)
-    } catch {
-      case e: Exception =>
-        error("Error fetching isr_blacklist", e)
     }
+
+    isrBlacklist = (config.isrBlockList ++ zkIsrBlockList).asJava
+    info("Updated Isr blacklist: " + isrBlacklist)
   }
 }
