@@ -167,4 +167,38 @@ public class KafkaConfigSchemaTest {
             dynamicNodeConfigs,
             dynamicTopicConfigs));
     }
+
+    @Test
+    public void testResolveEffectiveBrokerConfigs() {
+        Map<String, String> staticNodeConfig = new HashMap<>();
+        staticNodeConfig.put("foo.bar", "the,static,value");
+        staticNodeConfig.put("baz", "dummy");
+        staticNodeConfig.put("quux", "123");
+        Map<String, String> dynamicClusterConfigs = new HashMap<>();
+        dynamicClusterConfigs.put("foo.bar", "the,dynamic,cluster,config,value");
+        dynamicClusterConfigs.put("quux", "456");
+        Map<String, String> dynamicNodeConfigs = new HashMap<>();
+        dynamicNodeConfigs.put("quux", "789");
+
+        Map<String, ConfigEntry> expected = new HashMap<>();
+        expected.put("quuux", new ConfigEntry("quuux", null,
+            ConfigEntry.ConfigSource.DEFAULT_CONFIG, true, false, emptyList(),
+            ConfigEntry.ConfigType.PASSWORD, "quuux doc"));
+        expected.put("quuux2", new ConfigEntry("quuux2", null,
+            ConfigEntry.ConfigSource.DEFAULT_CONFIG, true, false, emptyList(),
+            ConfigEntry.ConfigType.PASSWORD, "quuux2 doc"));
+        expected.put("baz", new ConfigEntry("baz", "dummy",
+            ConfigEntry.ConfigSource.STATIC_BROKER_CONFIG, false, false, emptyList(),
+            ConfigEntry.ConfigType.STRING, "baz doc"));
+        expected.put("foo.bar", new ConfigEntry("foo.bar", "the,dynamic,cluster,config,value",
+            ConfigEntry.ConfigSource.DYNAMIC_DEFAULT_BROKER_CONFIG, false, false, emptyList(),
+            ConfigEntry.ConfigType.LIST, "foo bar doc"));
+        expected.put("quux", new ConfigEntry("quux", "789",
+            ConfigEntry.ConfigSource.DYNAMIC_BROKER_CONFIG, false, false, emptyList(),
+            ConfigEntry.ConfigType.INT, "quux doc"));
+        Map<String, ConfigEntry> actual = SCHEMA.resolveEffectiveBrokerConfig(staticNodeConfig,
+            dynamicClusterConfigs,
+            dynamicNodeConfigs);
+        assertEquals(expected, actual);
+    }
 }

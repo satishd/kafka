@@ -254,6 +254,7 @@ public class ReplicationControlManagerTest {
                 setReplicaPlacer(new StripedReplicaPlacer(random)).
                 setFeatureControlManager(featureControl).
                 setBrokerUncleanShutdownHandler(this::handleUncleanBrokerShutdown).
+                setConfigurationControl(configurationControl).
                 build();
 
             this.replicationControl = new ReplicationControlManager.Builder().

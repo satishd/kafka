@@ -48,6 +48,7 @@ import org.apache.kafka.metadata.ListenerInfo;
 import org.apache.kafka.metadata.VersionRange;
 import org.apache.kafka.metadata.placement.ReplicaPlacer;
 import org.apache.kafka.metadata.placement.StripedReplicaPlacer;
+import org.apache.kafka.metadata.placement.UberReplicaPlacer;
 import org.apache.kafka.metadata.placement.UsableBroker;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.server.common.MetadataVersion;
@@ -94,6 +95,7 @@ public class ClusterControlManager {
         private boolean zkMigrationEnabled = false;
         private BrokerUncleanShutdownHandler brokerUncleanShutdownHandler = null;
         private String interBrokerListenerName = "PLAINTEXT";
+        private ConfigurationControlManager configurationControl = null;
 
         Builder setLogContext(LogContext logContext) {
             this.logContext = logContext;
@@ -145,6 +147,11 @@ public class ClusterControlManager {
             return this;
         }
 
+        Builder setConfigurationControl(ConfigurationControlManager configurationControl) {
+            this.configurationControl = configurationControl;
+            return this;
+        }
+
         ClusterControlManager build() {
             if (logContext == null) {
                 logContext = new LogContext();
@@ -155,8 +162,12 @@ public class ClusterControlManager {
             if (snapshotRegistry == null) {
                 snapshotRegistry = new SnapshotRegistry(logContext);
             }
+            if (configurationControl == null) {
+                throw new RuntimeException("ConfigurationControlManager cannot be null");
+            }
             if (replicaPlacer == null) {
-                replicaPlacer = new StripedReplicaPlacer(new Random());
+                replicaPlacer = new UberReplicaPlacer(
+                    new StripedReplicaPlacer(new Random()), () -> configurationControl.computeEffectiveBrokerConfig());
             }
             if (featureControl == null) {
                 throw new RuntimeException("You must specify FeatureControlManager");

@@ -1590,30 +1590,30 @@ class DynamicBrokerConfigTest {
     config.dynamicConfig.addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(serverMock))
 
     // Default is ""
-    assertEquals(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_DEFAULT, config.newReplicaExcludeListString)
+    assertEquals(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_DEFAULT, config.newReplicaExcludeListString)
     val singleList = "0"
     var overrideProp = new Properties()
-    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, singleList)
+    overrideProp.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, singleList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
     assertEquals(singleList, config.newReplicaExcludeListString)
 
     // Restore it back to empty
     val emptyList = ""
     overrideProp = new Properties()
-    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, emptyList)
+    overrideProp.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, emptyList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
     assertEquals(emptyList, config.newReplicaExcludeListString)
 
     val multipleList="0:1:2"
     overrideProp = new Properties()
-    overrideProp.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, multipleList)
+    overrideProp.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, multipleList)
     config.dynamicConfig.updateBrokerConfig(0, overrideProp)
     assertEquals(multipleList, config.newReplicaExcludeListString)
 
     // Test with Invalid Value
     val invalidValueProps = new Properties()
     try {
-      invalidValueProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "Invalid_Value")
+      invalidValueProps.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "Invalid_Value")
       config.dynamicConfig.updateBrokerConfig(0, invalidValueProps)
     } catch {
       case e: ConfigException => // expected exception
@@ -1622,7 +1622,7 @@ class DynamicBrokerConfigTest {
     // Test with ":100"
     val startWithColonProps = new Properties()
     try {
-      startWithColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":100")
+      startWithColonProps.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":100")
       config.dynamicConfig.updateBrokerConfig(0, startWithColonProps)
     } catch {
       case e: ConfigException => // expected exception
@@ -1631,7 +1631,7 @@ class DynamicBrokerConfigTest {
     // Test with "100:"
     val endWithColonProps = new Properties()
     try {
-      endWithColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100:")
+      endWithColonProps.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100:")
       config.dynamicConfig.updateBrokerConfig(0, endWithColonProps)
     } catch {
       case e: ConfigException => // expected exception
@@ -1640,7 +1640,7 @@ class DynamicBrokerConfigTest {
     // Test with "100::101"
     val twoConsecutiveColonProps = new Properties()
     try {
-      twoConsecutiveColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100::101")
+      twoConsecutiveColonProps.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "100::101")
       config.dynamicConfig.updateBrokerConfig(0, twoConsecutiveColonProps)
     } catch {
       case e: ConfigException => // expected exception
@@ -1649,7 +1649,7 @@ class DynamicBrokerConfigTest {
     // Test with ":"
     val justColonProps = new Properties()
     try {
-      justColonProps.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":")
+      justColonProps.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, ":")
       config.dynamicConfig.updateBrokerConfig(0, justColonProps)
     } catch {
       case e: ConfigException => // expected exception

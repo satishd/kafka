@@ -1464,7 +1464,7 @@ class DynamicRecreateRecentlyDeletedTopicsEnableConfig() extends BrokerReconfigu
 
 object DynamicNewReplicaExcludeListConfig {
   val ReconfigurableConfigs = Set(
-    ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
+    ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
 }
 
 class DynamicNewReplicaExcludeListConfig (server: KafkaBroker) extends BrokerReconfigurable {
@@ -1473,7 +1473,7 @@ class DynamicNewReplicaExcludeListConfig (server: KafkaBroker) extends BrokerRec
 
   override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
     newConfig.values.asScala.forKeyValue { (k, v) =>
-      if (k == ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG) {
+      if (k == ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG) {
         val newValue = v.asInstanceOf[String]
         val oldValue = currentValue(k)
         if (newValue != oldValue) {
@@ -1494,7 +1494,7 @@ class DynamicNewReplicaExcludeListConfig (server: KafkaBroker) extends BrokerRec
 
   private def currentValue(name: String): String = {
     name match {
-      case ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG => server.config.newReplicaExcludeListString
+      case ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG => server.config.newReplicaExcludeListString
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }

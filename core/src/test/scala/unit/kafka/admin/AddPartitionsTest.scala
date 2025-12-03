@@ -28,7 +28,7 @@ import org.apache.kafka.common.errors.{InvalidReplicaAssignmentException, Invali
 import org.apache.kafka.common.requests.MetadataResponse.TopicMetadata
 import org.apache.kafka.common.requests.{MetadataRequest, MetadataResponse}
 import org.apache.kafka.server.common.AdminOperationException
-import org.apache.kafka.server.config.ReplicationConfigs
+import org.apache.kafka.server.config.ServerLogConfigs
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{BeforeEach, Test, TestInfo}
 import org.junit.jupiter.params.ParameterizedTest
@@ -250,7 +250,7 @@ class AddPartitionsTest extends BaseRequestTest {
   @Test
   def testAddPartitionsWithExcludedBrokers(): Unit = {
     val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
-    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2")
+    configs.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2")
 
     val kafkaConfig = KafkaConfig.fromProps(configs)
     val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
@@ -267,7 +267,7 @@ class AddPartitionsTest extends BaseRequestTest {
   @Test
   def testAddPartitionsWithoutEnoughValidBrokers(): Unit = {
     val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
-    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2:3:0")
+    configs.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "2:3:0")
     val kafkaConfig = KafkaConfig.fromProps(configs)
     val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
 

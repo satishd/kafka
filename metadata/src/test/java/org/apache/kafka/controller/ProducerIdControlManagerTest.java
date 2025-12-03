@@ -24,6 +24,7 @@ import org.apache.kafka.common.metadata.RegisterBrokerRecord;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.MockTime;
+import org.apache.kafka.metadata.FakeKafkaConfigSchema;
 import org.apache.kafka.server.common.ProducerIdsBlock;
 import org.apache.kafka.timeline.SnapshotRegistry;
 
@@ -50,12 +51,16 @@ public class ProducerIdControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setTime(time).
             setSnapshotRegistry(snapshotRegistry).
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
 
         clusterControl.activate();

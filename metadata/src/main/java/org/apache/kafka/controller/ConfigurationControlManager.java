@@ -48,6 +48,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static org.apache.kafka.clients.admin.AlterConfigOp.OpType.APPEND;
 import static org.apache.kafka.common.config.TopicConfig.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG;
@@ -520,6 +521,14 @@ public class ConfigurationControlManager {
     Map<String, ConfigEntry> computeEffectiveTopicConfigs(Map<String, String> creationConfigs) {
         return configSchema.resolveEffectiveTopicConfigs(staticConfig, clusterConfig(),
             currentControllerConfig(), creationConfigs);
+    }
+
+    Map<String, String> computeEffectiveBrokerConfig() {
+        return configSchema.resolveEffectiveBrokerConfig(staticConfig, clusterConfig(), currentControllerConfig())
+            .entrySet()
+            .stream()
+            .filter(e -> e.getValue().value() != null)
+            .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().value()));
     }
 
     Map<String, String> clusterConfig() {

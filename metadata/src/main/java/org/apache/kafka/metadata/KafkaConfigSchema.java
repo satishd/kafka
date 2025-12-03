@@ -224,6 +224,43 @@ public class KafkaConfigSchema {
             ConfigSource.DEFAULT_CONFIG, Function.identity());
     }
 
+    public Map<String, ConfigEntry> resolveEffectiveBrokerConfig(
+        Map<String, ?> staticNodeConfig,
+        Map<String, ?> dynamicClusterConfigs,
+        Map<String, ?> dynamicNodeConfigs) {
+        ConfigDef configDef = configDefs.getOrDefault(ConfigResource.Type.BROKER, EMPTY_CONFIG_DEF);
+        Map<String, ConfigEntry> effectiveConfigs = new HashMap<>();
+        for (ConfigDef.ConfigKey configKey : configDef.configKeys().values()) {
+            ConfigEntry entry = resolveEffectiveBrokerConfig(configKey, staticNodeConfig, dynamicClusterConfigs,
+                dynamicNodeConfigs);
+            effectiveConfigs.put(entry.name(), entry);
+        }
+        return effectiveConfigs;
+    }
+
+    public ConfigEntry resolveEffectiveBrokerConfig(
+        ConfigDef.ConfigKey configKey,
+        Map<String, ?> staticNodeConfig,
+        Map<String, ?> dynamicClusterConfigs,
+        Map<String, ?> dynamicNodeConfigs
+    ) {
+        String keyName = configKey.name;
+        if (dynamicNodeConfigs.containsKey(keyName)) {
+            return toConfigEntry(configKey, dynamicNodeConfigs.get(keyName),
+                ConfigSource.DYNAMIC_BROKER_CONFIG, Function.identity());
+        }
+        if (dynamicClusterConfigs.containsKey(keyName)) {
+            return toConfigEntry(configKey, dynamicClusterConfigs.get(keyName),
+                ConfigSource.DYNAMIC_DEFAULT_BROKER_CONFIG, Function.identity());
+        }
+        if (staticNodeConfig.containsKey(keyName)) {
+            return toConfigEntry(configKey, staticNodeConfig.get(keyName),
+                ConfigSource.STATIC_BROKER_CONFIG, Function.identity());
+        }
+        return toConfigEntry(configKey, configKey.hasDefault() ? configKey.defaultValue : null,
+            ConfigSource.DEFAULT_CONFIG, Function.identity());
+    }
+
     private ConfigEntry toConfigEntry(ConfigDef.ConfigKey configKey,
                                       Object value,
                                       ConfigSource source,

@@ -159,10 +159,6 @@ public class ReplicationConfigs {
     public static final String LEADER_DEPRIORITIZED_LIST_DOC = "one or more broker_ids separated by colon(:) that" +
             "would be put to the lowest priority in the partition assignment when leadership is being considered. Preferred/Offline/Reassignment/ControlledShutdown Leadership.";
 
-    public static final String NEW_REPLICA_EXCLUDE_LIST_CONFIG = "new.replica.exclude.list";
-    public static final String NEW_REPLICA_EXCLUDE_LIST_DEFAULT = "";
-    public static final String NEW_REPLICA_EXCLUDE_LIST_DOC = "A list of brokers that cannot accept new topics/partitions";
-
     public static final String ISR_BLOCK_LIST_CONFIG = "isr.block.list";
     public static final String ISR_BLOCK_LIST_DEFAULT = "";
     public static final String ISR_BLOCK_LIST_DOC = "A list of broker ids separated by colon that are not allowed to remain/join the ISR.";
@@ -194,6 +190,5 @@ public class ReplicationConfigs {
             .define(REPLICA_SELECTOR_CLASS_CONFIG, STRING, null, MEDIUM, REPLICA_SELECTOR_CLASS_DOC)
             .define(REPLICA_START_OFFSET_STRATEGY_CONFIG, STRING, REPLICA_START_OFFSET_STRATEGY_DEFAULT, ConfigDef.ValidString.in(Utils.enumOptions(ReplicaStartOffsetStrategy.class)), MEDIUM, REPLICA_START_OFFSET_STRATEGY_DOC)
             .define(LEADER_DEPRIORITIZED_LIST_CONFIG, STRING, LEADER_DEPRIORITIZED_LIST_DEFAULT, MEDIUM, LEADER_DEPRIORITIZED_LIST_DOC)
-            .define(NEW_REPLICA_EXCLUDE_LIST_CONFIG, STRING, NEW_REPLICA_EXCLUDE_LIST_DEFAULT, MEDIUM, NEW_REPLICA_EXCLUDE_LIST_DOC)
             .define(ISR_BLOCK_LIST_CONFIG, STRING, ISR_BLOCK_LIST_DEFAULT, MEDIUM, ISR_BLOCK_LIST_DOC);
 }

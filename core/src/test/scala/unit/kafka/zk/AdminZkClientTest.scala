@@ -33,7 +33,7 @@ import org.apache.kafka.common.metrics.Quota
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.common.{AdminOperationException, MetadataVersion}
-import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ReplicationConfigs}
+import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ServerLogConfigs}
 import org.apache.kafka.storage.internals.log.LogConfig
 import org.apache.kafka.test.{TestUtils => JTestUtils}
 import org.junit.jupiter.api.Assertions._
@@ -487,7 +487,7 @@ class AdminZkClientTest extends QuorumTestHarness with Logging with RackAwareTes
     createBrokersInZk(zkClient, List(0, 1, 2, 3, 4))
 
     val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
-    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0")
+    configs.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0")
     val kafkaConfig = KafkaConfig.fromProps(configs)
     val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
 
@@ -509,7 +509,7 @@ class AdminZkClientTest extends QuorumTestHarness with Logging with RackAwareTes
     createBrokersInZk(zkClient, List(0, 1, 2, 3, 4))
 
     val configs = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
-    configs.put(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0:4:2")
+    configs.put(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG, "0:4:2")
     val kafkaConfig = KafkaConfig.fromProps(configs)
     val adminZkClient = new AdminZkClient(zkClient, Some(kafkaConfig))
 

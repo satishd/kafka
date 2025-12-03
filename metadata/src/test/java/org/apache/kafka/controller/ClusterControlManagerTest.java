@@ -42,6 +42,7 @@ import org.apache.kafka.metadata.BrokerRegistration;
 import org.apache.kafka.metadata.BrokerRegistrationFencingChange;
 import org.apache.kafka.metadata.BrokerRegistrationInControlledShutdownChange;
 import org.apache.kafka.metadata.BrokerRegistrationReply;
+import org.apache.kafka.metadata.FakeKafkaConfigSchema;
 import org.apache.kafka.metadata.FinalizedControllerFeatures;
 import org.apache.kafka.metadata.RecordTestUtils;
 import org.apache.kafka.metadata.VersionRange;
@@ -96,12 +97,16 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setTime(time).
             setSnapshotRegistry(snapshotRegistry).
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         assertFalse(clusterControl.isUnfenced(0));
@@ -157,6 +162,9 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(time).
@@ -164,6 +172,7 @@ public class ClusterControlManagerTest {
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
 
         assertFalse(clusterControl.isUnfenced(0));
@@ -210,6 +219,9 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(time).
@@ -217,6 +229,7 @@ public class ClusterControlManagerTest {
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
 
         assertFalse(clusterControl.isUnfenced(0));
@@ -265,6 +278,9 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(new MockTime(0, 0, 0)).
@@ -272,6 +288,7 @@ public class ClusterControlManagerTest {
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         assertThrows(InconsistentClusterIdException.class, () ->
@@ -304,6 +321,9 @@ public class ClusterControlManagerTest {
                 Collections.singletonList(0))).
             setMetadataVersion(metadataVersion).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(new MockTime(0, 0, 0)).
@@ -311,6 +331,7 @@ public class ClusterControlManagerTest {
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
 
@@ -366,12 +387,16 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setTime(new MockTime(0, 0, 0)).
             setSnapshotRegistry(snapshotRegistry).
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         clusterControl.replay(brokerRecord, 100L);
@@ -405,12 +430,16 @@ public class ClusterControlManagerTest {
                 QuorumFeatures.defaultFeatureMap(true),
                 Collections.singletonList(0))).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setTime(time).
             setSnapshotRegistry(snapshotRegistry).
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         for (int i = 0; i < numUsableBrokers; i++) {
@@ -469,12 +498,16 @@ public class ClusterControlManagerTest {
                 Collections.singletonList(0))).
             setMetadataVersion(metadataVersion).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setTime(time).
             setSnapshotRegistry(snapshotRegistry).
             setSessionTimeoutNs(1000).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         assertFalse(clusterControl.isUnfenced(0));
@@ -551,12 +584,16 @@ public class ClusterControlManagerTest {
             setQuorumFeatures(new QuorumFeatures(0, supportedFeatures, Collections.singletonList(0))).
             setMetadataVersion(MetadataVersion.IBP_3_7_IV0).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(new MockTime(0, 0, 0)).
             setSnapshotRegistry(snapshotRegistry).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         FeatureLevelRecord testFeatureRecord = new FeatureLevelRecord().
@@ -599,12 +636,16 @@ public class ClusterControlManagerTest {
             setQuorumFeatures(new QuorumFeatures(0, supportedFeatures, Collections.singletonList(0))).
             setMetadataVersion(MetadataVersion.IBP_3_9_IV0).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setTime(new MockTime(0, 0, 0)).
             setSnapshotRegistry(snapshotRegistry).
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
 
@@ -677,12 +718,16 @@ public class ClusterControlManagerTest {
                         Collections.singletonList(0))).
                 setMetadataVersion(MetadataVersion.IBP_3_3_IV0).
                 build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
                 setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
                 setTime(new MockTime(0, 0, 0)).
                 setSnapshotRegistry(snapshotRegistry).
                 setFeatureControlManager(featureControl).
                 setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+                setConfigurationControl(configurationControl).
                 build();
         clusterControl.activate();
 
@@ -721,10 +766,14 @@ public class ClusterControlManagerTest {
         FeatureControlManager featureControl = new FeatureControlManager.Builder().
             setMetadataVersion(MetadataVersion.IBP_3_3_IV0).
             build();
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("fPZv1VBsRFmnlRvmGcOW9w").
             setFeatureControlManager(featureControl).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         assertEquals("The current MetadataVersion is too old to support controller registrations.",
@@ -734,10 +783,14 @@ public class ClusterControlManagerTest {
 
     @Test
     public void testRegisterWithDuplicateDirectoryId() {
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
                 setClusterId("QzZZEtC7SxucRM29Xdzijw").
                 setFeatureControlManager(new FeatureControlManager.Builder().build()).
                 setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+                setConfigurationControl(configurationControl).
                 build();
         RegisterBrokerRecord brokerRecord = new RegisterBrokerRecord().setBrokerEpoch(100).setBrokerId(0).setLogDirs(asList(
                 Uuid.fromString("yJGxmjfbQZSVFAlNM3uXZg"),
@@ -776,10 +829,14 @@ public class ClusterControlManagerTest {
 
     @Test
     public void testHasOnlineDir() {
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
                 setClusterId("pjvUwj3ZTEeSVQmUiH3IJw").
                 setFeatureControlManager(new FeatureControlManager.Builder().build()).
                 setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+                setConfigurationControl(configurationControl).
                 build();
         clusterControl.activate();
         registerNewBrokerWithDirs(clusterControl, 1, asList(Uuid.fromString("dir1SEbpRuG1dcpTRGOvJw"), Uuid.fromString("dir2xaEwR2m3JHTiy7PWwA")));
@@ -795,10 +852,14 @@ public class ClusterControlManagerTest {
 
     @Test
     public void testDefaultDir() {
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
                 setClusterId("pjvUwj3ZTEeSVQmUiH3IJw").
                 setFeatureControlManager(new FeatureControlManager.Builder().build()).
                 setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+                setConfigurationControl(configurationControl).
                 build();
         clusterControl.activate();
         RegisterBrokerRecord brokerRecord = new RegisterBrokerRecord().setBrokerEpoch(100).setBrokerId(1).setLogDirs(Collections.emptyList());
@@ -815,10 +876,14 @@ public class ClusterControlManagerTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     public void testReRegistrationAndBrokerEpoch(boolean newIncarnationId) {
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
             setClusterId("pjvUwj3ZTEeSVQmUiH3IJw").
             setFeatureControlManager(new FeatureControlManager.Builder().build()).
             setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
+            setConfigurationControl(configurationControl).
             build();
         clusterControl.activate();
         RecordTestUtils.replayAll(clusterControl, clusterControl.registerBroker(
@@ -855,12 +920,16 @@ public class ClusterControlManagerTest {
 
     @Test
     public void testRegistrationWithIncorrectInterBrokerListenerName() {
+        ConfigurationControlManager configurationControl = new ConfigurationControlManager.Builder().
+            setKafkaConfigSchema(FakeKafkaConfigSchema.INSTANCE).
+            build();
         ClusterControlManager clusterControl = new ClusterControlManager.Builder().
                 setClusterId("pjvUwj3ZTEeSVQmUiH3IJw").
                 setFeatureControlManager(new FeatureControlManager.Builder().build()).
                 setBrokerUncleanShutdownHandler((brokerId, records) -> { }).
                 setInterBrokerListenerName("INTERNAL").
                 setZkMigrationEnabled(true).
+                setConfigurationControl(configurationControl).
                 build();
         clusterControl.activate();
         assertEquals("Broker does not have the current inter.broker.listener INTERNAL",

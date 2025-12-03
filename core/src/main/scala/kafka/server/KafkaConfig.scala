@@ -550,7 +550,7 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   def replicaStartOffsetStrategy: String = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
   def leaderDeprioritizedListString: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
   def leaderDeprioritizedList: scala.Seq[Int] = leaderDeprioritizedListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
-  def newReplicaExcludeListString: String = getString(ReplicationConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
+  def newReplicaExcludeListString: String = getString(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
   def newReplicaExcludeList: scala.Seq[Int] = newReplicaExcludeListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
   def isrBlockListString: String = getString(ReplicationConfigs.ISR_BLOCK_LIST_CONFIG)
   def isrBlockList: Set[Int] = isrBlockListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSet

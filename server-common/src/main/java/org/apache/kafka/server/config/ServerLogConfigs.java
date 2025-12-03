@@ -217,4 +217,8 @@ public class ServerLogConfigs {
     public static final long RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_DEFAULT = 0L;
     public static final String RECREATE_RECENTLY_DELETED_TOPICS_DELAY_MS_DOC = "The delay in milliseconds to wait before recreating a recently deleted topic. " +
             "This delay is to ensure that the topic is not recreated immediately after deletion.";
+
+    public static final String NEW_REPLICA_EXCLUDE_LIST_CONFIG = "new.replica.exclude.list";
+    public static final String NEW_REPLICA_EXCLUDE_LIST_DEFAULT = "";
+    public static final String NEW_REPLICA_EXCLUDE_LIST_DOC = "A list of brokers that cannot accept new topics/partitions";
 }
