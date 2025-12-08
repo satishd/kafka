@@ -969,6 +969,7 @@ class KafkaConfigTest {
         case ReplicationConfigs.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_boolean", "0")
         case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG  => // ignore string
         case ReplicationConfigs.ISR_BLOCK_LIST_CONFIG => // ignore string
+        case ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG => // ignore string
         case ServerConfigs.CONTROLLED_SHUTDOWN_MAX_RETRIES_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case ServerConfigs.CONTROLLED_SHUTDOWN_RETRY_BACKOFF_MS_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number")
         case ServerConfigs.CONTROLLED_SHUTDOWN_ENABLE_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_boolean", "0")

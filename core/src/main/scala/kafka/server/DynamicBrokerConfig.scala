@@ -105,7 +105,8 @@ object DynamicBrokerConfig {
     DynamicRecreateRecentlyDeletedTopicsEnableConfig.ReconfigurableConfigs ++
     DynamicNewReplicaExcludeListConfig.ReconfigurableConfigs ++
     DynamicExcludedClientsFromConsumptionMetricsConfig.ReconfigurableConfigs ++
-    DynamicIsrBlockListConfig.ReconfigurableConfigs
+    DynamicIsrBlockListConfig.ReconfigurableConfigs ++
+    DynamicFollowerFetchLatestOffsetEnabledConfig.ReconfigurableConfigs
 
   private val ClusterLevelListenerConfigs = Set(SocketServerConfigs.MAX_CONNECTIONS_CONFIG, SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG, SocketServerConfigs.NUM_NETWORK_THREADS_CONFIG)
   private val PerBrokerConfigs = (DynamicSecurityConfigs ++ DynamicListenerConfig.ReconfigurableConfigs).diff(
@@ -291,6 +292,7 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
     addBrokerReconfigurable(new DynamicNewReplicaExcludeListConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicExcludedClientsFromConsumptionMetricsConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicIsrBlockListConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicFollowerFetchLatestOffsetEnabledConfig())
   }
 
   /**
@@ -1350,6 +1352,7 @@ object DynamicReplicaStartOffsetStrategyConfig {
     ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
 }
 
+// TODO: Deprecate replica.start.offset.strategy config - https://t3.uberinternal.com/browse/DKAFC-6760
 class DynamicReplicaStartOffsetStrategyConfig (server: KafkaBroker) extends BrokerReconfigurable {
 
   override def reconfigurableConfigs: Set[String] = {
@@ -1550,6 +1553,36 @@ class DynamicIsrBlockListConfig(server: KafkaBroker) extends BrokerReconfigurabl
   }
 
   override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
-    server.replicaManager.updateIsrBlacklist()
+    if (!oldConfig.isrBlockList.equals(newConfig.isrBlockList)) {
+      server.replicaManager.updateIsrBlacklist()
+    }
+  }
+}
+
+object DynamicFollowerFetchLatestOffsetEnabledConfig {
+  val ReconfigurableConfigs = Set(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG)
+}
+
+class DynamicFollowerFetchLatestOffsetEnabledConfig extends BrokerReconfigurable {
+  override def reconfigurableConfigs: Set[String] = DynamicFollowerFetchLatestOffsetEnabledConfig.ReconfigurableConfigs
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        newValue.split(":").map(_.trim).filter(_.nonEmpty).map(b => {
+          try {
+            b.toInt
+          } catch {
+            case _: NumberFormatException =>
+              throw new ConfigException(s"Invalid broker ID '$b' in Follower fetch latest offset enabled brokers. All broker IDs must be valid integers.")
+          }
+        })
+      }
+    }
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    // Currently, there is noop to reconfigure for this dynamic config follower.fetch.latest.offset.enabled.brokers.
   }
 }

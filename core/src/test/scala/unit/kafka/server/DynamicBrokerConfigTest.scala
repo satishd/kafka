@@ -1825,6 +1825,48 @@ class DynamicBrokerConfigTest {
     verify(replicaManagerMock).updateExcludedClientPrefixesForConsumptionMetrics(captorCustom.capture())
     assertEquals(scala.collection.immutable.List("foo", "bar", "baz"), captorCustom.getValue)
   }
+
+  @ParameterizedTest
+  @CsvSource(value = Array(
+    "1,1",
+    "1:2,1|2",
+    "1::2,1|2", // double colon handling
+    "1:2:,1|2", // trailing colon handling
+    ":1:2,1|2", // leading colon handling
+    ":1:2:,1|2" // leading and trailing colon handling
+  ))
+  def testDynamicFollowerFetchLatestOffsetEnabledConfig(input: String, expectedListAsString: String): Unit = {
+    val origProps = TestUtils.createBrokerConfig(0, null, port = 8181)
+    val config = KafkaConfig.fromProps(origProps)
+    assertEquals(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_DEFAULT, config.followerFetchLatestOffsetEnabledBrokersString)
+
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicFollowerFetchLatestOffsetEnabledConfig())
+
+    val props = new Properties()
+    props.put(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG, input)
+    config.dynamicConfig.validate(props, perBrokerConfig = false)
+    config.dynamicConfig.updateDefaultConfig(props)
+
+    val expected = expectedListAsString.split("\\|").toSeq.map(_.toInt).toSet
+    assertEquals(expected, config.followerFetchLatestOffsetEnabledBrokersString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSet, s"Failed for input: $input")
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = Array("abc", "1:abc:2", "1.5:2"))
+  def testDynamicFollowerFetchLatestOffsetEnabledConfigWithInvalidValues(input: String): Unit = {
+    val origProps = TestUtils.createBrokerConfig(0, null, port = 8181)
+    val config = KafkaConfig.fromProps(origProps)
+
+    config.dynamicConfig.initialize(None, None)
+    config.dynamicConfig.addBrokerReconfigurable(new DynamicFollowerFetchLatestOffsetEnabledConfig())
+
+    val props = new Properties()
+    props.put(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG, input)
+    assertThrows(classOf[ConfigException],
+      () => config.dynamicConfig.validate(props, perBrokerConfig = false),
+      s"Should throw ConfigException for invalid input: $input")
+  }
 }
 
 class TestDynamicThreadPool() extends BrokerReconfigurable {

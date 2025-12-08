@@ -17,23 +17,27 @@
 
 package kafka.server
 
+import kafka.log.LogManager
+import kafka.server.FetcherThreadTestUtils.{initialFetchState, mkBatch}
 import kafka.utils.TestUtils
+import org.apache.kafka.server.config.ReplicationConfigs
+import org.apache.kafka.common.config.TopicConfig
 import org.apache.kafka.common.errors.{FencedLeaderEpochException, UnknownLeaderEpochException, UnknownTopicIdException}
 import org.apache.kafka.common.message.OffsetForLeaderEpochResponseData.EpochEndOffset
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record._
 import org.apache.kafka.common.requests.FetchRequest
-import org.apache.kafka.server.common.OffsetAndEpoch
-import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.kafka.common.{KafkaException, TopicPartition, Uuid}
+import org.apache.kafka.server.common.OffsetAndEpoch
+import org.apache.kafka.server.config.ReplicaStartOffsetStrategy
+import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.kafka.storage.internals.log.LogAppendInfo
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.{BeforeEach, Test}
-import kafka.server.FetcherThreadTestUtils.{initialFetchState, mkBatch}
-import org.apache.kafka.server.config.ReplicaStartOffsetStrategy
+import org.mockito.Mockito
 
-import java.util.Optional;
+import java.util.Optional
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Set}
@@ -1309,5 +1313,89 @@ class AbstractFetcherThreadTest {
 
     fetcher.processFetchRequest(partitionData, fetchRequestOpt)
     assertEquals(0, replicaState.logEndOffset, "FetchResponse should be ignored when leader epoch does not match")
+  }
+
+  private def setupReplicaManagerMock(partition: TopicPartition, cleanupPolicy: String): ReplicaManager = {
+    val replicaManager = Mockito.mock(classOf[ReplicaManager])
+    val logManager = Mockito.mock(classOf[LogManager])
+    val configRepository = Mockito.mock(classOf[kafka.server.metadata.ConfigRepository])
+    val topicConfig = new java.util.Properties()
+
+    topicConfig.setProperty(TopicConfig.CLEANUP_POLICY_CONFIG, cleanupPolicy)
+    Mockito.when(replicaManager.logManager).thenReturn(logManager)
+    Mockito.when(logManager.configRepository).thenReturn(configRepository)
+    Mockito.when(configRepository.topicConfig(partition.topic)).thenReturn(topicConfig)
+
+    replicaManager
+  }
+
+  private def testReplicaStartOffsetStrategy(brokerId: Int,
+                                             followerFetchEnabledBrokers: String = "",
+                                             replicaStartOffsetStrategy: String = "",
+                                             cleanupPolicy: String = org.apache.kafka.common.config.TopicConfig.CLEANUP_POLICY_DELETE,
+                                             expectedOffset: Long): Unit = {
+    val partition = new TopicPartition("test-topic", 0)
+    val leaderEndOffset = 1000L
+    val props = TestUtils.createBrokerConfig(brokerId, TestUtils.MockZkConnect)
+
+    if (followerFetchEnabledBrokers.nonEmpty)
+      props.setProperty(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG, followerFetchEnabledBrokers)
+    if (replicaStartOffsetStrategy.nonEmpty)
+      props.setProperty(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG, replicaStartOffsetStrategy)
+
+    val brokerConfig = KafkaConfig.fromProps(props)
+    val replicaManager = setupReplicaManagerMock(partition, cleanupPolicy)
+
+    val result = AbstractFetcherThread.handleReplicaStartOffsetStrategy(
+      partition, leaderEndOffset, brokerConfig, replicaManager)
+    assertEquals(expectedOffset, result)
+  }
+
+  @Test
+  def testHandleReplicaStartOffsetStrategyWithFollowerFetchLatestOffsetEnabled(): Unit = {
+    testReplicaStartOffsetStrategy(
+      brokerId = 1,
+      followerFetchEnabledBrokers = "1:2:3",
+      expectedOffset = 1000L
+    )
+  }
+
+  @Test
+  def testHandleReplicaStartOffsetStrategyWithFollowerFetchLatestOffsetNotEnabled(): Unit = {
+    testReplicaStartOffsetStrategy(
+      brokerId = 5,
+      followerFetchEnabledBrokers = "1:2:3",
+      replicaStartOffsetStrategy = ReplicaStartOffsetStrategy.EARLIEST.toString,
+      expectedOffset = 0L
+    )
+  }
+
+  @Test
+  def testHandleReplicaStartOffsetStrategyWithReplicaStartOffsetStrategyLatest(): Unit = {
+    testReplicaStartOffsetStrategy(
+      brokerId = 5,
+      replicaStartOffsetStrategy = ReplicaStartOffsetStrategy.LATEST.toString,
+      expectedOffset = 1000L
+    )
+  }
+
+  @Test
+  def testHandleReplicaStartOffsetStrategyWithCompactTopic(): Unit = {
+    testReplicaStartOffsetStrategy(
+      brokerId = 1,
+      followerFetchEnabledBrokers = "1:2:3",
+      cleanupPolicy = TopicConfig.CLEANUP_POLICY_COMPACT,
+      expectedOffset = 0L
+    )
+  }
+
+  @Test
+  def testHandleReplicaStartOffsetStrategyPrecedence(): Unit = {
+    testReplicaStartOffsetStrategy(
+      brokerId = 1,
+      followerFetchEnabledBrokers = "1:2:3",
+      replicaStartOffsetStrategy = ReplicaStartOffsetStrategy.EARLIEST.toString,
+      expectedOffset = 1000L
+    )
   }
 }

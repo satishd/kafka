@@ -547,6 +547,8 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   val leaderImbalanceCheckIntervalSeconds: Long = getLong(ReplicationConfigs.LEADER_IMBALANCE_CHECK_INTERVAL_SECONDS_CONFIG)
   val uncleanLeaderElectionCheckIntervalMs: Long = getLong(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_INTERVAL_MS_CONFIG)
   def uncleanLeaderElectionEnable: java.lang.Boolean = getBoolean(ReplicationConfigs.UNCLEAN_LEADER_ELECTION_ENABLE_CONFIG)
+  def followerFetchLatestOffsetEnabledBrokersString: String = getString(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG)
+  def followerFetchLatestOffsetEnabled: Boolean = followerFetchLatestOffsetEnabledBrokersString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).contains(brokerId)
   def replicaStartOffsetStrategy: String = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
   def leaderDeprioritizedListString: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
   def leaderDeprioritizedList: scala.Seq[Int] = leaderDeprioritizedListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq

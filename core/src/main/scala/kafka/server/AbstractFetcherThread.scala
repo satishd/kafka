@@ -34,10 +34,11 @@ import org.apache.kafka.common.requests.OffsetsForLeaderEpochResponse.{UNDEFINED
 import org.apache.kafka.common.requests._
 import org.apache.kafka.common.{InvalidRecordException, TopicPartition, Uuid}
 import org.apache.kafka.server.common.OffsetAndEpoch
+import org.apache.kafka.server.config.{ReplicaStartOffsetStrategy, ReplicationConfigs}
 import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageException
 import org.apache.kafka.server.metrics.KafkaMetricsGroup
 import org.apache.kafka.server.util.ShutdownableThread
-import org.apache.kafka.storage.internals.log.LogAppendInfo
+import org.apache.kafka.storage.internals.log.{LogAppendInfo, LogConfig}
 
 import java.nio.ByteBuffer
 import java.util
@@ -905,12 +906,43 @@ abstract class AbstractFetcherThread(name: String,
   }
 }
 
-object AbstractFetcherThread {
+object AbstractFetcherThread extends Logging{
 
   case class ReplicaFetch(partitionData: util.Map[TopicPartition, FetchRequest.PartitionData], fetchRequest: FetchRequest.Builder)
 
   case class ResultWithPartitions[R](result: R, partitionsWithError: Set[TopicPartition])
 
+  /**
+   * Handle a partition whose offset starts with 0 and decides whether to use the latest offset (LogEndOffset) of the leader
+   * to fetch from. The criteria are that one of these 2 is true:
+   * 1. The config/dynamic config of follower.fetch.lastest.offset.enabled.brokers contains current broker id
+   * 2. The config/dynamic config of replica.start.offset.strategy = latest (default is earliest)
+   * And also the topic is not Compact (cleanup.policy has compact in it).
+   */
+  def handleReplicaStartOffsetStrategy(topicPartition: TopicPartition,
+                                       leaderEndOffset: Long,
+                                       brokerConfig: KafkaConfig,
+                                       replicaMgr: ReplicaManager): Long = {
+    val followerFetchLatestOffsetEnabled = brokerConfig.followerFetchLatestOffsetEnabled
+    val topicConfig = replicaMgr.logManager.configRepository.topicConfig(topicPartition.topic)
+    val isCompactTopic = LogConfig.fromProps(brokerConfig.originals, topicConfig).compact
+    debug(s"topic: ${topicPartition.topic}, isCompactTopic: $isCompactTopic, replicaStartOffsetStrategy: ${brokerConfig.replicaStartOffsetStrategy}, followerFetchLatestOffsetEnabled: $followerFetchLatestOffsetEnabled")
+    if (!isCompactTopic && followerFetchLatestOffsetEnabled) {
+      // If broker id is present in follower.fetch.latest.offset, use the leaderEndOffset as the start offset for the empty replica
+      warn(s"Current broker id ${brokerConfig.brokerId} present in ${ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG}: ${brokerConfig.followerFetchLatestOffsetEnabledBrokersString}. " +
+        s"Reset fetch offset for partition $topicPartition from 0 to current leader's log end offset $leaderEndOffset")
+      leaderEndOffset
+    } else if (!isCompactTopic && brokerConfig.replicaStartOffsetStrategy == ReplicaStartOffsetStrategy.LATEST.toString) {
+      // TODO: Deprecate replica.start.offset.strategy config - https://t3.uberinternal.com/browse/DKAFC-6760
+      // If the empty broker start offset strategy is set to Latest, use the leaderEndOffset as the start offset for the empty replica
+      warn(s"${ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG}: ${brokerConfig.replicaStartOffsetStrategy}. Reset fetch offset for partition $topicPartition from 0 to current " +
+        s"leader's latest offset $leaderEndOffset")
+      leaderEndOffset
+    } else {
+      // return 0 means earliest offset from leader should be used.
+      0
+    }
+  }
 }
 
 object FetcherMetrics {

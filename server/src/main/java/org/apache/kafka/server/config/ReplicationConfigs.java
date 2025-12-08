@@ -154,6 +154,10 @@ public class ReplicationConfigs {
     public static final String REPLICA_START_OFFSET_STRATEGY_DEFAULT = ReplicaStartOffsetStrategy.EARLIEST.toString();
     public static final String REPLICA_START_OFFSET_STRATEGY_DOC = String.format("The strategy for getting initial topic partition offset from leader when an empty broker or new replica is started. This is a dynamic config. Default is: %s, and can be overwritten as %s, which will make the replica use latest offset to catch up in ISR fast.", ReplicaStartOffsetStrategy.EARLIEST, ReplicaStartOffsetStrategy.LATEST);
 
+    public static final String FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG = "follower.fetch.latest.offset.enabled.brokers";
+    public static final String FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_DEFAULT = "";
+    public static final String FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_DOC = "A list of broker ids separated by colon that should start replicating any new replica assignments from the leader's latest available offsets.";
+
     public static final String LEADER_DEPRIORITIZED_LIST_CONFIG = "leader.deprioritized.list";
     public static final String LEADER_DEPRIORITIZED_LIST_DEFAULT = "";
     public static final String LEADER_DEPRIORITIZED_LIST_DOC = "one or more broker_ids separated by colon(:) that" +
@@ -189,6 +193,7 @@ public class ReplicationConfigs {
             .define(INTER_BROKER_LISTENER_NAME_CONFIG, STRING, null, MEDIUM, INTER_BROKER_LISTENER_NAME_DOC)
             .define(REPLICA_SELECTOR_CLASS_CONFIG, STRING, null, MEDIUM, REPLICA_SELECTOR_CLASS_DOC)
             .define(REPLICA_START_OFFSET_STRATEGY_CONFIG, STRING, REPLICA_START_OFFSET_STRATEGY_DEFAULT, ConfigDef.ValidString.in(Utils.enumOptions(ReplicaStartOffsetStrategy.class)), MEDIUM, REPLICA_START_OFFSET_STRATEGY_DOC)
+            .define(FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG, STRING, FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_DEFAULT, MEDIUM, FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_DOC)
             .define(LEADER_DEPRIORITIZED_LIST_CONFIG, STRING, LEADER_DEPRIORITIZED_LIST_DEFAULT, MEDIUM, LEADER_DEPRIORITIZED_LIST_DOC)
             .define(ISR_BLOCK_LIST_CONFIG, STRING, ISR_BLOCK_LIST_DEFAULT, MEDIUM, ISR_BLOCK_LIST_DOC);
 }
