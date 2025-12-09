@@ -2198,6 +2198,7 @@ project(':remote-storage-managers:hdfs') {
     implementation(libs.metrics) {
       exclude group: 'org.slf4j', module: 'slf4j-api'
     }
+    implementation libs.resilience4jRatelimiter
 
     testImplementation libs.hadoopMiniCluster
     testImplementation libs.argparse4j

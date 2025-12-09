@@ -80,11 +80,14 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RateLimiter;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
@@ -123,6 +126,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -584,7 +588,7 @@ public class HDFSRemoteStorageManagerTest {
     public void testReconfigurables() {
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             Set<String> reconfigurableConfigs = rsm.reconfigurableConfigs();
-            assertEquals(11, reconfigurableConfigs.size());
+            assertEquals(12, reconfigurableConfigs.size());
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
@@ -593,6 +597,7 @@ public class HDFSRemoteStorageManagerTest {
             assertTrue(reconfigurableConfigs.contains(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP));
             assertTrue(reconfigurableConfigs.contains(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP));
+            assertTrue(reconfigurableConfigs.contains(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP));
             assertTrue(reconfigurableConfigs.contains(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP));
@@ -1032,6 +1037,101 @@ public class HDFSRemoteStorageManagerTest {
         verifyGauge(COPY_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
         assertEquals(expectedBreakerState, rsm.deleteCircuitBreaker().getState());
         verifyGauge(DELETE_CIRCUIT_BREAKER_STATE, expectedBreakerState.getOrder());
+    }
+
+    // ========================= Rate Limiter Tests =========================
+
+    @Test
+    public void testRateLimiterDefaultConfig() {
+        // Verify rate limiter is created with default config
+        // When Long.MAX_VALUE is configured, it's capped to Integer.MAX_VALUE
+        RateLimiter rateLimiter = rsm.copyRateLimiter();
+        assertNotNull(rateLimiter);
+        int expectedLimit = Math.min(DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC, Integer.MAX_VALUE);
+        assertEquals(expectedLimit, rateLimiter.getRateLimiterConfig().getLimitForPeriod());
+    }
+
+    @Test
+    public void testRateLimiterCustomConfig() {
+        int customRateLimit = 150 * 1024 * 1024; // 150 MB/s
+        Map<String, String> customConfigs = new HashMap<>(configs);
+        customConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, String.valueOf(customRateLimit));
+        
+        try (HDFSRemoteStorageManager customRsm = new HDFSRemoteStorageManager()) {
+            customRsm.setDefaultHadoopConfiguration(hadoopConf);
+            customRsm.configure(customConfigs);
+            
+            RateLimiter rateLimiter = customRsm.copyRateLimiter();
+            assertNotNull(rateLimiter);
+            assertEquals(customRateLimit, rateLimiter.getRateLimiterConfig().getLimitForPeriod());
+
+            // Reconfigure with new rate limit
+            int newRateLimit = 100 * 1024 * 1024; // 100 MB/s
+            Map<String, String> updatedConfigs = new HashMap<>();
+            updatedConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, String.valueOf(newRateLimit));
+            customRsm.reconfigureCopyRateLimiter(updatedConfigs);
+
+            assertEquals(newRateLimit, rateLimiter.getRateLimiterConfig().getLimitForPeriod());
+        }
+    }
+
+    @Test
+    public void testRateLimiterValidation() {
+        // Test invalid rate limit (0)
+        Map<String, String> invalidConfigs = new HashMap<>();
+        invalidConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, "0");
+        assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(invalidConfigs));
+        
+        // Test invalid rate limit (negative)
+        invalidConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, "-1");
+        assertThrows(ConfigException.class, () -> rsm.validateReconfiguration(invalidConfigs));
+        
+        // Test valid rate limit
+        Map<String, String> validConfigs = new HashMap<>();
+        validConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, "1");
+        assertDoesNotThrow(() -> rsm.validateReconfiguration(validConfigs));
+        
+        validConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, String.valueOf(150 * 1024 * 1024L));
+        assertDoesNotThrow(() -> rsm.validateReconfiguration(validConfigs));
+    }
+
+    @Test
+    public void testRateLimiterPermitsReducing() throws Exception {
+        // The rate limiter acquires 4MB permits every 4MB of data written.
+        // So we need a segment larger than 4MB to trigger the rate limiter.
+        int rateLimitBytes = 10 * 1024 * 1024; // 10MB per second
+        int segSize = 5 * 1024 * 1024; // 5MB segment (larger than 4MB threshold)
+        Map<String, String> rateLimitedConfigs = new HashMap<>(configs);
+        rateLimitedConfigs.put(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, String.valueOf(rateLimitBytes));
+        
+        try (HDFSRemoteStorageManager rateLimitedRsm = new HDFSRemoteStorageManager()) {
+            rateLimitedRsm.setDefaultHadoopConfiguration(hadoopConf);
+            rateLimitedRsm.configure(rateLimitedConfigs);
+            rateLimitedRsm.setTime(time);
+            
+            RateLimiter rateLimiter = rateLimitedRsm.copyRateLimiter();
+            assertNotNull(rateLimiter);
+            assertEquals(rateLimitBytes, rateLimiter.getRateLimiterConfig().getLimitForPeriod());
+            
+            // Verify initial permits available (10MB)
+            int initialPermits = rateLimiter.getMetrics().getAvailablePermissions();
+            assertEquals(rateLimitBytes, initialPermits, "Initial permits should equal rate limit (10MB)");
+            
+            // Upload 5MB segment - should trigger rate limiter (acquires 4MB permits)
+            RemoteLogSegmentId segmentId1 = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+            RemoteLogSegmentMetadata segmentMetadata1 = new RemoteLogSegmentMetadata(
+                    segmentId1, 0L, 100L, 0L, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData1 = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
+
+            rateLimitedRsm.copyLogSegmentData(segmentMetadata1, segmentData1);
+            
+            // After 5MB upload, 4MB permits should be consumed (rate limiter acquires 4MB chunks)
+            int permitsAfterUpload = rateLimiter.getMetrics().getAvailablePermissions();
+            assertTrue(permitsAfterUpload < initialPermits,
+                    "Permits should be consumed after 5MB upload. Initial: " + initialPermits + 
+                    ", After: " + permitsAfterUpload + 
+                    " (Rate limiter acquires 4MB permits per 4MB written)");
+        }
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {

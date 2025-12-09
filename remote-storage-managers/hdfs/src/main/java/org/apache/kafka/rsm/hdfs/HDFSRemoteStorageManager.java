@@ -73,10 +73,13 @@ import java.util.stream.Collectors;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.ALLOWED_CIRCUIT_BREAKER_VALUES;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_BACKOFF_WAIT_MS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP;
@@ -121,6 +124,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final ReadErrorHandler fetchErrorHandler = new ReadErrorHandler(Duration.ofMinutes(5));
     private final CircuitBreaker copyCircuitBreaker = CircuitBreaker.of("copy-circuit-breaker", circuitBreakerConfig());
     private final CircuitBreaker deleteCircuitBreaker = CircuitBreaker.of("delete-circuit-breaker", circuitBreakerConfig());
+    private RateLimiter copyRateLimiter;
 
     public HDFSRemoteStorageManager() {
         this(new HDFSRemoteStorageManagerMetrics(), new FileSystemManager());
@@ -163,9 +167,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         registerStreamMetrics();
         registerCircuitBreakerMetrics();
 
+        // Configure copy rate limiter
+        int copyRateLimitBytesPerSec = conf.getInt(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP);
+        copyRateLimiter = createCopyRateLimiter(copyRateLimitBytesPerSec);
+
         LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, " +
-                "ociBuckets: {}, fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}", baseDir, cacheLineSize, cacheSize,
-                fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(), fetchErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs);
+                "ociBuckets: {}, fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}, copyRateLimitBytesPerSec: {}",
+                baseDir, cacheLineSize, cacheSize, fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(),
+                fetchErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs, copyRateLimitBytesPerSec);
     }
 
 
@@ -176,6 +185,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         reconfigurableConfigs.add(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP);
         reconfigurableConfigs.add(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP);
         reconfigurableConfigs.add(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP);
+        reconfigurableConfigs.add(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP);
         reconfigurableConfigs.addAll(fileSystemManager.reconfigurableConfigs());
         return reconfigurableConfigs;
     }
@@ -197,6 +207,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 throw new ConfigException(breakerProp, breakerState, "Valid values are: " + ALLOWED_CIRCUIT_BREAKER_VALUES);
             }
         }
+        String rateLimitBytesPerSec = (String) configs.get(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP);
+        if (rateLimitBytesPerSec != null && Integer.parseInt(rateLimitBytesPerSec) < 1) {
+            throw new ConfigException(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, rateLimitBytesPerSec, "value should be at least 1");
+        }
     }
 
     @Override
@@ -204,6 +218,16 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         fileSystemManager.reconfigure(configs);
         reconfigureErrorBackoff(configs);
         reconfigureCircuitBreakerState(configs);
+        reconfigureCopyRateLimiter(configs);
+    }
+
+    void reconfigureCopyRateLimiter(Map<String, ?> configs) {
+        String rateLimitBytesPerSec = (String) configs.get(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP);
+        if (rateLimitBytesPerSec != null) {
+            int newRateLimit = Integer.parseInt(rateLimitBytesPerSec);
+            copyRateLimiter.changeLimitForPeriod(newRateLimit);
+            LOGGER.info("Reconfigured copy rate limiter with {} bytes/sec", newRateLimit);
+        }
     }
 
     private void reconfigureErrorBackoff(Map<String, ?> configs) {
@@ -453,14 +477,21 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     private void uploadFile(final java.nio.file.Path localSrc,
                             final FSDataOutputStream out) throws IOException {
+        int counter = 0;
+        int copyPermits = 4 * 1024 * 1024; // 4 MB
         if (localSrc != null && localSrc.toFile().exists()) {
             Configuration defaultHadoopConf = fileSystemManager.getDefaultHadoopConf();
             final int bufferSize = defaultHadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                     CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
             final byte[] buf = new byte[bufferSize];
+            int nIterations = copyPermits / bufferSize;
             try (final FileInputStream fis = new FileInputStream(localSrc.toFile())) {
                 int bytesRead = fis.read(buf);
                 while (bytesRead >= 0) {
+                    // We don't want to acquire 4 MB slots when uploading the producer-snapshot / offset / time / transaction index files, usually they will be ~0.5 MB of size.
+                    if (++counter % nIterations == 0) {
+                        copyRateLimiter.acquirePermission(copyPermits);
+                    }
                     out.write(buf, 0, bytesRead);
                     bytesRead = fis.read(buf);
                 }
@@ -574,6 +605,21 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         return CircuitBreakerConfig.custom()
                 .waitIntervalFunctionInOpenState(IntervalFunction.ofRandomized(Duration.ofMinutes(5), 0.8))
                 .build();
+    }
+
+    private RateLimiter createCopyRateLimiter(int bytesPerSecond) {
+
+        RateLimiterConfig config = RateLimiterConfig.custom()
+                .limitForPeriod(bytesPerSecond)
+                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .timeoutDuration(Duration.ofMinutes(5))  // Max wait time before giving up
+                .build();
+        LOGGER.info("Creating copy rate limiter with {} bytes/sec (limitForPeriod={})", bytesPerSecond, bytesPerSecond);
+        return RateLimiter.of("copy-rate-limiter", config);
+    }
+
+    RateLimiter copyRateLimiter() {
+        return copyRateLimiter;
     }
 
     /**

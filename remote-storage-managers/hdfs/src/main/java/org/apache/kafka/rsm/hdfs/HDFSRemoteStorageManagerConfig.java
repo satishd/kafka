@@ -90,6 +90,12 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
         "If the state is DISABLED, then the circuit-breaker gets disabled and client sends the delete requests without any restrictions.";
     public static final String DEFAULT_HDFS_DELETE_CIRCUIT_BREAKER_STATE = CLOSED.name();
 
+    public static final String HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP = "hdfs.copy.rate.limit.bytes.per.second";
+    public static final String HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_DOC = "Maximum bytes per second for copying segments to HDFS. " +
+        "This is a per-broker limit that throttles the rate at which segments are uploaded to remote storage. " +
+        "Set to Integer.MAX_VALUE (default) to allow upto 2 GB/s (or) disable rate limiting.";
+    public static final int DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC = Integer.MAX_VALUE;
+
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP = "hdfs.dfs.client.hedged.read.threshold.millis";
     public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC = "When hedged reads are enabled, " +
         "the number of milliseconds to wait before starting a second read against a different block replica";
@@ -192,6 +198,7 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_PROP, LONG, DEFAULT_HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS, atLeast(0), MEDIUM, HDFS_READ_ERROR_MAX_BACKOFF_WAIT_MS_DOC)
             .define(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_COPY_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_COPY_CIRCUIT_BREAKER_STATE_DOC)
             .define(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_DELETE_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_DELETE_CIRCUIT_BREAKER_STATE_DOC)
+            .define(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, INT, DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC, atLeast(1), MEDIUM, HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_DOC)
             .define(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, LONG, DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC)
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_DOC)
             .define(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_DOC)
