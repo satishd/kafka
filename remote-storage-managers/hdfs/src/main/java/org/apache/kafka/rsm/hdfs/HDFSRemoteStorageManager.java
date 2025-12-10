@@ -51,6 +51,7 @@ import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -169,14 +170,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         // Configure copy rate limiter
         int copyRateLimitBytesPerSec = conf.getInt(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP);
-        copyRateLimiter = createCopyRateLimiter(copyRateLimitBytesPerSec);
-
+        RateLimiterConfig rateLimiterConfig = RateLimiterConfig.custom()
+                .limitForPeriod(copyRateLimitBytesPerSec)
+                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .timeoutDuration(Duration.ofMinutes(5))  // Max wait time before giving up
+                .build();
+        copyRateLimiter = RateLimiter.of("copy-rate-limiter", rateLimiterConfig);
         LOGGER.info("Configured with baseDir: {}, cacheLineSize: {}, cacheSize: {}, defaultFsUri: {}, " +
                 "ociBuckets: {}, fetchErrorBackoffWaitMs: {}, fetchErrorMaxBackoffWaitMs: {}, copyRateLimitBytesPerSec: {}",
                 baseDir, cacheLineSize, cacheSize, fileSystemManager.getHdfsBucket(), fileSystemManager.getOciBuckets(),
                 fetchErrorBackoffWaitMs, fetchErrorMaxBackoffWaitMs, copyRateLimitBytesPerSec);
     }
-
 
     @Override
     public Set<String> reconfigurableConfigs() {
@@ -476,24 +480,33 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     }
 
     private void uploadFile(final java.nio.file.Path localSrc,
-                            final FSDataOutputStream out) throws IOException {
-        int counter = 0;
-        int copyPermits = 4 * 1024 * 1024; // 4 MB
-        if (localSrc != null && localSrc.toFile().exists()) {
+                    final FSDataOutputStream out) throws IOException {
+        if (localSrc == null) {
+            return;
+        }
+        File localSrcFile = localSrc.toFile();
+        if (localSrcFile.exists()) {
             Configuration defaultHadoopConf = fileSystemManager.getDefaultHadoopConf();
             final int bufferSize = defaultHadoopConf.getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY,
                     CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_DEFAULT);
             final byte[] buf = new byte[bufferSize];
-            int nIterations = copyPermits / bufferSize;
-            try (final FileInputStream fis = new FileInputStream(localSrc.toFile())) {
+
+            int fileLen = (int) localSrcFile.length();
+            // Acquire permits for the min(fileLength, 4 MB) chunks to minimize the number of times to acquire permission
+            int copyPermits = Math.min(fileLen, Math.max(bufferSize, 4 * 1024 * 1024));
+            copyRateLimiter.acquirePermission(copyPermits);
+            try (final FileInputStream fis = new FileInputStream(localSrcFile)) {
                 int bytesRead = fis.read(buf);
+                int counter = 0;
+                int nIterations = copyPermits / bufferSize;
                 while (bytesRead >= 0) {
-                    // We don't want to acquire 4 MB slots when uploading the producer-snapshot / offset / time / transaction index files, usually they will be ~0.5 MB of size.
-                    if (++counter % nIterations == 0) {
+                    if (counter != 0 && nIterations > 1 && counter % nIterations == 0) {
+                        copyPermits = Math.min(copyPermits, fileLen - (counter * bufferSize));
                         copyRateLimiter.acquirePermission(copyPermits);
                     }
                     out.write(buf, 0, bytesRead);
                     bytesRead = fis.read(buf);
+                    counter++;
                 }
             }
         }
@@ -510,6 +523,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             try (final ByteBufferInputStream byteBufferInputStream = new ByteBufferInputStream(localSrc)) {
                 int bytesRead = byteBufferInputStream.read(buf);
                 while (bytesRead >= 0) {
+                    copyRateLimiter.acquirePermission(bytesRead);
                     out.write(buf, 0, bytesRead);
                     bytesRead = byteBufferInputStream.read(buf);
                 }
@@ -607,19 +621,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 .build();
     }
 
-    private RateLimiter createCopyRateLimiter(int bytesPerSecond) {
-
-        RateLimiterConfig config = RateLimiterConfig.custom()
-                .limitForPeriod(bytesPerSecond)
-                .limitRefreshPeriod(Duration.ofSeconds(1))
-                .timeoutDuration(Duration.ofMinutes(5))  // Max wait time before giving up
-                .build();
-        LOGGER.info("Creating copy rate limiter with {} bytes/sec (limitForPeriod={})", bytesPerSecond, bytesPerSecond);
-        return RateLimiter.of("copy-rate-limiter", config);
-    }
-
     RateLimiter copyRateLimiter() {
         return copyRateLimiter;
+    }
+
+    void setCopyRateLimiter(RateLimiter rateLimiter) {
+        this.copyRateLimiter = rateLimiter;
     }
 
     /**

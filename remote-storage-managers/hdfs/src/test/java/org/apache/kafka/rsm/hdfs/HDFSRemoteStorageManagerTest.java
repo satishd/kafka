@@ -68,6 +68,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -81,6 +82,7 @@ import java.util.function.Predicate;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_READ_ERROR_BACKOFF_WAIT_MS;
@@ -1132,6 +1134,40 @@ public class HDFSRemoteStorageManagerTest {
                     ", After: " + permitsAfterUpload + 
                     " (Rate limiter acquires 4MB permits per 4MB written)");
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "2000, 6, 2000", // segment size lesser than default buffer size
+            "4096, 6, 4096", // segment size equals to default buffer size
+            "3670016, 6, 3670016", // 3.5 MB segment, 6 invocation, lastPermit 3.5 MB
+            "5767168, 7, 1572864", // 5.5 MB segment, 7 invocation, lastPermit 1.5 MB
+    })
+    public void testRateLimiterInvocationCount(int segSize,
+                                               int expectedInvocationCount,
+                                               int expectedLastPermits) throws IOException, RemoteStorageException {
+        RateLimiterConfig config = RateLimiterConfig.custom()
+                .limitForPeriod(10 * 1024 * 1024)
+                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .timeoutDuration(Duration.ofMinutes(5))  // Max wait time before giving up
+                .build();
+        RateLimiter spyRateLimiter = spy(RateLimiter.of("test-copy-rate-limiter", config));
+        rsm.setCopyRateLimiter(spyRateLimiter);
+
+        RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
+        RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(
+                segmentId, 0L, 100L, 0L, 0, 1L,
+                segSize, Collections.singletonMap(0, 0L));
+        LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, true);
+
+        rsm.copyLogSegmentData(segmentMetadata, segmentData);
+        // should call once for each type of file and x amount of times for segment file
+        ArgumentCaptor<Integer> permitsArgCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(spyRateLimiter, times(expectedInvocationCount))
+                .acquirePermission(permitsArgCaptor.capture());
+        // Permit should be taken upto the fileLength or chunk of 4 MB.
+        List<Integer> permitsTaken = permitsArgCaptor.getAllValues();
+        assertEquals(expectedLastPermits, permitsTaken.get(permitsTaken.size() - 1));
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
