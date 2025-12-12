@@ -221,4 +221,9 @@ public class ServerLogConfigs {
     public static final String NEW_REPLICA_EXCLUDE_LIST_CONFIG = "new.replica.exclude.list";
     public static final String NEW_REPLICA_EXCLUDE_LIST_DEFAULT = "";
     public static final String NEW_REPLICA_EXCLUDE_LIST_DOC = "A list of brokers that cannot accept new topics/partitions";
+
+    public static final String LEADER_DEPRIORITIZED_LIST_CONFIG = "leader.deprioritized.list";
+    public static final String LEADER_DEPRIORITIZED_LIST_DEFAULT = "";
+    public static final String LEADER_DEPRIORITIZED_LIST_DOC = "one or more broker_ids separated by colon(:) that" +
+        "would be put to the lowest priority in the partition assignment when leadership is being considered. Preferred/Offline/Reassignment/ControlledShutdown Leadership.";
 }

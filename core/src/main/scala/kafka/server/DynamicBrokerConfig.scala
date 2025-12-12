@@ -1387,7 +1387,7 @@ class DynamicReplicaStartOffsetStrategyConfig (server: KafkaBroker) extends Brok
 
 object DynamicLeaderDeprioritizedListConfig {
   val ReconfigurableConfigs: Set[String] = Set(
-    ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+    ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
 }
 
 class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerReconfigurable {
@@ -1396,7 +1396,7 @@ class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerR
 
   override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
     newConfig.values.asScala.forKeyValue { (k, v) =>
-      if (k == ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG) {
+      if (k == ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG) {
         val newValue = v.asInstanceOf[String]
         val oldValue = currentValue(k)
         if (newValue != oldValue) {
@@ -1417,7 +1417,7 @@ class DynamicLeaderDeprioritizedListConfig (server: KafkaBroker) extends BrokerR
 
   private def currentValue(name: String): String = {
     name match {
-      case ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedListString
+      case ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG => server.config.leaderDeprioritizedListString
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }

@@ -35,7 +35,7 @@ import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.kafka.server.common.MetadataVersion.{IBP_2_6_IV0, IBP_2_7_IV0, IBP_3_2_IV0}
-import org.apache.kafka.server.config.ReplicationConfigs
+import org.apache.kafka.server.config.{ReplicationConfigs, ServerLogConfigs}
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.log4j.Level
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotEquals, assertTrue}
@@ -93,7 +93,7 @@ class ControllerIntegrationTest extends QuorumTestHarness {
   private def setLeaderDeprioritizedList(deprioritizedBrokers: String): Unit = {
     Using(Admin.create(getAdminProps(servers))) { admin =>
       val props = new Properties()
-      props.put(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, deprioritizedBrokers)
+      props.put(ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, deprioritizedBrokers)
       TestUtils.incrementalAlterConfigs(servers, admin, props, perBrokerConfig = false).all.get()
       TestUtils.waitUntilTrue(() => servers.head.config.leaderDeprioritizedListString == deprioritizedBrokers, s"servers.head.config.leaderDeprioritizedList: ${servers.head.config.leaderDeprioritizedListString} not the same as deprioritizedBrokers: ${deprioritizedBrokers}")
     }

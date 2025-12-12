@@ -29,6 +29,7 @@ import org.apache.kafka.metadata.Replicas;
 import org.apache.kafka.metadata.placement.DefaultDirProvider;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.server.common.MetadataVersion;
+import org.apache.kafka.server.config.ServerLogConfigs;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -39,9 +40,12 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.IntPredicate;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -288,6 +292,135 @@ public class PartitionChangeBuilderTest {
         assertElectLeaderEquals(createBazBuilder(version).setElection(Election.PREFERRED), 3, false);
         assertElectLeaderEquals(createBazBuilder(version), 3, false);
         assertElectLeaderEquals(createBazBuilder(version).setElection(Election.UNCLEAN), 3, false);
+    }
+
+    @ParameterizedTest
+    @MethodSource("partitionChangeRecordVersions")
+    public void testElectLeaderWithLeaderDeprioritizedList(short version) {
+        Supplier<Map<String, String>> emptyDeprioritizedList = configProvider(Collections.emptyList());
+        Supplier<Map<String, String>> deprioritizedList1 = configProvider(Collections.singletonList(1));
+        Supplier<Map<String, String>> deprioritizedList2 = configProvider(Collections.singletonList(2));
+        Supplier<Map<String, String>> deprioritizedList3 = configProvider(Collections.singletonList(3));
+
+        // Preferred Leader election
+        // 2 is the preferred leader, is an acceptable leader, and not deprioritized -> 2 is elected
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.PREFERRED), 2, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.PREFERRED), 2, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.PREFERRED), 2, false);
+        // 2 is the preferred leader but is deprioritized, 1 is existing leader and is valid leader -> 1 is elected
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.PREFERRED), 1, false);
+
+        // Elect Any
+        // the current leader is not deprioritized -> stays as leader
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(emptyDeprioritizedList), 1, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList2), 1, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList3), 1, false);
+        // the current leader is deprioritized, 2 is the preferred and not deprioritized -> 2 is elected
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList1), 2, false);
+
+        // Unclean election
+        // the current leader is not deprioritized -> stays as leader
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.UNCLEAN), 1, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.UNCLEAN), 1, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.UNCLEAN), 1, false);
+        // the current leader is deprioritized, 2 is the preferred and not deprioritized -> 2 is elected
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.UNCLEAN), 2, false);
+    }
+
+    @ParameterizedTest
+    @MethodSource("partitionChangeRecordVersions")
+    public void testElectLeaderWithLeaderDeprioritizedListAndReassigningReplicas(short version) {
+        Supplier<Map<String, String>> emptyDeprioritizedList = configProvider(Collections.emptyList());
+        Supplier<Map<String, String>> deprioritizedList1 = configProvider(Collections.singletonList(1));
+        Supplier<Map<String, String>> deprioritizedList2 = configProvider(Collections.singletonList(2));
+        Supplier<Map<String, String>> deprioritizedList3 = configProvider(Collections.singletonList(3));
+
+        // Preferred Leader election
+        // 1 is the preferred leader and not deprioritized -> 1 stays as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.PREFERRED), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.PREFERRED), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.PREFERRED), 1, false);
+        // 2 is the preferred leader -> 2 elected as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.PREFERRED), 2, false);
+
+
+        // Elect Any
+        // 1 is the current leader and not deprioritized -> 1 stays as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(emptyDeprioritizedList), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList2), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList3), 1, false);
+        // 1 is the current leader but deprioritized, 2 is the next one -> 2 elected as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList1), 2, false);
+
+
+        // Unclean election
+        // 1 is the current leader and not deprioritized -> 1 stays as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.UNCLEAN), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.UNCLEAN), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.UNCLEAN), 1, false);
+        // 1 is the current leader but deprioritized, 2 is the next one -> 2 elected as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.UNCLEAN), 2, false);
+    }
+
+    @ParameterizedTest
+    @MethodSource("partitionChangeRecordVersions")
+    public void testElectLeaderWithLeaderDeprioritizedListAndOutOfSyncBroker(short version) {
+        Supplier<Map<String, String>> emptyDeprioritizedList = configProvider(Collections.emptyList());
+        Supplier<Map<String, String>> deprioritizedList1 = configProvider(Collections.singletonList(1));
+        Supplier<Map<String, String>> deprioritizedList2 = configProvider(Collections.singletonList(2));
+        Supplier<Map<String, String>> deprioritizedList3 = configProvider(Collections.singletonList(3));
+
+        // Preferred Leader election
+        // Preferred leader 2 is out-of-sync, current leader 3 is acceptable -> 3 stays as leader
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.PREFERRED), 3, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.PREFERRED), 3, false);
+        // 1 is the preferred leader because of deprioritization of 2 or 3 -> 1 elected as leader
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.PREFERRED), 1, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.PREFERRED), 1, false);
+
+        // Elect Any
+        // the current leader is not deprioritized - > stays as leader
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(emptyDeprioritizedList), 3, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList1), 3, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList2), 3, false);
+        // the current leader is deprioritized, 1 is the preferred and not deprioritized -> 1 is elected
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList3), 1, false);
+
+        // Unclean election
+        // the current leader is not deprioritized -> stays as leader
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(emptyDeprioritizedList).setElection(Election.UNCLEAN), 3, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList1).setElection(Election.UNCLEAN), 3, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList2).setElection(Election.UNCLEAN), 3, false);
+        // the current leader is deprioritized, 1 is the preferred and not deprioritized -> 1 is elected
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList3).setElection(Election.UNCLEAN), 1, false);
+    }
+
+    @ParameterizedTest
+    @MethodSource("partitionChangeRecordVersions")
+    public void testElectLeaderWithAllBrokersDeprioritized(short version) {
+        Supplier<Map<String, String>> deprioritizedList = configProvider(Arrays.asList(1, 2, 3, 4));
+
+        // Original priority is retained because all replicas are deprioritized -> first in-sync replica (2) is elected as leader
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.PREFERRED), 2, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList), 2, false);
+        assertElectLeaderEquals(createFooBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.UNCLEAN), 2, false);
+
+        // Original priority is retained because all replicas are deprioritized -> first in-sync replica (1) is elected as leader
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.PREFERRED), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList), 1, false);
+        assertElectLeaderEquals(createBarBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.UNCLEAN), 1, false);
+
+        // Original priority is retained because all replicas are deprioritized -> first in-sync replica (1) is elected as leader
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.PREFERRED), 1, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList), 1, false);
+        assertElectLeaderEquals(createBazBuilder(version).setClusterConfigProvider(deprioritizedList).setElection(Election.UNCLEAN), 1, false);
+    }
+
+    private Supplier<Map<String, String>> configProvider(List<Integer> deprioritizedLeader) {
+        return () -> Collections.singletonMap(
+            ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG,
+            deprioritizedLeader.stream().map(String::valueOf).collect(Collectors.joining(":"))
+        );
     }
 
     private static void testTriggerLeaderEpochBumpIfNeeded(

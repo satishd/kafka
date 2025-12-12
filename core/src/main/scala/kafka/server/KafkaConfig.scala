@@ -550,7 +550,7 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   def followerFetchLatestOffsetEnabledBrokersString: String = getString(ReplicationConfigs.FOLLOWER_FETCH_LATEST_OFFSET_ENABLED_BROKERS_CONFIG)
   def followerFetchLatestOffsetEnabled: Boolean = followerFetchLatestOffsetEnabledBrokersString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).contains(brokerId)
   def replicaStartOffsetStrategy: String = getString(ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG)
-  def leaderDeprioritizedListString: String = getString(ReplicationConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
+  def leaderDeprioritizedListString: String = getString(ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG)
   def leaderDeprioritizedList: scala.Seq[Int] = leaderDeprioritizedListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq
   def newReplicaExcludeListString: String = getString(ServerLogConfigs.NEW_REPLICA_EXCLUDE_LIST_CONFIG)
   def newReplicaExcludeList: scala.Seq[Int] = newReplicaExcludeListString.split(":").map(_.trim).filter(_.nonEmpty).map(_.toInt).toSeq

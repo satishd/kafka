@@ -27,6 +27,7 @@ import org.apache.kafka.metadata.Replicas;
 import org.apache.kafka.metadata.placement.DefaultDirProvider;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.server.common.MetadataVersion;
+import org.apache.kafka.server.config.ServerLogConfigs;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,12 +35,14 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.IntPredicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.metadata.LeaderConstants.NO_LEADER;
@@ -100,6 +103,7 @@ public class PartitionChangeBuilder {
     private boolean zkMigrationEnabled;
     private boolean eligibleLeaderReplicasEnabled;
     private DefaultDirProvider defaultDirProvider;
+    private Supplier<Map<String, String>> clusterConfigSupplier;
 
     // Whether allow electing last known leader in a Balanced recovery. Note, the last known leader will be stored in the
     // lastKnownElr field if enabled.
@@ -204,6 +208,11 @@ public class PartitionChangeBuilder {
         return this;
     }
 
+    public PartitionChangeBuilder setClusterConfigProvider(Supplier<Map<String, String>> clusterConfigSupplier) {
+        this.clusterConfigSupplier = clusterConfigSupplier;
+        return this;
+    }
+
     // VisibleForTesting
     static class ElectionResult {
         final int node;
@@ -237,17 +246,22 @@ public class PartitionChangeBuilder {
      * Assumes that the election type is Election.PREFERRED
      */
     private ElectionResult electPreferredLeader() {
-        int preferredReplica = targetReplicas.get(0);
+        Set<Integer> leaderDeprioritizedBrokers = leaderDeprioritizedBrokers();
+        List<Integer> sortedTargetReplicas = targetReplicas.stream()
+            .sorted(Comparator.comparing(leaderDeprioritizedBrokers::contains))
+            .collect(Collectors.toList());
+
+        int preferredReplica = sortedTargetReplicas.get(0);
         if (isValidNewLeader(preferredReplica)) {
             return new ElectionResult(preferredReplica, false);
         }
 
-        if (isValidNewLeader(partition.leader)) {
+        if (isValidNonDeprioritizedLeader(partition.leader, leaderDeprioritizedBrokers)) {
             // Don't consider a new leader since the current leader meets all the constraints
             return new ElectionResult(partition.leader, false);
         }
 
-        Optional<Integer> onlineLeader = targetReplicas.stream()
+        Optional<Integer> onlineLeader = sortedTargetReplicas.stream()
             .skip(1)
             .filter(this::isValidNewLeader)
             .findFirst();
@@ -266,12 +280,15 @@ public class PartitionChangeBuilder {
      * Assumes that the election type is either Election.ONLINE or Election.UNCLEAN
      */
     private ElectionResult electAnyLeader() {
-        if (isValidNewLeader(partition.leader)) {
+        Set<Integer> leaderDeprioritizedBrokers = leaderDeprioritizedBrokers();
+
+        if (isValidNonDeprioritizedLeader(partition.leader, leaderDeprioritizedBrokers)) {
             // Don't consider a new leader since the current leader meets all the constraints
             return new ElectionResult(partition.leader, false);
         }
 
         Optional<Integer> onlineLeader = targetReplicas.stream()
+            .sorted(Comparator.comparing(leaderDeprioritizedBrokers::contains))
             .filter(this::isValidNewLeader)
             .findFirst();
         if (onlineLeader.isPresent()) {
@@ -285,6 +302,7 @@ public class PartitionChangeBuilder {
         if (election == Election.UNCLEAN) {
             // Attempt unclean leader election
             Optional<Integer> uncleanLeader = targetReplicas.stream()
+                .sorted(Comparator.comparing(leaderDeprioritizedBrokers::contains))
                 .filter(isAcceptableLeader::test)
                 .findFirst();
             if (uncleanLeader.isPresent()) {
@@ -332,6 +350,10 @@ public class PartitionChangeBuilder {
         // The valid new leader should be in either ISR or in ELR when ISR is empty.
         return (targetIsr.contains(replica) || (targetIsr.isEmpty() && targetElr.contains(replica))) &&
             isAcceptableLeader.test(replica);
+    }
+
+    private boolean isValidNonDeprioritizedLeader(int replica, Set<Integer> deprioritizedBrokers) {
+        return isValidNewLeader(replica) && !deprioritizedBrokers.contains(replica);
     }
 
     private void tryElection(PartitionChangeRecord record) {
@@ -582,6 +604,21 @@ public class PartitionChangeBuilder {
             .filter(replica -> !targetIsrSet.contains(replica))
             .filter(replica -> !targetElr.contains(replica))
             .collect(Collectors.toList());
+    }
+
+    private Set<Integer> leaderDeprioritizedBrokers() {
+        if (clusterConfigSupplier == null) {
+            return Collections.emptySet();
+        }
+
+        String leaderDeprioritizedListString = clusterConfigSupplier.get()
+            .getOrDefault(ServerLogConfigs.LEADER_DEPRIORITIZED_LIST_CONFIG, "");
+
+        return Arrays.stream(leaderDeprioritizedListString.split(":"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .map(Integer::parseInt)
+            .collect(Collectors.toSet());
     }
 
     @Override

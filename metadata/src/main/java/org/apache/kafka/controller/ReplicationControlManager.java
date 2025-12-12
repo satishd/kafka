@@ -1074,7 +1074,8 @@ public class ReplicationControlManager {
                     getTopicEffectiveMinIsr(topic.name)
                 )
                     .setZkMigrationEnabled(clusterControl.zkRegistrationAllowed())
-                    .setEligibleLeaderReplicasEnabled(isElrEnabled());
+                    .setEligibleLeaderReplicasEnabled(isElrEnabled())
+                    .setClusterConfigProvider(configurationControl::clusterConfig);
                 if (configurationControl.uncleanLeaderElectionEnabledForTopic(topic.name())) {
                     builder.setElection(PartitionChangeBuilder.Election.UNCLEAN);
                 }
@@ -1551,6 +1552,7 @@ public class ReplicationControlManager {
             .setZkMigrationEnabled(clusterControl.zkRegistrationAllowed())
             .setEligibleLeaderReplicasEnabled(isElrEnabled())
             .setDefaultDirProvider(clusterDescriber)
+            .setClusterConfigProvider(configurationControl::clusterConfig)
             .build();
         if (!record.isPresent()) {
             if (electionType == ElectionType.PREFERRED) {
@@ -1700,6 +1702,7 @@ public class ReplicationControlManager {
                 .setZkMigrationEnabled(clusterControl.zkRegistrationAllowed())
                 .setEligibleLeaderReplicasEnabled(isElrEnabled())
                 .setDefaultDirProvider(clusterDescriber)
+                .setClusterConfigProvider(configurationControl::clusterConfig)
                 .build().ifPresent(records::add);
         }
     }
@@ -1969,6 +1972,7 @@ public class ReplicationControlManager {
             );
             builder.setZkMigrationEnabled(clusterControl.zkRegistrationAllowed());
             builder.setEligibleLeaderReplicasEnabled(isElrEnabled());
+            builder.setClusterConfigProvider(configurationControl::clusterConfig);
             if (configurationControl.uncleanLeaderElectionEnabledForTopic(topic.name)) {
                 builder.setElection(PartitionChangeBuilder.Election.UNCLEAN);
             }
@@ -2088,6 +2092,7 @@ public class ReplicationControlManager {
         );
         builder.setZkMigrationEnabled(clusterControl.zkRegistrationAllowed());
         builder.setEligibleLeaderReplicasEnabled(isElrEnabled());
+        builder.setClusterConfigProvider(configurationControl::clusterConfig);
         if (configurationControl.uncleanLeaderElectionEnabledForTopic(topicName)) {
             builder.setElection(PartitionChangeBuilder.Election.UNCLEAN);
         }
@@ -2150,6 +2155,7 @@ public class ReplicationControlManager {
         );
         builder.setZkMigrationEnabled(clusterControl.zkRegistrationAllowed());
         builder.setEligibleLeaderReplicasEnabled(isElrEnabled());
+        builder.setClusterConfigProvider(configurationControl::clusterConfig);
         if (!reassignment.replicas().equals(currentReplicas)) {
             builder.setTargetReplicas(reassignment.replicas());
         }
@@ -2234,6 +2240,7 @@ public class ReplicationControlManager {
                             )
                                     .setDirectory(brokerId, dirId)
                                     .setDefaultDirProvider(clusterDescriber)
+                                    .setClusterConfigProvider(configurationControl::clusterConfig)
                                     .build();
                             partitionChangeRecord.ifPresent(records::add);
                             if (directoryIsOffline) {
