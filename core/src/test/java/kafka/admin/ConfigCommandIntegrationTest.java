@@ -403,6 +403,39 @@ public class ConfigCommandIntegrationTest {
         }
     }
 
+    @ClusterTest
+    public void testBrokerLoggerConfigUpdate() throws Exception {
+        Map<String, String> configs = new HashMap<>();
+        String loggerName = "kafka.server.ClientQuotaManager$ThrottledChannelReaper";
+        try (Admin client = cluster.createAdminClient()) {
+            configs.put(loggerName, "DEBUG");
+            String configStr = transferConfigMapToString(configs);
+            List<String> alterOpts = asList("--bootstrap-server", cluster.bootstrapServers(),
+                    "--entity-type", "broker-loggers", "--alter");
+            ConfigCommand.ConfigCommandOptions addOpts =
+                    new ConfigCommand.ConfigCommandOptions(toArray(alterOpts, entityOp(Optional.of(defaultBrokerId)), asList("--add-config", configStr)));
+            ConfigCommand.alterConfig(client, addOpts);
+            verifyConfig(client, Optional.of(defaultBrokerId), configs, ConfigResource.Type.BROKER_LOGGER);
+
+            // Test for the --broker-logger alias
+            configs.put(loggerName, "INFO");
+            configStr = transferConfigMapToString(configs);
+            alterOpts = asList("--bootstrap-server", cluster.bootstrapServers(),
+                    "--broker-logger", defaultBrokerId, "--alter");
+            addOpts = new ConfigCommand.ConfigCommandOptions(toArray(alterOpts, asList("--add-config", configStr)));
+            ConfigCommand.alterConfig(client, addOpts);
+            verifyConfig(client, Optional.of(defaultBrokerId), configs, ConfigResource.Type.BROKER_LOGGER);
+
+            // After deletion, fallback to the default value of WARN, when not configured
+            configs.put(loggerName, "WARN");
+            alterOpts = asList("--bootstrap-server", cluster.bootstrapServers(),
+                    "--broker-logger", defaultBrokerId, "--alter");
+            addOpts = new ConfigCommand.ConfigCommandOptions(toArray(alterOpts, asList("--delete-config", loggerName)));
+            ConfigCommand.alterConfig(client, addOpts);
+            verifyConfig(client, Optional.of(defaultBrokerId), configs, ConfigResource.Type.BROKER_LOGGER);
+        }
+    }
+
     private void assertNonZeroStatusExit(Stream<String> args, Consumer<String> checkErrOut) {
         AtomicReference<Integer> exitStatus = new AtomicReference<>();
         Exit.setExitProcedure((status, __) -> {
@@ -496,7 +529,14 @@ public class ConfigCommandIntegrationTest {
     }
 
     private void verifyConfig(Admin client, Optional<String> brokerId, Map<String, String> config) throws Exception {
-        ConfigResource configResource = new ConfigResource(ConfigResource.Type.BROKER, brokerId.orElse(""));
+        verifyConfig(client, brokerId, config, ConfigResource.Type.BROKER);
+    }
+
+    private void verifyConfig(Admin client,
+                              Optional<String> brokerId,
+                              Map<String, String> config,
+                              ConfigResource.Type configResourceType) throws Exception {
+        ConfigResource configResource = new ConfigResource(configResourceType, brokerId.orElse(""));
         TestUtils.waitForCondition(() -> {
             Map<String, String> current = getConfigEntryStream(client, configResource)
                     .filter(configEntry -> Objects.nonNull(configEntry.value()))
