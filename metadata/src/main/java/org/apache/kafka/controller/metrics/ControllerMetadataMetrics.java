@@ -25,6 +25,9 @@ import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,6 +41,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@link org.apache.kafka.controller.metrics.QuorumControllerMetrics}, not here.
  */
 public final class ControllerMetadataMetrics implements AutoCloseable {
+    static final String URPS_CAUSED_BY_BROKER = "UrpsCausedByBroker";
+    static final String TAG_BROKER_ID = "broker_id";
+
     private static final MetricName FENCED_BROKER_COUNT = getMetricName(
         "KafkaController", "FencedBrokerCount");
     private static final MetricName ACTIVE_BROKER_COUNT = getMetricName(
@@ -71,6 +77,9 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
     private final AtomicInteger zkMigrationState = new AtomicInteger(-1);
     private Optional<Meter> uncleanLeaderElectionMeter = Optional.empty();
 
+    // Per-broker URPs metrics
+    private final Map<Integer, AtomicInteger> urpsByBroker = new HashMap<>();
+    private final Map<Integer, MetricName> urpsMetricNames = new HashMap<>();
 
     /**
      * Create a new ControllerMetadataMetrics object.
@@ -137,6 +146,54 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
 
         registry.ifPresent(r -> uncleanLeaderElectionMeter =
                 Optional.of(registry.get().newMeter(UNCLEAN_LEADER_ELECTIONS_PER_SEC, "elections", TimeUnit.SECONDS)));
+    }
+
+    private void ensureUrpsGaugeForBroker(int brokerId) {
+        if (urpsByBroker.containsKey(brokerId)) return;
+        AtomicInteger counter = new AtomicInteger(0);
+        urpsByBroker.put(brokerId, counter);
+        if (registry.isPresent()) {
+            LinkedHashMap<String, String> tags = new LinkedHashMap<>();
+            tags.put(TAG_BROKER_ID, Integer.toString(brokerId));
+            MetricName name = KafkaYammerMetrics.getMetricName(
+                "kafka.controller",
+                "KafkaController",
+                URPS_CAUSED_BY_BROKER,
+                tags
+            );
+            registry.get().newGauge(name, new Gauge<Integer>() {
+                @Override
+                public Integer value() {
+                    return counter.get();
+                }
+            });
+            urpsMetricNames.put(brokerId, name);
+        }
+    }
+
+    void setUrpsForBroker(int brokerId, int count) {
+        ensureUrpsGaugeForBroker(brokerId);
+        urpsByBroker.get(brokerId).set(count);
+    }
+
+    void removeUrpsMetricsForBroker(int brokerId) {
+        MetricName name = urpsMetricNames.remove(brokerId);
+        if (name != null) {
+            registry.ifPresent(r -> r.removeMetric(name));
+        }
+    }
+
+    public void updateUrpsByBroker(Map<Integer, Integer> newCounts) {
+        // Remove metrics for brokers not present in the new map
+        for (Integer existing : urpsByBroker.keySet().toArray(new Integer[0])) {
+            if (!newCounts.containsKey(existing)) {
+                removeUrpsMetricsForBroker(existing);
+            }
+        }
+        // Create/update for brokers in the new map
+        for (Map.Entry<Integer, Integer> e : newCounts.entrySet()) {
+            setUrpsForBroker(e.getKey(), e.getValue());
+        }
     }
 
     public void setFencedBrokerCount(int brokerCount) {
@@ -257,6 +314,12 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
             ZK_MIGRATION_STATE,
             UNCLEAN_LEADER_ELECTIONS_PER_SEC
         ).forEach(r::removeMetric));
+        // remove dynamic URP metrics
+        for (MetricName name : urpsMetricNames.values()) {
+            registry.ifPresent(r -> r.removeMetric(name));
+        }
+        urpsMetricNames.clear();
+        urpsByBroker.clear();
     }
 
     private static MetricName getMetricName(String type, String name) {

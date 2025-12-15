@@ -17,7 +17,9 @@
 
 package org.apache.kafka.controller.metrics;
 
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.image.MetadataDelta;
 import org.apache.kafka.image.MetadataImage;
 import org.apache.kafka.image.TopicDelta;
@@ -28,6 +30,9 @@ import org.apache.kafka.metadata.BrokerRegistration;
 import org.apache.kafka.metadata.PartitionRegistration;
 import org.apache.kafka.server.fault.FaultHandler;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 
@@ -45,9 +50,15 @@ import java.util.Optional;
  * All other metrics should be the same, as far as is possible.
  */
 public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
+    // Throttle URP updates to avoid expensive recalculation on frequent metadata changes
+    private static final long URP_UPDATE_THROTTLE_MS = 60_000; // 1 minute
+
     private final ControllerMetadataMetrics metrics;
     private final FaultHandler faultHandler;
     private MetadataImage prevImage = MetadataImage.EMPTY;
+    private long lastUrpUpdateTimeMs = 0;
+    // Tracks whether cluster/topic changes require a URP metrics update
+    private boolean urpUpdatePending = false;
 
     public ControllerMetadataMetricsPublisher(
         ControllerMetadataMetrics metrics,
@@ -71,7 +82,7 @@ public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
         switch (manifest.type()) {
             case LOG_DELTA:
                 try {
-                    publishDelta(delta);
+                    publishDelta(delta, newImage);
                 } catch (Throwable e) {
                     faultHandler.handleFault("Failed to publish controller metrics from log delta " +
                             " ending at offset " + manifest.provenance().lastContainedOffset(), e);
@@ -92,7 +103,7 @@ public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
         }
     }
 
-    private void publishDelta(MetadataDelta delta) {
+    private void publishDelta(MetadataDelta delta, MetadataImage newImage) {
         ControllerMetricsChanges changes = new ControllerMetricsChanges();
         if (delta.clusterDelta() != null) {
             for (Entry<Integer, Optional<BrokerRegistration>> entry :
@@ -117,6 +128,21 @@ public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
         changes.apply(metrics);
         if (delta.featuresDelta() != null) {
             delta.featuresDelta().getZkMigrationStateChange().ifPresent(state -> metrics.setZkMigrationState(state.value()));
+        }
+        // Only track cluster/topic deltas for URP updates since only these affect replica assignment
+        if (delta.clusterDelta() != null || delta.topicsDelta() != null) {
+            urpUpdatePending = true;
+        }
+        // Update per-broker URP metrics based on the new image (throttled).
+        // Since URP calculation is expensive (iterates all partitions/replicas), we throttle
+        // updates to at most once per minute, even if there are pending changes.
+        if (urpUpdatePending) {
+            long now = System.currentTimeMillis();
+            if (now - lastUrpUpdateTimeMs >= URP_UPDATE_THROTTLE_MS) {
+                updateUrpsByBroker(newImage);
+                lastUrpUpdateTimeMs = now;
+                urpUpdatePending = false;
+            }
         }
     }
 
@@ -157,6 +183,47 @@ public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
         metrics.setOfflinePartitionCount(offlinePartitions);
         metrics.setPreferredReplicaImbalanceCount(partitionsWithoutPreferredLeader);
         metrics.setZkMigrationState(newImage.features().zkMigrationState().value());
+        updateUrpsByBroker(newImage);
+        lastUrpUpdateTimeMs = System.currentTimeMillis();
+        urpUpdatePending = false;
+    }
+
+    private void updateUrpsByBroker(MetadataImage newImage) {
+        // Initialize counts for all unfenced brokers to 0
+        Map<Integer, Integer> counts = new HashMap<>();
+        for (BrokerRegistration broker : newImage.cluster().brokers().values()) {
+            if (!broker.fenced()) {
+                counts.put(broker.id(), 0);
+            }
+        }
+        if (counts.isEmpty()) {
+            metrics.updateUrpsByBroker(counts);
+            return;
+        }
+        // Iterate all partitions and count URPs for unfenced brokers on online partitions
+        for (TopicImage topicImage : newImage.topics().topicsById().values()) {
+            for (Entry<Integer, PartitionRegistration> pEntry : topicImage.partitions().entrySet()) {
+                PartitionRegistration partition = pEntry.getValue();
+                // Ignore partitions without a leader
+                if (!partition.hasLeader()) {
+                    continue;
+                }
+                TopicPartition tp = new TopicPartition(topicImage.name(), pEntry.getKey());
+                LeaderAndIsrPartitionState state = partition.toLeaderAndIsrPartitionState(tp, false);
+                HashSet<Integer> isrSet = new java.util.HashSet<>(state.isr());
+                for (Integer replica : state.replicas()) {
+                    if (!isrSet.contains(replica)) {
+                        counts.merge(replica, 1, Integer::sum);
+                    }
+                }
+            }
+        }
+        metrics.updateUrpsByBroker(counts);
+    }
+
+    // Visible for testing
+    void resetUrpUpdateThrottle() {
+        lastUrpUpdateTimeMs = 0;
     }
 
     @Override
