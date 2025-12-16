@@ -196,10 +196,6 @@ public class ControllerMetadataMetricsPublisher implements MetadataPublisher {
                 counts.put(broker.id(), 0);
             }
         }
-        if (counts.isEmpty()) {
-            metrics.updateUrpsByBroker(counts);
-            return;
-        }
         // Iterate all partitions and count URPs for unfenced brokers on online partitions
         for (TopicImage topicImage : newImage.topics().topicsById().values()) {
             for (Entry<Integer, PartitionRegistration> pEntry : topicImage.partitions().entrySet()) {

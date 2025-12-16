@@ -24,9 +24,11 @@ import com.yammer.metrics.core.Meter;
 import com.yammer.metrics.core.MetricName;
 import com.yammer.metrics.core.MetricsRegistry;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -78,8 +80,7 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
     private Optional<Meter> uncleanLeaderElectionMeter = Optional.empty();
 
     // Per-broker URPs metrics
-    private final Map<Integer, AtomicInteger> urpsByBroker = new HashMap<>();
-    private final Map<Integer, MetricName> urpsMetricNames = new HashMap<>();
+    private final Map<Integer, BrokerAndUrpCount> urpsByBroker = new HashMap<>();
 
     /**
      * Create a new ControllerMetadataMetrics object.
@@ -150,8 +151,6 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
 
     private void ensureUrpsGaugeForBroker(int brokerId) {
         if (urpsByBroker.containsKey(brokerId)) return;
-        AtomicInteger counter = new AtomicInteger(0);
-        urpsByBroker.put(brokerId, counter);
         if (registry.isPresent()) {
             LinkedHashMap<String, String> tags = new LinkedHashMap<>();
             tags.put(TAG_BROKER_ID, Integer.toString(brokerId));
@@ -161,39 +160,42 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
                 URPS_CAUSED_BY_BROKER,
                 tags
             );
+            BrokerAndUrpCount brokerAndUrpCount = new BrokerAndUrpCount(brokerId, name);
             registry.get().newGauge(name, new Gauge<Integer>() {
                 @Override
                 public Integer value() {
-                    return counter.get();
+                    return brokerAndUrpCount.urpCount.get();
                 }
             });
-            urpsMetricNames.put(brokerId, name);
+            urpsByBroker.put(brokerId, brokerAndUrpCount);
         }
     }
 
     void setUrpsForBroker(int brokerId, int count) {
         ensureUrpsGaugeForBroker(brokerId);
-        urpsByBroker.get(brokerId).set(count);
+        urpsByBroker.get(brokerId).urpCount.set(count);
     }
 
     void removeUrpsMetricsForBroker(int brokerId) {
-        MetricName name = urpsMetricNames.remove(brokerId);
-        if (name != null) {
-            registry.ifPresent(r -> r.removeMetric(name));
+        BrokerAndUrpCount brokerAndUrpCount = urpsByBroker.remove(brokerId);
+        if (brokerAndUrpCount != null) {
+            registry.ifPresent(r -> r.removeMetric(brokerAndUrpCount.metricName));
         }
     }
 
     public void updateUrpsByBroker(Map<Integer, Integer> newCounts) {
         // Remove metrics for brokers not present in the new map
-        for (Integer existing : urpsByBroker.keySet().toArray(new Integer[0])) {
-            if (!newCounts.containsKey(existing)) {
-                removeUrpsMetricsForBroker(existing);
+        List<Integer> nonExistentBrokers = new ArrayList<>();
+        for (Integer brokerId : urpsByBroker.keySet()) {
+            if (!newCounts.containsKey(brokerId)) {
+                nonExistentBrokers.add(brokerId);
             }
         }
-        // Create/update for brokers in the new map
-        for (Map.Entry<Integer, Integer> e : newCounts.entrySet()) {
-            setUrpsForBroker(e.getKey(), e.getValue());
+        for (Integer brokerId : nonExistentBrokers) {
+            removeUrpsMetricsForBroker(brokerId);
         }
+        // Create/update for brokers in the new map
+        newCounts.forEach(this::setUrpsForBroker);
     }
 
     public void setFencedBrokerCount(int brokerCount) {
@@ -315,14 +317,24 @@ public final class ControllerMetadataMetrics implements AutoCloseable {
             UNCLEAN_LEADER_ELECTIONS_PER_SEC
         ).forEach(r::removeMetric));
         // remove dynamic URP metrics
-        for (MetricName name : urpsMetricNames.values()) {
-            registry.ifPresent(r -> r.removeMetric(name));
+        for (BrokerAndUrpCount urpCount : urpsByBroker.values()) {
+            registry.ifPresent(r -> r.removeMetric(urpCount.metricName));
         }
-        urpsMetricNames.clear();
         urpsByBroker.clear();
     }
 
     private static MetricName getMetricName(String type, String name) {
         return KafkaYammerMetrics.getMetricName("kafka.controller", type, name);
+    }
+
+    private static class BrokerAndUrpCount {
+        final Integer brokerId;
+        final MetricName metricName;
+        final AtomicInteger urpCount = new AtomicInteger(0);
+
+        BrokerAndUrpCount(Integer brokerId, MetricName metricName) {
+            this.brokerId = brokerId;
+            this.metricName = metricName;
+        }
     }
 }
