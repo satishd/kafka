@@ -16,6 +16,7 @@
  */
 package kafka.log.remote
 
+import com.github.benmanes.caffeine.cache.Ticker
 import kafka.utils.TestUtils
 import kafka.utils.TestUtils.waitUntilTrue
 import org.apache.kafka.common.utils.Utils
@@ -1080,6 +1081,99 @@ class RemoteIndexCacheTest {
     assertEquals(0, countFiles())
     assertThrows(classOf[IllegalStateException], () => indexEntry.lookupOffset(offsetPosition.offset))
     assertThrows(classOf[IllegalStateException], () => indexEntry2.lookupOffset(offsetPosition.offset))
+  }
+
+  @Test
+  def testCacheTtlDisabled(): Unit = {
+    val ttlMs = -1L
+    val fakeTicker = new FakeTicker
+    val ttlCache = new RemoteIndexCache(1024 * 1024L, ttlMs, rsm, logDir.toString, fakeTicker)
+    try {
+      // RemoteIndexCache is a loading cache, so the `getIndexEntry` call will trigger the loading of the index entry.
+      val entry = ttlCache.getIndexEntry(rlsMetadata)
+      assertNotNull(entry)
+      fakeTicker.advance(TimeUnit.HOURS.toNanos(24))
+      ttlCache.internalCache.cleanUp()
+      val cachedEntry = ttlCache.internalCache.getIfPresent(rlsMetadata.remoteLogSegmentId.id)
+      assertNotNull(cachedEntry, "Entry should remain cached when TTL disabled")
+    } finally {
+      Utils.closeQuietly(ttlCache, "RemoteIndexCache")
+    }
+  }
+
+  @Test
+  def testCacheTtlEviction(): Unit = {
+    val ttlMs = TimeUnit.SECONDS.toMillis(10)
+    val fakeTicker = new FakeTicker
+    val ttlCache = new RemoteIndexCache(1024 * 1024L, ttlMs, rsm, logDir.toString, fakeTicker)
+    try {
+      val entry = ttlCache.getIndexEntry(rlsMetadata)
+      assertNotNull(entry)
+      fakeTicker.advance(TimeUnit.MILLISECONDS.toNanos(ttlMs - 1000))
+      ttlCache.internalCache.cleanUp()
+      assertEquals(1, ttlCache.internalCache.estimatedSize)
+      fakeTicker.advance(TimeUnit.MILLISECONDS.toNanos(2000))
+      ttlCache.internalCache.cleanUp()
+      assertEquals(0, ttlCache.internalCache.estimatedSize)
+    } finally {
+      Utils.closeQuietly(ttlCache, "RemoteIndexCache")
+    }
+  }
+
+  @Test
+  def testCacheTtlRefreshOnAccess(): Unit = {
+    val ttlMs = TimeUnit.SECONDS.toMillis(10)
+    val fakeTicker = new FakeTicker
+    val ttlCache = new RemoteIndexCache(1024 * 1024L, ttlMs, rsm, logDir.toString, fakeTicker)
+    try {
+      ttlCache.getIndexEntry(rlsMetadata)
+      fakeTicker.advance(TimeUnit.SECONDS.toNanos(8))
+      ttlCache.getIndexEntry(rlsMetadata)
+      fakeTicker.advance(TimeUnit.SECONDS.toNanos(8))
+      ttlCache.internalCache.cleanUp()
+      val cachedEntry = ttlCache.internalCache.getIfPresent(rlsMetadata.remoteLogSegmentId.id)
+      assertNotNull(cachedEntry, "Entry should remain after access refreshes TTL")
+    } finally {
+      Utils.closeQuietly(ttlCache, "RemoteIndexCache")
+    }
+  }
+
+  /**
+   * Tests the behavior of the cache's time-to-live (TTL) mechanism with multiple entries.
+   * The method verifies that:
+   * - An entry that exceeds the TTL after being inserted is evicted.
+   * - An entry that is accessed before exceeding the TTL remains in the cache.
+   *
+   * @return Unit
+   */
+  @Test
+  def testCacheTtlWithMultipleEntries(): Unit = {
+    val ttlMs = TimeUnit.SECONDS.toMillis(10)
+    val fakeTicker = new FakeTicker
+    val ttlCache = new RemoteIndexCache(1024 * 1024L, ttlMs, rsm, logDir.toString, fakeTicker)
+    try {
+      val remoteLogSegmentId2 = RemoteLogSegmentId.generateNew(idPartition)
+      val rlsMetadata2 = new RemoteLogSegmentMetadata(remoteLogSegmentId2, baseOffset + 100, lastOffset + 100, time.milliseconds, brokerId, time.milliseconds, segmentSize, Collections.singletonMap(0, 0L))
+      ttlCache.getIndexEntry(rlsMetadata)
+      fakeTicker.advance(TimeUnit.SECONDS.toNanos(5))
+      ttlCache.getIndexEntry(rlsMetadata2)
+      fakeTicker.advance(TimeUnit.SECONDS.toNanos(6))
+      ttlCache.internalCache.cleanUp()
+      assertNull(ttlCache.internalCache.getIfPresent(rlsMetadata.remoteLogSegmentId.id))
+      assertNotNull(ttlCache.internalCache.getIfPresent(rlsMetadata2.remoteLogSegmentId.id))
+    } finally {
+      Utils.closeQuietly(ttlCache, "RemoteIndexCache")
+    }
+  }
+
+  class FakeTicker extends Ticker {
+    private var nanos: Long = 0
+
+    def advance(nanoseconds: Long): Unit = {
+      nanos = nanos + nanoseconds
+    }
+
+    override def read: Long = nanos
   }
 
   private def generateSpyCacheEntry(remoteLogSegmentId: RemoteLogSegmentId = RemoteLogSegmentId.generateNew(idPartition),
