@@ -107,6 +107,7 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String FS_STATUS_RATE_AND_TIME_MS = "fs-status-rate-and-time-ms";
     static final String SEGMENT_READ_RATE_AND_TIME_MS = "segment-read-rate-and-time-ms";
     static final String SEGMENT_HEADER_READ_RATE_AND_TIME_MS = "segment-header-read-rate-and-time-ms";
+    static final String SEGMENT_INDEX_READ_RATE_AND_TIME_MS = "segment-index-read-rate-and-time-ms";
 
     // HDFS/OCI write metrics
     static final String SEGMENT_WRITE_RATE_AND_TIME_MS = "segment-write-rate-and-time-ms";
@@ -122,6 +123,7 @@ public class HDFSRemoteStorageManagerMetrics {
 
     private final Map<RemoteStorageProvider, Timer> segmentReadTimerByProvider = new HashMap<>();
     private final Map<RemoteStorageProvider, Timer> segmentHeaderReadTimerByProvider = new HashMap<>();
+    private final Map<RemoteStorageProvider, Timer> segmentIndexReadTimerByProvider = new HashMap<>();
     private final Map<RemoteStorageProvider, Timer> segmentWriteTimerByProvider = new HashMap<>();
     private final Map<RemoteStorageProvider, Meter> segmentWriteSizeMeterByProvider = new HashMap<>();
 
@@ -397,6 +399,8 @@ public class HDFSRemoteStorageManagerMetrics {
                             metricName(klass, SEGMENT_READ_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
             segmentHeaderReadTimerByProvider.put(provider, KafkaYammerMetrics.defaultRegistry().newTimer(
                             metricName(klass, SEGMENT_HEADER_READ_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
+            segmentIndexReadTimerByProvider.put(provider,  KafkaYammerMetrics.defaultRegistry().newTimer(
+                    metricName(klass, SEGMENT_INDEX_READ_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
             segmentWriteTimerByProvider.put(provider, KafkaYammerMetrics.defaultRegistry().newTimer(
                     metricName(klass, SEGMENT_WRITE_RATE_AND_TIME_MS, tags), TimeUnit.MILLISECONDS, TimeUnit.SECONDS));
             segmentWriteSizeMeterByProvider.put(provider, KafkaYammerMetrics.defaultRegistry().newMeter(
@@ -625,6 +629,10 @@ public class HDFSRemoteStorageManagerMetrics {
 
     void timeSegmentHeaderRead(RemoteStorageProvider provider, ThrowingRunnable<IOException> operation) throws IOException {
         time(segmentHeaderReadTimerByProvider.get(provider), operation);
+    }
+
+    void timeSegmentIndexRead(RemoteStorageProvider provider, ThrowingRunnable<IOException> operation) throws IOException {
+        time(segmentIndexReadTimerByProvider.get(provider), operation);
     }
 
     void timeSegmentWrite(RemoteStorageProvider provider, ThrowingRunnable<RemoteStorageException> operation) throws RemoteStorageException {

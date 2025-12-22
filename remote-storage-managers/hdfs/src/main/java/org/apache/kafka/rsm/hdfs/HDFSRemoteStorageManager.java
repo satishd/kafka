@@ -629,6 +629,36 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         this.copyRateLimiter = rateLimiter;
     }
 
+    private SegmentHeaderHolder fetchSegmentHeaderHolder(Path dataPath,
+                                                         RemoteLogSegmentId segmentId,
+                                                         String bucket,
+                                                         RemoteStorageProvider storageProvider,
+                                                         FSDataInputStream inputStream) throws IOException {
+        // Sends a remote fetch to read the file header.
+        long currentTimeMs = time.milliseconds();
+        byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
+        metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
+        LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
+
+        FileSystem fileSystem = getFS(bucket);
+        FileStatus[] fileStatusHolder = new FileStatus[1];
+        metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
+        long actualFileLength = fileStatusHolder[0].getLen();
+        if (LOGGER.isTraceEnabled()) {
+            LOGGER.trace("Time taken to fetch header for {} in {} ms",
+                    getString(segmentId), time.milliseconds() - currentTimeMs);
+        }
+        return new SegmentHeaderHolder(header, actualFileLength);
+    }
+
+    private static String getString(RemoteLogSegmentId segmentId) {
+        if (segmentId != null) {
+            TopicPartition tp = segmentId.topicIdPartition().topicPartition();
+            return tp + "-" + segmentId.topicIdPartition().topicId() + "/" + segmentId.id();
+        }
+        return null;
+    }
+
     /**
      * Auxiliary Data Input Stream is used to fetch the offset-index, time-index, producer-snapshot, leader-epoch-checkpoint,
      * and transaction-index files from the remote storage. This stream reads the data in chunks from the remote storage
@@ -638,9 +668,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     class AuxiliaryDataInputStream extends InputStream {
         private static final int MAX_AUX_BUFFER_SIZE = 2 * 1024 * 1024; // 2 MB
         private final RemoteLogSegmentId segmentId;
-        private final String bucket;
+        private final RemoteStorageProvider storageProvider;
         private final LogSegmentDataHeader.FileType fileType;
-        private FSDataInputStream inputStream;
+        private FSDataInputStream inputStream = null;
         private final LogSegmentDataHeader.DataPosition dataPosition;
         private final byte[] bufferedData;
         private int position; // current position in the data
@@ -649,20 +679,21 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                                  String bucket,
                                  LogSegmentDataHeader.FileType fileType) throws IOException {
             this.segmentId = segmentId;
-            this.bucket = bucket;
+            this.storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
             this.fileType = fileType;
 
             Path dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             long currentTimeMs = time.milliseconds();
             try {
-                inputStream = getFS(bucket).open(dataPath);
+                FileSystem fileSystem = getFS(bucket);
+                metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
                 openInputStreamCount.incrementAndGet();
                 if (LOGGER.isTraceEnabled()) {
                     LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
                 }
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 if (headerHolder == null) {
-                    headerHolder = fetchSegmentHeaderHolder(dataPath);
+                    headerHolder = fetchSegmentHeaderHolder(dataPath, segmentId, bucket, storageProvider, inputStream);
                     segmentHeaderHolderCache.put(segmentId, headerHolder);
                 }
                 dataPosition = headerHolder.header().getDataPosition(fileType);
@@ -682,20 +713,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             }
         }
 
-        private SegmentHeaderHolder fetchSegmentHeaderHolder(Path dataPath) throws IOException {
-            // Sends a remote fetch to read the file header.
-            long currentTimeMs = time.milliseconds();
-            byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            inputStream.readFully(0, buffer);
-            LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
-            long actualFileLength = getFS(bucket).getFileStatus(dataPath).getLen();
-            if (LOGGER.isTraceEnabled()) {
-                LOGGER.trace("Time taken to fetch header for {} in {} ms",
-                        getString(segmentId), time.milliseconds() - currentTimeMs);
-            }
-            return new SegmentHeaderHolder(header, actualFileLength);
-        }
-
         @Override
         public int read() throws IOException {
             if (position >= dataPosition.getLength()) {
@@ -704,7 +721,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             if (position % MAX_AUX_BUFFER_SIZE == 0) {
                 long currentTimeMs = time.milliseconds();
                 int readLen = Math.min(MAX_AUX_BUFFER_SIZE, dataPosition.getLength() - position);
-                inputStream.readFully(bufferedData, 0, readLen);
+                metrics.timeSegmentIndexRead(storageProvider, () -> inputStream.readFully(bufferedData, 0, readLen));
                 if (LOGGER.isTraceEnabled()) {
                     LOGGER.trace("Time taken to fetch {} bytes from {} {} in {} ms", readLen, getString(segmentId),
                             fileType.toString().toLowerCase(Locale.ROOT), time.milliseconds() - currentTimeMs);
@@ -768,7 +785,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 if (headerHolder == null) {
                     openFileStream();
-                    headerHolder = fetchSegmentHeaderHolder();
+                    headerHolder = fetchSegmentHeaderHolder(dataPath, segmentId, bucket, storageProvider, inputStream);
                     segmentHeaderHolderCache.put(segmentId, headerHolder);
                 }
                 this.dataPosition = headerHolder.header().getDataPosition(SEGMENT);
@@ -800,24 +817,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 LOGGER.trace("Opened file stream for segment {} in {} ms (hedged reads enabled: {})", getString(segmentId),
                         time.milliseconds() - currentTimeMs, enableHedgedReads);
             }
-        }
-
-        private SegmentHeaderHolder fetchSegmentHeaderHolder() throws IOException {
-            // Sends a remote fetch to read the file header.
-            long currentTimeMs = time.milliseconds();
-            byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
-            LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
-
-            FileSystem fileSystem = getFS(bucket);
-            FileStatus[] fileStatusHolder = new FileStatus[1];
-            metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
-            long actualFileLength = fileStatusHolder[0].getLen();
-            if (LOGGER.isTraceEnabled()) {
-                LOGGER.trace("Time taken to fetch header for {} in {} ms",
-                        getString(segmentId), time.milliseconds() - currentTimeMs);
-            }
-            return new SegmentHeaderHolder(header, actualFileLength);
         }
 
         private <T> T getCachedDataAndApply(long position, Function<ByteBuffer, T> func) throws IOException {
@@ -968,14 +967,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    private static String getString(RemoteLogSegmentId segmentId) {
-        if (segmentId != null) {
-            TopicPartition tp = segmentId.topicIdPartition().topicPartition();
-            return tp + "-" + segmentId.topicIdPartition().topicId() + "/" + segmentId.id();
-        }
-        return null;
-    }
-
     private class SimpleInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
         private final String bucket;
@@ -1020,7 +1011,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
                 openFileStream();
                 if (headerHolder == null) {
-                    headerHolder = fetchSegmentHeaderHolder();
+                    headerHolder = fetchSegmentHeaderHolder(dataPath, segmentId, bucket, storageProvider, inputStream);
                     segmentHeaderHolderCache.put(segmentId, headerHolder);
                 }
                 LogSegmentDataHeader.DataPosition dataPosition = headerHolder.header().getDataPosition(SEGMENT);
@@ -1139,23 +1130,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             if (LOGGER.isTraceEnabled()) {
                 LOGGER.trace("Opened file stream for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
             }
-        }
-
-        private SegmentHeaderHolder fetchSegmentHeaderHolder() throws IOException {
-            // Sends a remote fetch to read the file header.
-            long currentTimeMs = time.milliseconds();
-            byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-            metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
-            LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
-
-            FileSystem fileSystem = getFS(bucket);
-            FileStatus[] fileStatusHolder = new FileStatus[1];
-            metrics.timeFileSystemStatus(() -> fileStatusHolder[0] = fileSystem.getFileStatus(dataPath));
-            long actualFileLength = fileStatusHolder[0].getLen();
-            if (LOGGER.isTraceEnabled()) {
-                LOGGER.trace("Time taken to fetch header for {} in {} ms", getString(segmentId), time.milliseconds() - currentTimeMs);
-            }
-            return new SegmentHeaderHolder(header, actualFileLength);
         }
     }
 

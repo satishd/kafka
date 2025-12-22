@@ -105,16 +105,24 @@ public final class RSMTestUtils {
             .map(Map.Entry::getValue);
     }
 
+    public static long timerCount(Class<?> kclass, String name) {
+        return timerCount(kclass, name, Collections.emptyMap());
+    }
+
+    public static long timerCount(Class<?> kclass, String name, Map<String, String> tags) {
+        Timer timer = findKafkaMetric(kclass, name, tags)
+                .map(metric -> (Timer) metric)
+                .orElseThrow(() -> new AssertionError("Metric " + name + " with tags " + tags + " not found"));
+        return timer.count();
+    }
 
     public static void verifyTimerCount(Class<?> kclass, String name, long expectedValue) {
         verifyTimerCount(kclass, name, Collections.emptyMap(), expectedValue);
     }
 
     public static void verifyTimerCount(Class<?> kclass, String name, Map<String, String> tags, long expectedValue) {
-        Timer timer = findKafkaMetric(kclass, name, tags)
-            .map(metric -> (Timer) metric)
-            .orElseThrow(() -> new AssertionError("Metric " + name + " with tags " + tags + " not found"));
-        assertEquals(expectedValue, timer.count(), "Timer count check failed for " + name + " with tags " + tags);
+        long actualValue = timerCount(kclass, name, tags);
+        assertEquals(expectedValue, actualValue, "Timer count check failed for " + name + " with tags " + tags);
     }
 
     public static void verifyTimerQuantile(Class<?> klass, String name, double quantile, Predicate<Double> assertion) {

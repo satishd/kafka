@@ -108,6 +108,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.COPY_CIR
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.DELETE_CIRCUIT_BREAKER_STATE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_INPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS_WIN;
@@ -118,6 +119,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THR
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_REJECTION_COUNT;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_INDEX_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_BYTES_PER_SEC;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_WRITE_RATE_AND_TIME_MS;
@@ -267,15 +269,34 @@ public class HDFSRemoteStorageManagerTest {
         RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, false);
         verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+
+        Map<String, String> hdfsTags = Collections.singletonMap(
+                HDFSRemoteStorageManagerMetrics.PROVIDER, RemoteStorageProvider.HDFS.toString());
+        long openCount = timerCount(FS_OPEN_RATE_AND_TIME_MS);
+        long statusCount = timerCount(FS_STATUS_RATE_AND_TIME_MS);
+        long segmentIndexCount = timerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags);
+
         try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET)) {
             verifyGauge(FS_OPEN_INPUT_STREAM, 1);
             assertNotEquals(0, stream.available());
+            verifyTimerCount(FS_OPEN_RATE_AND_TIME_MS, openCount + 1);
+            // status is already cached
+            verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, statusCount);
+            // read one byte
+            assertNotEquals(-1, stream.read());
+            verifyTimerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags, segmentIndexCount + 1);
         }
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
 
         try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
             verifyGauge(FS_OPEN_INPUT_STREAM, 1);
             assertEquals(0, stream.available());
+            verifyTimerCount(FS_OPEN_RATE_AND_TIME_MS, openCount + 2);
+            // status is already cached
+            verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, statusCount);
+            // empty file, the metric should not change
+            assertEquals(-1, stream.read());
+            verifyTimerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags, segmentIndexCount + 1);
         }
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
     }
@@ -1176,6 +1197,14 @@ public class HDFSRemoteStorageManagerTest {
         TopicPartition tp = new TopicPartition("test", 0);
         TopicIdPartition tpId = new TopicIdPartition(topicId, tp);
         return new RemoteLogSegmentId(tpId, segmentId);
+    }
+
+    private long timerCount(String name) {
+        return RSMTestUtils.timerCount(HDFSRemoteStorageManager.class, name);
+    }
+
+    private long timerCount(String name, Map<String, String> tags) {
+        return RSMTestUtils.timerCount(HDFSRemoteStorageManager.class, name, tags);
     }
 
     private void verifyTimerCount(String name, long expectedValue) {
