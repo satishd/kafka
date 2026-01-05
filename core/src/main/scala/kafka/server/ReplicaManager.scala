@@ -1646,7 +1646,7 @@ class ReplicaManager(val config: KafkaConfig,
               }
 
             case e: Throwable =>
-              error("Error while responding to offset request", e)
+              debug("Error while responding to offset request", e)
               statusByPartition += topicPartition -> ListOffsetsPartitionStatus(Some(buildErrorResponse(Errors.forException(e), partition)))
           }
         }
