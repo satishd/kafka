@@ -856,19 +856,19 @@ public class RemoteLogManager implements Closeable {
             return Optional.empty();
         }
         TopicIdPartition topicIdPartition = new TopicIdPartition(topicId, tp);
-        Optional<UnifiedLog> unifiedLogOptional = fetchLog.apply(tp);
-        if (!remoteLogMetadataManager.isReady(topicIdPartition) || !unifiedLogOptional.isPresent()) {
+        if (!remoteLogMetadataManager.isReady(topicIdPartition)) {
             return Optional.empty();
         }
-        UnifiedLog unifiedLog = unifiedLogOptional.get();
-        Option<LeaderEpochFileCache> leaderEpochFileCacheOpt = unifiedLog.leaderEpochCache();
-        if (leaderEpochFileCacheOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        LeaderEpochFileCache leaderEpochFileCache = leaderEpochFileCacheOpt.get();
         long remoteLogSize = 0;
-        for (EpochEntry epochEntry : leaderEpochFileCache.epochEntries()) {
-            remoteLogSize += remoteLogMetadataManager.remoteLogSize(topicIdPartition, epochEntry.epoch);
+        Iterator<RemoteLogSegmentMetadata> metadataIterator = remoteLogMetadataManager.listRemoteLogSegments(topicIdPartition);
+        while (metadataIterator.hasNext()) {
+            RemoteLogSegmentMetadata metadata = metadataIterator.next();
+            // COPY_SEGMENT_STARTED state is excluded from the `remoteLogSize` calculation as it can pollute the
+            // value during the upload retries.
+            if (metadata.state() == RemoteLogSegmentState.COPY_SEGMENT_FINISHED ||
+                    metadata.state() == RemoteLogSegmentState.DELETE_SEGMENT_STARTED) {
+                remoteLogSize += metadata.segmentSizeInBytes();
+            }
         }
         return Optional.of(remoteLogSize);
     }

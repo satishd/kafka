@@ -4126,8 +4126,6 @@ public class RemoteLogManagerTest {
                 .findFirst()
                 .orElse(null); // Return null if no matching metric is found
     }
-
-
     
     @Test
     public void testComputeRemoteLogSize() throws RemoteStorageException {
@@ -4139,19 +4137,17 @@ public class RemoteLogManagerTest {
         remoteLogManager.onLeadershipChange(
                 Collections.singleton(mockPartition(leaderTopicIdPartition)), Collections.emptySet(), topicIds);
 
-        List<RemoteLogSegmentMetadata> segmentMetadataList = listRemoteLogSegmentMetadata(leaderTopicIdPartition, 10,
-                100, 1024, totalEpochEntries, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+        List<RemoteLogSegmentMetadata> segmentMetadataList = new ArrayList<>();
+        segmentMetadataList.addAll(listRemoteLogSegmentMetadata(leaderTopicIdPartition, 10,
+                100, 1024, totalEpochEntries, RemoteLogSegmentState.COPY_SEGMENT_STARTED));
+        segmentMetadataList.addAll(listRemoteLogSegmentMetadata(leaderTopicIdPartition, 3,
+                100, 1024, totalEpochEntries, RemoteLogSegmentState.COPY_SEGMENT_FINISHED));
+        segmentMetadataList.addAll(listRemoteLogSegmentMetadata(leaderTopicIdPartition, 3,
+                100, 1024, totalEpochEntries, RemoteLogSegmentState.DELETE_SEGMENT_STARTED));
+
         when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
                 .thenReturn(segmentMetadataList.iterator());
-        when(remoteLogMetadataManager.remoteLogSize(eq(leaderTopicIdPartition), anyInt()))
-                .thenAnswer(invocation -> {
-                    int leaderEpoch = invocation.getArgument(1);
-                    return segmentMetadataList.stream()
-                            .filter(segmentMetadata -> segmentMetadata.segmentLeaderEpochs().containsKey(leaderEpoch))
-                            .mapToLong(RemoteLogSegmentMetadata::segmentSizeInBytes)
-                            .sum();
-                });
-        assertEquals(10240, remoteLogManager.remoteLogSize(leaderTopicIdPartition.topicPartition()).get());
+        assertEquals(6 * 1024, remoteLogManager.remoteLogSize(leaderTopicIdPartition.topicPartition()).get());
     }
 
     @Test
