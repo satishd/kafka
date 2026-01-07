@@ -61,8 +61,10 @@ import java.util.function.Function;
 import scala.Option;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -152,9 +154,11 @@ public class RemoteLogManagerMetricsTest {
         List<RemoteLogSegmentMetadata> metadataList = listOfRemoteLogSegmentMetadata(
             leaderTopicIdPartition, 10, 100, 1024, 
             Collections.singletonList(epochEntry0), RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
-        
+
+        when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition))
+            .thenAnswer(ans -> metadataList.iterator());
         when(remoteLogMetadataManager.listRemoteLogSegments(leaderTopicIdPartition, 0))
-            .thenReturn(metadataList.iterator());
+            .thenAnswer(ans -> metadataList.iterator());
         return task;
     }
 
@@ -198,17 +202,34 @@ public class RemoteLogManagerMetricsTest {
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
         
         // Test case 1: Testing SizeInPercent metric (standard retention scenario)
-        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
 
         // Each remote log segment size is 1024. There are 10 remote-log-segments. Total remote size = 10 * 1024 = 10240
         // ((100 + 10240) * 100) / 12288 = 84%
         // Verify the task's internal metric value is set correctly
         assertEquals(84, task.sizeInPercent());
-        
+
         // Test case 2: Testing LocalSizeInPercent metric (local retention scenario)
         // localRetentionBytes = 200, onlyLocalLogSegmentsSize = 100, so percentage = (100 * 100) / 200 = 50%
-        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 200);
+        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 200, 12288);
         assertEquals(50, task.localSizeInPercent());
+
+        // Test case 3: Test sizeInPercent metric >= 100%
+        // 10 * 1024 (remote) + 3000 = 13240 / 12288 = 107%
+        task.buildRetentionSizeData(12288, 3000, 4000, 1000, epochEntries, 5000, 12288);
+        assertEquals(107, task.sizeInPercent());
+        assertFalse(task.isAllSegmentsValid());
+
+        // Repeat test-case 3 with valid fullCopyFinishedSegementSizeInBytes
+        task.buildRetentionSizeData(12288, 3000, 4000, 1000, epochEntries, 5000, 10240);
+        assertEquals(107, task.sizeInPercent());
+        assertTrue(task.isAllSegmentsValid());
+
+        // Repeat test-case 3, once all the segments are valid.
+        // 10 * 1024 (remote) + 2048 = 12288 / 12288 = 100%
+        task.buildRetentionSizeData(12288, 2048, 3000, 1000, epochEntries, 5000, 10240);
+        assertEquals(100, task.sizeInPercent());
+        assertTrue(task.isAllSegmentsValid());
     }
 
     @Test
@@ -218,7 +239,7 @@ public class RemoteLogManagerMetricsTest {
         // Set up metrics with non-zero values
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
         
         // Verify task internal metric values are set correctly
         assertEquals(84, task.sizeInPercent());
@@ -227,7 +248,7 @@ public class RemoteLogManagerMetricsTest {
         
         // Test with different retention values - create a new task to avoid state issues
         RLMExpirationTask task2 = setupExpirationTaskForPartitionSizeMetricTest();
-        task2.buildRetentionSizeData(20000, 200, 200, 2000, epochEntries, 400);
+        task2.buildRetentionSizeData(20000, 200, 200, 2000, epochEntries, 400, 20000);
         
         // Verify updated values
         // Total size = 200 + 10240 = 10440, percentage = (10440 * 100) / 20000 = 52%
@@ -242,7 +263,7 @@ public class RemoteLogManagerMetricsTest {
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
         
-        task.buildRetentionSizeData(0, 100, 100, 1000, epochEntries, 0);
+        task.buildRetentionSizeData(0, 100, 100, 1000, epochEntries, 0, Long.MAX_VALUE);
         
         // Should be 0% when retention sizes are 0
         assertEquals(0, task.sizeInPercent());
@@ -257,7 +278,7 @@ public class RemoteLogManagerMetricsTest {
         
         // Test with negative retention (disabled)
             // Should return empty Optional when retention is disabled (-1)
-        Optional<RemoteLogManager.RetentionSizeData> result = task.buildRetentionSizeData(-1, 100, 100, 1000, epochEntries, -1);
+        Optional<RemoteLogManager.RetentionSizeData> result = task.buildRetentionSizeData(-1, 100, 100, 1000, epochEntries, -1, Long.MAX_VALUE);
         assertEquals(Optional.empty(), result);
     }
 
@@ -266,7 +287,7 @@ public class RemoteLogManagerMetricsTest {
         RLMExpirationTask task = setupExpirationTaskForPartitionSizeMetricTest();
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
         
         // Verify initial metrics are set
         assertEquals(84, task.sizeInPercent());
@@ -325,7 +346,7 @@ public class RemoteLogManagerMetricsTest {
         
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        task.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
         
         assertEquals(84, task.sizeInPercent());
         assertEquals(1, task.localSizeInPercent());
@@ -363,7 +384,7 @@ public class RemoteLogManagerMetricsTest {
         // Build retention data as leader
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        leaderTask.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        leaderTask.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
         assertEquals(84, leaderTask.sizeInPercent());
         assertEquals(1, leaderTask.localSizeInPercent());
         
@@ -420,7 +441,7 @@ public class RemoteLogManagerMetricsTest {
         // Build retention data as new leader
         TreeMap<Integer, Long> epochEntries = new TreeMap<>();
         epochEntries.put(epochEntry0.epoch, epochEntry0.startOffset);
-        leaderTask.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144);
+        leaderTask.buildRetentionSizeData(12288, 100, 100, 1000, epochEntries, 6144, 12288);
         
         // Verify metrics are properly set after becoming leader
         assertEquals(84, leaderTask.sizeInPercent());
