@@ -20,6 +20,7 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
 import java.io.InputStream;
 import java.util.Map;
@@ -48,6 +49,16 @@ public interface RemoteDataPrefetcher extends Reconfigurable {
      * @return the InputStream for the requested log segment range if prefetched, otherwise null
      */
     InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata, int startPosition, int endPosition);
+
+    /**
+     * Fetches the index file for the given remote log segment metadata and index type if it has been prefetched.
+     * If the index file is not available in the prefetched data, this method returns null.
+     *
+     * @param remoteLogSegmentMetadata the metadata of the remote log segment whose index is being fetched
+     * @param indexType                the type of index to fetch (e.g., offset index, time index)
+     * @return the InputStream for the requested index if prefetched, otherwise null
+     */
+    InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, RemoteStorageManager.IndexType indexType);
 
     /**
      * Cleans up any prefetched data that may have been loaded during the operation

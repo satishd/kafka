@@ -36,6 +36,7 @@ import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -240,14 +241,19 @@ public class PrefetchSegmentManager implements Reconfigurable {
         if (cacheValue == null || cacheValue.status() != PrefetchStatus.SUCCESS) {
             return null; // Cache miss or segment not successfully downloaded
         }
+        InputStream inputStream = RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), startPosition, endPosition);
+        rsmMetrics.markPrefetchSegmentRead();
+        return inputStream;
+    }
 
-        try {
-            InputStream inputStream = RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), startPosition, endPosition);
-            rsmMetrics.markPrefetchSegmentRead();
-            return inputStream;
-        } catch (Exception e) {
-            throw e;
+    public InputStream fetchIndex(RemoteLogSegmentId segmentId, RemoteStorageManager.IndexType indexType) throws IOException {
+        CacheValue cacheValue = segmentCache.getIfPresent(segmentId);
+        if (cacheValue == null || cacheValue.status() != PrefetchStatus.SUCCESS) {
+            return null;
         }
+        InputStream inputStream = RSMUtils.getInputStreamFromChannel(cacheValue.fileChannel(), indexType);
+        rsmMetrics.markPrefetchSegmentRead();
+        return inputStream;
     }
 
     public void downloadSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {

@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -41,6 +42,7 @@ public class HDFSDataFetcher implements DataFetcher {
         return fileSystemManager.getFS(options);
     }
 
+    @Override
     public long fileLength(RemoteLogSegmentMetadata metadata) throws IOException {
         Path dataPath = getDataPath(metadata);
         return getFS(metadata).getFileStatus(dataPath).getLen();
@@ -50,6 +52,12 @@ public class HDFSDataFetcher implements DataFetcher {
     public FSDataInputStream fetchSegmentData(RemoteLogSegmentMetadata metadata) throws IOException {
         Path dataPath = getDataPath(metadata);
         return getFS(metadata).open(dataPath);
+    }
+
+    @Override
+    public RemoteStorageProvider storageProvider(RemoteLogSegmentMetadata metadata) {
+        String bucket = fileSystemManager.getBucket(metadata);
+        return fileSystemManager.getRemoteStorageProvider(bucket);
     }
 
     private Path getDataPath(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {

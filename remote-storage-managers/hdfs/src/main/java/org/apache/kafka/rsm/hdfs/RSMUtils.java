@@ -21,6 +21,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
 import org.apache.hadoop.fs.Path;
 
@@ -47,7 +48,23 @@ public final class RSMUtils {
         return baseDir + Path.SEPARATOR + partition.topicPartition() + "-" + partition.topicId();
     }
 
+    public static InputStream getInputStreamFromChannel(FileChannel channel, RemoteStorageManager.IndexType indexType)
+            throws IOException {
+        LogSegmentDataHeader header = getLogSegmentDataHeader(channel);
+        LogSegmentDataHeader.FileType fileType = getFileTypeFromIndexType(indexType);
+        LogSegmentDataHeader.DataPosition dataPosition = header.getDataPosition(fileType);
+        return readInputStreamFromChannel(channel, dataPosition, 0, dataPosition.getLength() - 1);
+    }
+
     public static InputStream getInputStreamFromChannel(FileChannel channel, int startPosition, int endPosition) throws IOException {
+        // Read and parse the header first
+        LogSegmentDataHeader header = getLogSegmentDataHeader(channel);
+        // Get the data position from the header
+        LogSegmentDataHeader.DataPosition dataPosition = header.getDataPosition(LogSegmentDataHeader.FileType.SEGMENT);
+        return readInputStreamFromChannel(channel, dataPosition, startPosition, endPosition);
+    }
+
+    static LogSegmentDataHeader getLogSegmentDataHeader(FileChannel channel) throws IOException {
         // Read and parse the header first
         ByteBuffer headerBuffer = ByteBuffer.allocate(LogSegmentDataHeader.LENGTH);
         int byteReads = channel.read(headerBuffer, 0);
@@ -55,11 +72,13 @@ public final class RSMUtils {
             throw new IOException("Failed to read LogSegmentDataHeader from channel");
         }
         headerBuffer.flip();
+        return LogSegmentDataHeader.deserialize(headerBuffer);
+    }
 
-        LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(headerBuffer);
-        // Get the data position from the header
-        LogSegmentDataHeader.DataPosition dataPosition = header.getDataPosition(LogSegmentDataHeader.FileType.SEGMENT);
-
+    private static InputStream readInputStreamFromChannel(FileChannel channel,
+                                                          LogSegmentDataHeader.DataPosition dataPosition,
+                                                          int startPosition,
+                                                          int endPosition) throws IOException {
         // fileLength is the length of both the LogSegmentDataHeader and the Segment file.
         long fileLength = channel.size();
         long segmentLength = fileLength - dataPosition.getPos();
@@ -109,6 +128,23 @@ public final class RSMUtils {
                 // Do nothing
             }
         };
+    }
+
+    static LogSegmentDataHeader.FileType getFileTypeFromIndexType(RemoteStorageManager.IndexType indexType) {
+        switch (indexType) {
+            case OFFSET:
+                return LogSegmentDataHeader.FileType.OFFSET_INDEX;
+            case TIMESTAMP:
+                return LogSegmentDataHeader.FileType.TIMESTAMP_INDEX;
+            case TRANSACTION:
+                return LogSegmentDataHeader.FileType.TRANSACTION_INDEX;
+            case LEADER_EPOCH:
+                return LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT;
+            case PRODUCER_SNAPSHOT:
+                return LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT;
+            default:
+                throw new IllegalArgumentException("Unsupported index type: " + indexType);
+        }
     }
 
     /**

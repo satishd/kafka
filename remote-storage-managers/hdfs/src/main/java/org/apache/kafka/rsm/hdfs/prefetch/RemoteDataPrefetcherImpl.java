@@ -25,6 +25,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,6 +139,25 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
             return inputStream;
         } catch (Exception e) {
             LOGGER.warn("Failed to fetch segment data for segmentId: {}", segmentId, e);
+            return null;
+        }
+    }
+
+    @Override
+    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
+                                  RemoteStorageManager.IndexType indexType) {
+        RemoteLogSegmentId segmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
+        try {
+            InputStream inputStream = prefetchSegmentManager.fetchIndex(segmentId, indexType);
+            if (inputStream == null) {
+                // Log at trace level as index files are few MBs compared to full segment read.
+                LOGGER.trace("Segment data not prefetched for segmentId: {}, indexType: {}", segmentId, indexType);
+                return null;
+            }
+            LOGGER.trace("Returning prefetched segment data for segmentId: {}, indexType: {}", segmentId, indexType);
+            return inputStream;
+        } catch (Exception e) {
+            LOGGER.warn("Failed to fetch segment data for segmentId: {}, indexType: {}", segmentId, indexType, e);
             return null;
         }
     }

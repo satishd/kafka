@@ -157,6 +157,10 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
     @Override
     public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
                                   IndexType indexType) throws RemoteStorageException {
+        InputStream is = remoteDataPrefetcher.fetchIndex(remoteLogSegmentMetadata, indexType);
+        if (is != null) {
+            return is;
+        }
         return hdfsRemoteStorageManager.fetchIndex(remoteLogSegmentMetadata, indexType);
     }
 

@@ -25,6 +25,7 @@ import org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics;
 import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.slf4j.Logger;
@@ -52,6 +53,7 @@ public class DownloadTask implements Callable<FileChannel> {
     private final RLMQuotaManager rlmQuotaManager;
     private final ReentrantLock lock;
     private final Condition lockCondition;
+    private final boolean usePositionalReads;
 
     // Using a direct ByteBuffer to avoid an extra memory copy between user space buffers during data transfer from tempBuffer to fileChannel
     private final ThreadLocal<ByteBuffer> threadLocalBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(BUFFER_SIZE));
@@ -73,6 +75,7 @@ public class DownloadTask implements Callable<FileChannel> {
         this.rlmQuotaManager = quotaManager;
         this.lock = lock;
         this.lockCondition = lockCondition;
+        this.usePositionalReads = RemoteStorageProvider.HDFS == dataFetcher.storageProvider(remoteLogSegmentMetadata);
     }
 
     public RemoteLogSegmentMetadata getRemoteLogSegmentMetadata() {
@@ -136,12 +139,16 @@ public class DownloadTask implements Callable<FileChannel> {
             ByteBuffer buffer = threadLocalBuffer.get();
             byte[] tempBuffer = threadLocalTempBuffer.get();
 
+            // We are using positioned read API because hedged reads in HDFS are supported only for positioned read API
+            ReadFunction readFunc = usePositionalReads
+                    ? inputStream::read
+                    : (pos, buf, off, len) -> inputStream.read(buf, off, len);
+
             // Read from InputStream and write to FileChannel
             int bytesRead;
             int pos = 0;
-            
-            // We are using positioned read API because hedged reads in HDFS are supported only for positioned read API
-            while ((bytesRead = inputStream.read(pos, tempBuffer, 0, tempBuffer.length)) != -1) {
+
+            while ((bytesRead = readFunc.read(pos, tempBuffer, 0, tempBuffer.length)) != -1) {
                 buffer.put(tempBuffer, 0, bytesRead);
                 buffer.flip();
                 fileChannel.write(buffer);
@@ -178,5 +185,10 @@ public class DownloadTask implements Callable<FileChannel> {
         public static Result error(Exception e, long downloadSize) {
             return new Result(null, downloadSize, e);
         }
+    }
+
+    @FunctionalInterface
+    private interface ReadFunction {
+        int read(int pos, byte[] buffer, int offset, int length) throws IOException;
     }
 }

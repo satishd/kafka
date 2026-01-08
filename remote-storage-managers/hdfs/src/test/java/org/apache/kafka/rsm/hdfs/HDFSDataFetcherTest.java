@@ -22,6 +22,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -141,5 +142,20 @@ public class HDFSDataFetcherTest {
         assertEquals("hdfs://localhost:9000", fileSystemOptions.bucket());
         assertTrue(fileSystemOptions.hedgedReadsEnabled());
         assertTrue(fileSystemOptions.readAheadEnabled());
+    }
+
+    @Test
+    public void testStorageProvider() {
+        // Set up the mock FileSystemManager to return a mock RemoteStorageProvider
+        RemoteStorageProvider hdfsProvider = RemoteStorageProvider.HDFS;
+        when(mockFileSystemManager.getRemoteStorageProvider("hdfs://localhost:9000"))
+                .thenReturn(hdfsProvider);
+        assertEquals(hdfsProvider, dataFetcher.storageProvider(metadata));
+
+        RemoteStorageProvider ociProvider = RemoteStorageProvider.OCI;
+        when(mockFileSystemManager.getRemoteStorageProvider("oci://bucket-name"))
+                .thenReturn(ociProvider);
+        when(mockFileSystemManager.getBucket(metadata)).thenReturn("oci://bucket-name");
+        assertEquals(ociProvider, dataFetcher.storageProvider(metadata));
     }
 }

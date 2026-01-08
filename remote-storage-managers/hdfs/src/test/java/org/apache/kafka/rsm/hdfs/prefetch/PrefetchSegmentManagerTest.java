@@ -28,6 +28,8 @@ import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -199,24 +201,38 @@ public class PrefetchSegmentManagerTest {
         segmentManager.setSegmentCache(cache);
 
         // Call the method under test
-        InputStream result = segmentManager.fetchLogSegment(segmentId, 0, Integer.MAX_VALUE);
-
-        // Verify the result
-        assertNotNull(result, "Should return an InputStream for cache hit");
-        byte[] buffer = new byte[4];
-        assertEquals(4, result.read(buffer));
-        assertEquals(1, buffer[0]);
-        assertEquals(2, buffer[1]);
-        assertEquals(3, buffer[2]);
-        assertEquals(4, buffer[3]);
+        try (InputStream result = segmentManager.fetchLogSegment(segmentId, 0, Integer.MAX_VALUE)) {
+            // Verify the result
+            assertNotNull(result, "Should return an InputStream for cache hit");
+            byte[] buffer = new byte[128];
+            assertEquals(4, result.read(buffer));
+            assertEquals(1, buffer[0]);
+            assertEquals(2, buffer[1]);
+            assertEquals(3, buffer[2]);
+            assertEquals(4, buffer[3]);
+        }
 
         // Verify segment reads is recorded
         verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 1);
+
+        // Call the fetchIndex
+        for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
+            try (InputStream indexStream = segmentManager.fetchIndex(segmentId, indexType)) {
+                assertNotNull(indexStream, "Should return an InputStream for cache hit");
+                byte[] buffer = new byte[128];
+                // index / auxiliary files are of length 10 bytes
+                assertEquals(10, indexStream.read(buffer));
+            }
+        }
+        // Verify index reads are recorded
+        verifyMeter(PREFETCH_SEGMENT_READS_PER_SEC, 6);
     }
 
-    @Test
-    public void testDownloadSegment() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"hdfs", "oci"})
+    public void testDownloadSegment(String provider) throws Exception {
         clearKafkaMetrics();
+        RemoteStorageProvider storageProvider = RemoteStorageProvider.fromName(provider);
         segmentManager.configure(configs);
 
         // Verify initial metrics
@@ -229,6 +245,7 @@ public class PrefetchSegmentManagerTest {
         FSDataInputStream mockFSDataInputStream = mock(FSDataInputStream.class);
         when(mockDataFetcher.fetchSegmentData(any())).thenReturn(mockFSDataInputStream);
         when(mockDataFetcher.fileLength(any())).thenReturn(4L);
+        when(mockDataFetcher.storageProvider(any())).thenReturn(storageProvider);
         segmentManager.setDataFetcher(mockDataFetcher);
 
         // Call the method under test
@@ -340,9 +357,11 @@ public class PrefetchSegmentManagerTest {
         verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 1);
     }
 
-    @Test
-    public void testDownloadSegmentSuccess() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"hdfs", "oci"})
+    public void testDownloadSegmentSuccess(String provider) throws Exception {
         clearKafkaMetrics();
+        RemoteStorageProvider storageProvider = RemoteStorageProvider.fromName(provider);
         segmentManager.configure(configs);
 
         // Verify initial metrics
@@ -357,9 +376,14 @@ public class PrefetchSegmentManagerTest {
         FSDataInputStream mockFSDataInputStream = mock(FSDataInputStream.class);
         when(mockDataFetcher.fetchSegmentData(any())).thenReturn(mockFSDataInputStream);
         when(mockDataFetcher.fileLength(any())).thenReturn(4L);
+        when(mockDataFetcher.storageProvider(any())).thenReturn(storageProvider);
 
-        // Mock read behavior to return EOF immediately
-        when(mockFSDataInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenReturn(-1);
+        // Mock read behavior to return EOF immediately -- positional reads
+        when(mockFSDataInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt()))
+                .thenReturn(-1);
+        // // Mock read behavior to return EOF immediately
+        when(mockFSDataInputStream.read(any(byte[].class), anyInt(), anyInt()))
+                .thenReturn(-1);
 
         // Create a custom ThreadPoolExecutor that will execute the task immediately in the current thread
         ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,

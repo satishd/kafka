@@ -59,6 +59,7 @@ import java.util.stream.Collectors;
 import static com.oracle.bmc.hdfs.BmcConstants.NUM_READ_AHEAD_THREADS_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY;
+import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
@@ -76,6 +77,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
 
 /**
@@ -212,12 +214,16 @@ public class FileSystemManager {
      * @param hdfsRemoteStorageManagerConfig the configuration object containing OCI-specific read ahead settings
      */
     public void setOCIReadAheadConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
+        Boolean isOciReadAheadEnabled = hdfsRemoteStorageManagerConfig.getBoolean(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP);
         Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
         Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
         Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
-        conf.setInt(READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
-        conf.setInt(READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
-        conf.setInt(NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
+        conf.setBoolean(READ_AHEAD_KEY, isOciReadAheadEnabled);
+        if (isOciReadAheadEnabled) {
+            conf.setInt(READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
+            conf.setInt(READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
+            conf.setInt(NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
+        }
         LOGGER.info("Hadoop configuration after setting read ahead properties for OCI : {}", confToString(conf));
     }
 

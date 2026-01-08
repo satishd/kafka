@@ -46,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -237,6 +238,18 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
 
         assertSame(expectedStream, result);
         verify(mockHdfsRsm).fetchIndex(metadata, indexType);
+    }
+
+    @Test
+    public void testFetchIndexWithPrefetchedData() throws RemoteStorageException {
+        InputStream expectedStream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        when(mockPrefetcher.fetchIndex(eq(metadata), any())).thenReturn(expectedStream);
+        for (IndexType indexType : IndexType.values()) {
+            InputStream result = manager.fetchIndex(metadata, indexType);
+            assertSame(expectedStream, result);
+            verify(mockPrefetcher).fetchIndex(metadata, indexType);
+        }
+        verify(mockHdfsRsm, never()).fetchIndex(any(), any());
     }
 
     @Test

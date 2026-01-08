@@ -155,6 +155,11 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
         "This controls how many prefetch requests can be queued up before new requests are rejected.";
     public static final int DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY = 1000;
 
+    public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP = "oci.prefetch.client.read.ahead.enable";
+    public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_DOC = "Enable read ahead by the prefetch client for OCI";
+    // When ReadAhead is disabled, then the `BmcDirectFSInputStream` gets used for reading the objects from OCI.
+    public static final boolean DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE = false;
+
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP = "oci.prefetch.client.read.ahead.block.count";
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_DOC = "Number of blocks to read ahead by the prefetch client of OCI";
     public static final int DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT = 2;
@@ -211,6 +216,7 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_MAX_SIZE, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_MAX_SIZE_DOC)
             .define(PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_DOC)
             .define(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY, atLeast(1), ConfigDef.Importance.MEDIUM, PREFETCH_THREAD_POOL_QUEUE_CAPACITY_DOC)
+            .define(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, BOOLEAN, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE, MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_DOC)
             .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT, atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_DOC)
             .define(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE, atLeast(1048576), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_DOC)
             .define(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS, atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_DOC)

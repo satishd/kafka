@@ -18,6 +18,7 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -30,6 +31,11 @@ public class NoOpDataFetcher implements DataFetcher {
 
     @Override
     public FSDataInputStream fetchSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+        return null;
+    }
+
+    @Override
+    public RemoteStorageProvider storageProvider(RemoteLogSegmentMetadata metadata) {
         return null;
     }
 }

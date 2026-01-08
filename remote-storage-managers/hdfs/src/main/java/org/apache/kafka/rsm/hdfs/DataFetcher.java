@@ -18,6 +18,7 @@
 package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -28,4 +29,6 @@ public interface DataFetcher {
     long fileLength(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws IOException;
 
     FSDataInputStream fetchSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws IOException;
+
+    RemoteStorageProvider storageProvider(RemoteLogSegmentMetadata metadata);
 }

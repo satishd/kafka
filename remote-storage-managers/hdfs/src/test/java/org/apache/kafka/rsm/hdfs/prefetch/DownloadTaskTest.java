@@ -30,6 +30,7 @@ import org.apache.kafka.rsm.hdfs.RSMUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -38,6 +39,8 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.File;
 import java.io.IOException;
@@ -84,6 +87,7 @@ public class DownloadTaskTest {
     private RLMQuotaManager rlmQuotaManager;
     private ReentrantLock lock;
     private Condition lockCondition;
+    private long pos;
 
     @TempDir
     Path tempDir;
@@ -130,10 +134,13 @@ public class DownloadTaskTest {
 
         lock = spy(new ReentrantLock());
         lockCondition = spy(lock.newCondition());
+        pos = 0;
     }
 
-    @Test
-    public void testSuccessfulDownload() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"hdfs", "oci"})
+    public void testSuccessfulDownload(String provider) throws Exception {
+        RemoteStorageProvider storageProvider = RemoteStorageProvider.fromName(provider);
         // Mock data content
         byte[] testData = new byte[1024];
         for (int i = 0; i < testData.length; i++) {
@@ -143,8 +150,9 @@ public class DownloadTaskTest {
         // Set up mock behavior
         when(mockDataFetcher.fetchSegmentData(metadata)).thenReturn(mockInputStream);
         when(mockDataFetcher.fileLength(metadata)).thenReturn((long) (LogSegmentDataHeader.LENGTH + testData.length));
+        when(mockDataFetcher.storageProvider(metadata)).thenReturn(storageProvider);
 
-        // Mock read behavior for data
+        // Mock read behavior for data using positional reads
         when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
             long pos = invocation.getArgument(0);
             byte[] buffer = invocation.getArgument(1);
@@ -155,6 +163,20 @@ public class DownloadTaskTest {
             if (bytesToCopy <= 0) return -1; // EOF
 
             System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+            return bytesToCopy;
+        });
+
+        // Mock read behavior for data using non-positional reads
+        when(mockInputStream.read(any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
+            byte[] buffer = invocation.getArgument(0);
+            int offset = invocation.getArgument(1);
+            int length = invocation.getArgument(2);
+
+            int bytesToCopy = Math.min(length, (int) (testData.length - pos));
+            if (bytesToCopy <= 0) return -1; // EOF
+
+            System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+            pos += bytesToCopy;
             return bytesToCopy;
         });
 
@@ -194,16 +216,16 @@ public class DownloadTaskTest {
     public void testQuotaReservationOnSuccess() throws Exception {
         byte[] testData = createSequentialTestData(1024);
         long fileSize = stubFetchAndFileLength(testData);
-        when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
+        when(mockInputStream.read(any(byte[].class), anyInt(), anyInt())).thenAnswer(invocation -> {
             // Get invocation parameters
-            long pos = invocation.getArgument(0);
-            byte[] buffer = invocation.getArgument(1);
-            int offset = invocation.getArgument(2);
-            int length = invocation.getArgument(3);
+            byte[] buffer = invocation.getArgument(0);
+            int offset = invocation.getArgument(1);
+            int length = invocation.getArgument(2);
 
             int bytesToCopy = Math.min(length, (int) (testData.length - pos));
             if (bytesToCopy <= 0) return -1;
             System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+            pos += bytesToCopy;
             return bytesToCopy;
         });
 
@@ -223,16 +245,16 @@ public class DownloadTaskTest {
         long fileSize = stubFetchAndFileLength(testData);
 
         // Simulate: first call reads 256 bytes, second call throws IOException
-        when(mockInputStream.read(anyLong(), any(byte[].class), anyInt(), anyInt()))
+        when(mockInputStream.read(any(byte[].class), anyInt(), anyInt()))
             .thenAnswer(invocation -> {
                 // Get invocation parameters
-                long pos = invocation.getArgument(0);
-                byte[] buffer = invocation.getArgument(1);
-                int offset = invocation.getArgument(2);
-                int length = invocation.getArgument(3);
+                byte[] buffer = invocation.getArgument(0);
+                int offset = invocation.getArgument(1);
+                int length = invocation.getArgument(2);
 
                 int bytesToCopy = Math.min(length, 256);
                 System.arraycopy(testData, (int) pos, buffer, offset, bytesToCopy);
+                pos += bytesToCopy;
                 return bytesToCopy;
             })
             .thenThrow(new IOException("Simulated read failure"));

@@ -25,6 +25,7 @@ import org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.test.TestUtils;
 
 import org.apache.hadoop.fs.Path;
@@ -326,6 +327,59 @@ class RSMUtilsTest {
             // Check available bytes after partial read
             int expectedAvailable = initialAvailable - bytesRead;
             assertEquals(expectedAvailable, inputStream.available());
+        }
+    }
+
+    @Test
+    public void testGetFileTypeFromIndexType() {
+        assertEquals(LogSegmentDataHeader.FileType.OFFSET_INDEX,
+                RSMUtils.getFileTypeFromIndexType(RemoteStorageManager.IndexType.OFFSET));
+        assertEquals(LogSegmentDataHeader.FileType.TIMESTAMP_INDEX,
+                RSMUtils.getFileTypeFromIndexType(RemoteStorageManager.IndexType.TIMESTAMP));
+        assertEquals(LogSegmentDataHeader.FileType.TRANSACTION_INDEX,
+                RSMUtils.getFileTypeFromIndexType(RemoteStorageManager.IndexType.TRANSACTION));
+        assertEquals(LogSegmentDataHeader.FileType.LEADER_EPOCH_CHECKPOINT,
+                RSMUtils.getFileTypeFromIndexType(RemoteStorageManager.IndexType.LEADER_EPOCH));
+        assertEquals(LogSegmentDataHeader.FileType.PRODUCER_SNAPSHOT,
+                RSMUtils.getFileTypeFromIndexType(RemoteStorageManager.IndexType.PRODUCER_SNAPSHOT));
+    }
+
+    @Test
+    public void testGetLogSegmentDataHeader() throws IOException {
+        int segmentSize = 100;
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+        File testFile = new File(tempDir, "test-file");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            LogSegmentDataHeader header = RSMUtils.getLogSegmentDataHeader(channel);
+            assertEquals(LogSegmentDataHeader.CURRENT_VERSION, header.version());
+            for (LogSegmentDataHeader.FileType fileType : LogSegmentDataHeader.FileType.values()) {
+                Integer position = header.filePositions().get(fileType);
+                assertEquals(Integer.valueOf(LogSegmentDataHeader.LENGTH + fileType.ordinal() * 10), position);
+            }
+        }
+    }
+
+    @Test
+    public void testGetInputStreamForIndex() throws IOException {
+        int segmentSize = 100;
+        byte[] testData = TestUtils.randomBytes(segmentSize);
+        File testFile = new File(tempDir, "test-file");
+        try (FileChannel channel = FileChannel.open(testFile.toPath(),
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+            RSMTestUtils.writeData(channel, testData);
+        }
+        byte[] buffer = new byte[20];
+        try (FileChannel channel = FileChannel.open(testFile.toPath(), StandardOpenOption.READ)) {
+            for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
+                try (InputStream inputStream = RSMUtils.getInputStreamFromChannel(channel, indexType)) {
+                    // index / auxiliary files are of length 10 bytes
+                    assertEquals(10, inputStream.read(buffer));
+                }
+            }
         }
     }
 }

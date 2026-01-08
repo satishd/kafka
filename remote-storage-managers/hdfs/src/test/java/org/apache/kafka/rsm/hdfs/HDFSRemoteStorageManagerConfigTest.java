@@ -74,6 +74,13 @@ public class HDFSRemoteStorageManagerConfigTest {
             "Invalid value  for configuration prefetch.local.base.dir: String must be non-empty");
     }
 
+    @Test
+    public void testDefaultPrefetchConfigs() {
+        Map<String, String> props = defaultProps();
+        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
+        assertFalse(config.getBoolean(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP));
+    }
+
     private static Map<String, String> defaultProps() {
         Map<String, String> props = new HashMap<>();
         props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");

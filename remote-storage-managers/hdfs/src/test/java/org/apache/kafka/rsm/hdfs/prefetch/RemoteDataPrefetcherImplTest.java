@@ -24,6 +24,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
+import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -222,6 +223,19 @@ public class RemoteDataPrefetcherImplTest {
     }
 
     @Test
+    public void testFetchIndexWithPrefetchedData() throws IOException {
+        // Set up the segment manager to return a prefetched index
+        InputStream expectedStream = new ByteArrayInputStream(new byte[]{4, 5, 6});
+        when(mockSegmentManager.fetchIndex(eq(metadata.remoteLogSegmentId()), any()))
+            .thenReturn(expectedStream);
+
+        for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
+            InputStream result = prefetcher.fetchIndex(metadata, indexType);
+            assertEquals(expectedStream, result);
+        }
+    }
+
+    @Test
     public void testFetchLogSegmentWithNoPrefetchedData() throws IOException {
         // Set up the segment manager to return no prefetched segment
         when(mockSegmentManager.fetchLogSegment(metadata.remoteLogSegmentId(), 10, 50))
@@ -235,6 +249,16 @@ public class RemoteDataPrefetcherImplTest {
     }
 
     @Test
+    public void testFetchIndexWithNoPrefetchedData() throws IOException {
+        // Set up the segment manager to return no prefetched segment
+        when(mockSegmentManager.fetchIndex(eq(metadata.remoteLogSegmentId()), any()))
+                .thenReturn(null);
+        for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
+            assertNull(prefetcher.fetchIndex(metadata, indexType));
+        }
+    }
+
+    @Test
     public void testFetchLogSegmentWithException() throws IOException {
         // Set up the segment manager to throw an exception
         when(mockSegmentManager.fetchLogSegment(metadata.remoteLogSegmentId(), 10, 50))
@@ -245,6 +269,16 @@ public class RemoteDataPrefetcherImplTest {
 
         // Verify the result
         assertNull(result);
+    }
+
+    @Test
+    public void testFetchIndexWithException() throws IOException {
+        // Set up the segment manager to return no prefetched segment
+        when(mockSegmentManager.fetchIndex(eq(metadata.remoteLogSegmentId()), any()))
+                .thenThrow(new RuntimeException("Test exception"));
+        for (RemoteStorageManager.IndexType indexType : RemoteStorageManager.IndexType.values()) {
+            assertNull(prefetcher.fetchIndex(metadata, indexType));
+        }
     }
 
     @Test

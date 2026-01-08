@@ -68,6 +68,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DEFA
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -392,24 +393,27 @@ public class FileSystemManagerTest {
         FileSystemManager fileSystemManager = new FileSystemManager();
         fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
 
-        assertEquals("2", config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
-        assertEquals("4194304", config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
-        assertEquals("10", config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+        assertEquals("false", config.get(BmcConstants.READ_AHEAD_KEY));
+        assertNull(config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
+        assertNull(config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
+        assertNull(config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
     }
 
     @Test
     public void testSetOCIReadAheadConfiguration() {
         Map<String, Object> props = new HashMap<>();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, 1);
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, 1048576);
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, 2);
+        props.put(HDFS_BASE_DIR_PROP, "/tmp");
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, true);
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, 1);
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, 1048576);
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, 2);
         HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
 
         Configuration config = new Configuration();
         FileSystemManager fileSystemManager = new FileSystemManager();
         fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
 
+        assertEquals("true", config.get(BmcConstants.READ_AHEAD_KEY));
         assertEquals("1", config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
         assertEquals("1048576", config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
         assertEquals("2", config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
@@ -423,10 +427,11 @@ public class FileSystemManagerTest {
     })
     public void testSetOCIReadAheadConfigurationWithInvalidValues(int blockCount, int blockSize, int numThreads) {
         Map<String, Object> props = new HashMap<>();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, blockCount);
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, blockSize);
-        props.put(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, numThreads);
+        props.put(HDFS_BASE_DIR_PROP, "/tmp");
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, "true");
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, blockCount);
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, blockSize);
+        props.put(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, numThreads);
 
         assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(props, false));
     }
@@ -441,6 +446,7 @@ public class FileSystemManagerTest {
         
         // Create a new configs map for this test
         Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, true);
         testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
         testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
         testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
@@ -465,6 +471,8 @@ public class FileSystemManagerTest {
             Configuration readAheadConf = configCaptor.getValue();
             
             // Verify that the read-ahead configuration values are set correctly
+            assertEquals("true",
+                    readAheadConf.get(BmcConstants.READ_AHEAD_KEY));
             assertEquals(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT, 
                     readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, -1));
             assertEquals(DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE, 
@@ -485,6 +493,7 @@ public class FileSystemManagerTest {
         
         // Create a new configs map for this test
         Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, true);
         testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
         testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
         testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
@@ -526,6 +535,8 @@ public class FileSystemManagerTest {
             Configuration readAheadConf = configCaptor.getValue();
             
             // Verify that the read-ahead configuration values are set correctly
+            assertTrue(
+                    readAheadConf.getBoolean(BmcConstants.READ_AHEAD_KEY, false));
             assertEquals(customBlockCount, 
                     readAheadConf.getInt(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY, -1));
             assertEquals(customBlockSize, 
@@ -569,6 +580,7 @@ public class FileSystemManagerTest {
 
         // Create a new configs map for this test
         Map<String, Object> testConfigs = new HashMap<>();
+        testConfigs.put(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP, true);
         testConfigs.put(HDFS_DEFAULT_FS_URI_PROP, defaultFsUri);
         testConfigs.put(HDFS_OCI_BUCKETS_PROP, OCI_BUCKET);
         testConfigs.put(HDFS_BASE_DIR_PROP, "kafka-remote-logs");
@@ -662,6 +674,7 @@ public class FileSystemManagerTest {
                                      int expectedReadAheadBlockCount,
                                      int expectedReadAheadBlockSize,
                                      int expectedReadAheadNumThreads) {
+        assertTrue(conf.getBoolean(BmcConstants.READ_AHEAD_KEY, false));
         assertEquals(Integer.toString(expectedReadAheadBlockCount), conf.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
         assertEquals(Integer.toString(expectedReadAheadBlockSize), conf.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
         assertEquals(Integer.toString(expectedReadAheadNumThreads), conf.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
