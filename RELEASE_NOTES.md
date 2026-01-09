@@ -1,3 +1,18 @@
+# Release Kafka 3.9.12-uber build (01/09/2026)
+- Reduce the HEAD call when deleting the segments in OCI storage.
+- Bump streaming-tools to 15011.gbpc9523f version.
+- Support for ISR Blocklist, new replica exclude list, leader deprioritized list, follower fetch latest offset feature, and URPByBrokerId metric on Kraft. 
+- Implemented rate limiter on segment upload in the connector layer. 
+- ConfigCommand#validatePropsKey should accept `$` symbol.
+- DKAFC-6801: Remote Connector metrics should include reading Auxiliary files.
+- Change log level to debug when remote LIST_OFFSETS call fail to avoid noisy logs.
+- KAFKA-20026: Reduce the list metadata calls to RLMM during segment cleanup.
+- DKAFC-6837: Use OCI direct FS input stream for segment prefetch (#47).
+- DKAFC-6839: Increase prefetch segment expiration to 15 mins to avoid thrashing (#49).
+- BugFix: 
+  - KAFKA-19970: Add configurable TTL for tiered storage index cache eviction (#39)
+  - DKAFC-6830: Remote log size in DESCRIBE_LOG_DIRS API should exclude upload retries (#46)
+
 # Release Kafka 3.9.11-uber build (11/13/2025)
 - Streaming tool version: 2.0.1~14962.gbp6f3bf2
 - Fix negative remote data pending upload metric.
