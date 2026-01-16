@@ -138,7 +138,7 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
 
     public static final String PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP = "prefetch.cache.expire.after.access.time.minutes";
     public static final String PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_DOC = "The duration in minutes after which an entry in the prefetch cache expires if not accessed";
-    public static final int DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES = 15;
+    public static final int DEFAULT_PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES = 10;
 
     public static final String PREFETCH_THREAD_POOL_CORE_SIZE_PROP = "prefetch.thread.pool.core.size";
     public static final String PREFETCH_THREAD_POOL_CORE_SIZE_DOC = "The core size of the thread pool used for prefetching segments. " +

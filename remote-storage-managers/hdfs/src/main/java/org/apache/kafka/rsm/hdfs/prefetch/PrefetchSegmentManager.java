@@ -267,7 +267,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
             // We successfully claimed this segment for download
             createDownloadTask(remoteLogSegmentMetadata);
         } else {
-            LOGGER.trace("Segment {} is already downloaded or in progress, skipping download.", remoteLogSegmentId);
+            LOGGER.debug("Segment {} is already downloaded or in progress, skipping download.", remoteLogSegmentId);
         }
     }
 

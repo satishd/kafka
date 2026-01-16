@@ -113,7 +113,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
     private final Cache<RemoteLogSegmentId, SegmentHeaderHolder> segmentHeaderHolderCache =
             Caffeine.newBuilder()
                     .maximumSize(20_000)
-                    .expireAfterAccess(Duration.ofMinutes(10))
+                    .expireAfterWrite(Duration.ofMinutes(10))
                     .build();
     private final HDFSRemoteStorageManagerMetrics metrics;
     private final AtomicInteger openInputStreamCount = new AtomicInteger();
