@@ -28,7 +28,7 @@ die() {
 
 bash udeploy/config.sh
 KAFKA_JVM_FILE='kafka_container_jvm_env_vars.sh'
-if [ -f /tmp/dsc/${KAFKA_JVM_FILE} ] 
+if [ -f /tmp/dsc/${KAFKA_JVM_FILE} ]
 then
     source /tmp/dsc/${KAFKA_JVM_FILE}
 fi
@@ -139,10 +139,10 @@ then
     then
         while true
         do
-           echo "something was wrong, please check the /tmp/rebuild.log, do an infite loop here to prevent containter keeps getting restarted"
+           echo "something was wrong, please check the /var/log/kafka/rebuild.log, do an infite loop here to prevent containter keeps getting restarted"
            echo "to re-enable the offline rebuild(if the issues are identified and fixd), remove the KAFKA_CONTAINER_OFFLINE_REBUILD.previous_run file. e.g.: "
            echo "sudo docker exec $(sudo docker ps |grep kafka |grep worker$ |awk '{print $NF}') rm /volumes/shared/KAFKA_CONTAINER_OFFLINE_REBUILD.previous_run"
-           sleep 300 
+           sleep 300
         done
     fi
     touch "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.previous_run"
@@ -152,19 +152,17 @@ then
     echo "Checking if rsync has a shared offline rebuild path which can be used"
     override_rebuild_path_with_rsync
     echo "kick off rebuild script"
-    ${OFFLINE_REBUILD_COMMAND} >/tmp/rebuild.log 2>&1
+    ${OFFLINE_REBUILD_COMMAND} >>/var/log/kafka/rebuild.log 2>&1
     echo "after rsync complete, if it's successful, starting kafka"
     if [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.done" ]
     then 
         echo "kick off the clean up after rsync and delta catch-up" 
         echo "start kafka process"
         # Running the cleanup in background and handing over the control to start_kafka
-        { unset JMX_PORT; unset KAFKA_JMX_OPTS; sleep 10; ${OFFLINE_REBUILD_COMMAND_CLEANUP} >>/tmp/rebuild.log 2>&1; } &
-        start_kafka >>/tmp/rebuild.log 2>&1
+        { unset JMX_PORT; unset KAFKA_JMX_OPTS; sleep 10; ${OFFLINE_REBUILD_COMMAND_CLEANUP} >>/var/log/kafka/rebuild.log 2>&1; } &
+        start_kafka
     fi 
 else 
     echo "start kafka process as normal"
     start_kafka
 fi
-
-
