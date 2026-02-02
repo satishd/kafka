@@ -1,3 +1,8 @@
+# Release Kafka 3.9.13-uber build (02/02/2026)
+- Streaming tool version: 2.0.1~15082.gbp889939
+- Revert "DKAFC-6839: Increase prefetch segment expiration to 15 mins to avoid thrashing"
+- move rebuild log ot /var/log so that it can be sent to logging
+
 # Release Kafka 3.9.12-uber build (01/09/2026)
 - Reduce the HEAD call when deleting the segments in OCI storage.
 - Bump streaming-tools to 15011.gbpc9523f version.
