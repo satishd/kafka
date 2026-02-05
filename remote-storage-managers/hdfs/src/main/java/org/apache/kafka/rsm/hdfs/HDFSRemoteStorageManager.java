@@ -637,7 +637,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         // Sends a remote fetch to read the file header.
         long currentTimeMs = time.milliseconds();
         byte[] buffer = new byte[LogSegmentDataHeader.LENGTH];
-        metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(0, buffer));
+        metrics.timeSegmentHeaderRead(storageProvider, () -> inputStream.readFully(buffer));
         LogSegmentDataHeader header = LogSegmentDataHeader.deserialize(ByteBuffer.wrap(buffer));
 
         FileSystem fileSystem = getFS(bucket);
@@ -702,7 +702,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                             headerHolder.fileLength(), dataPosition.getPos() + dataPosition.getLength(), getString(segmentId)));
                 }
                 bufferedData = new byte[Math.min(MAX_AUX_BUFFER_SIZE, dataPosition.getLength())];
-                inputStream.seek(dataPosition.getPos());
+                // Internally, the `seek` operation triggers a new OCI GET request when using direct streams:
+                // 1. When the index is empty (txn indexes are empty for most of the topics), then no need to seek.
+                //    Return an empty stream.
+                // 2. If the data position matches with the input stream current position after the segmentHeader read,
+                //    then no need to seek.
+                //      a. RemoteIndexCache reads the offset-index first; that means after reading the header,
+                //         offset-index can also be read without a seek.
+                //      b. In all the other cases, seek to the required data position and read the index.
+                if (dataPosition.getLength() > 0 && inputStream.getPos() != dataPosition.getPos()) {
+                    inputStream.seek(dataPosition.getPos());
+                }
             } catch (Exception e) {
                 if (inputStream != null) {
                     Utils.closeAll(inputStream);
@@ -746,6 +756,9 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
+    /**
+     * CachedInputStream is not thread safe, don't share the stream across threads.
+     */
     class CachedInputStream extends InputStream {
         private final RemoteLogSegmentId segmentId;
         private final String bucket;
@@ -759,6 +772,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         private final long realFileLen;
         // Type of currentPos is kept as `long` to avoid overflow error when the realFileLen is higher than 2 GB.
         private long currentPos;
+        // initialize the stream only when you want to read the data from remote, otherwise reads the data from cache.
         private FSDataInputStream inputStream;
 
         /**
@@ -940,8 +954,19 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             wrapper = byteBufferPool.acquire().retain();
 
             ByteBuffer byteBuffer = wrapper.getByteBuffer();
-            metrics.timeSegmentRead(storageProvider,
-                () -> inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength));
+            metrics.timeSegmentRead(storageProvider, () -> {
+                if (enableHedgedReads) {
+                    inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
+                } else {
+                    // There is a chance that the same chunk of data might be read by a different thread in a separate
+                    // stream instance and cached, and this stream might read that cached data, so we cannot expect
+                    // that the inputStream.getPos() to always match with the actualPosition.
+                    if (inputStream.getPos() != actualPosition) {
+                        inputStream.seek(actualPosition);
+                    }
+                    inputStream.readFully(byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
+                }
+            });
             // Explicitly set the position to 0 since we wrote to the buffer from the beginning.
             byteBuffer.position(0);
             // We have to explicitly set the limit to the dataLength as the buffer is borrowed from the pool. The

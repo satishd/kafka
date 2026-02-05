@@ -43,6 +43,7 @@ import com.yammer.metrics.core.Metric;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
@@ -78,6 +79,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -135,10 +137,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -1189,6 +1196,46 @@ public class HDFSRemoteStorageManagerTest {
         // Permit should be taken upto the fileLength or chunk of 4 MB.
         List<Integer> permitsTaken = permitsArgCaptor.getAllValues();
         assertEquals(expectedLastPermits, permitsTaken.get(permitsTaken.size() - 1));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testUsePositionalReadsOnlyWhenHedgedReadsAreEnabled(boolean isHedgedReadsEnabled) throws Exception {
+        clearKafkaMetrics();
+        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager();
+             MockedStatic<FileSystem> mockedFileSystem = Mockito.mockStatic(FileSystem.class)) {
+            FileSystem spyFileSystem = spy(hdfs);
+            mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
+                    .thenReturn(spyFileSystem);
+            rsm.configure(configs);
+            rsm.setTime(time);
+            rsm.registerStreamMetrics();
+
+            AtomicReference<FSDataInputStream> spyInputStreamRef = new AtomicReference<>();
+            doAnswer(invocation -> {
+                Path path = invocation.getArgument(0);
+                FSDataInputStream realStream = hdfs.open(path);
+                FSDataInputStream spyStream = spy(realStream);
+                spyInputStreamRef.set(spyStream);
+                return spyStream;
+            }).when(spyFileSystem).open(any(Path.class));
+
+            Uuid uuid = Uuid.randomUuid();
+            int segSize = 1000;
+            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
+            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id, 0L, 100L, 0L, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, segSize, false);
+            rsm.copyLogSegmentData(segmentMetadata, segmentData);
+
+            RemoteReadContext readContext = RemoteReadContext.builder()
+                    .withBlockPrefetchEnabled(true)
+                    .withHedgedReadsEnabled(isHedgedReadsEnabled)
+                    .build();
+            verifyFetchLogSegmentInternal(rsm, segmentMetadata, segmentData, readContext, 0, 99, 100);
+            verify(spyInputStreamRef.get(), isHedgedReadsEnabled ? atLeastOnce() : never())
+                    .readFully(anyLong(), any(), anyInt(), anyInt());
+            reset(spyInputStreamRef.get());
+        }
     }
 
     private RemoteLogSegmentId generateRemoteLogSegmentId() {
