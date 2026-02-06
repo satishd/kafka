@@ -51,6 +51,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -59,6 +60,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP;
@@ -94,6 +99,8 @@ public class PrefetchSegmentManager implements Reconfigurable {
     private String prefetchDir;
     private ThreadPoolExecutor threadPoolExecutor;
     private Cache<RemoteLogSegmentId, CacheValue> segmentCache;
+    private CircuitBreakerConfig breakerConfig;
+    private CircuitBreaker circuitBreaker;
 
     public PrefetchSegmentManager(FileSystemManager fileSystemManager, HDFSRemoteStorageManagerMetrics rsmMetrics) {
         this.fileSystemManager = fileSystemManager;
@@ -114,7 +121,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
         int queueCapacity = conf.getInt(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP);
         this.threadPoolExecutor = new ThreadPoolExecutor(corePoolSize, maxPoolSize, 0L, TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<>(queueCapacity),
-            ThreadUtils.createThreadFactory("remote-log-prefetch", false,
+            ThreadUtils.createThreadFactory("remote-log-prefetch-%d", false,
                 (t, e) -> LOGGER.error("Uncaught exception in thread '{}':", t.getName(), e)));
 
         int maxCacheSize = conf.getInt(PREFETCH_CACHE_MAX_SIZE_PROP);
@@ -126,7 +133,10 @@ public class PrefetchSegmentManager implements Reconfigurable {
                 .recordStats()
                 .build();
 
+        circuitBreaker = CircuitBreaker.of("prefetch-circuit-breaker", getOrCreateBreakerConfig());
+
         rsmMetrics.registerPrefetchMetrics(this.threadPoolExecutor, this.segmentCache, this.prefetchDir);
+        rsmMetrics.registerPrefetchCircuitBreakerMetrics(circuitBreaker);
 
         RLMQuotaManagerConfig rlmQuotaManagerConfig = fetchQuotaManagerConfig(conf);
         Metrics metrics = (Metrics) configs.get(METRICS);
@@ -257,6 +267,11 @@ public class PrefetchSegmentManager implements Reconfigurable {
     }
 
     public void downloadSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
+        if (!circuitBreaker.tryAcquirePermission()) {
+            LOGGER.trace("Skipping download of segment {} due to circuit breaker open.", remoteLogSegmentMetadata.remoteLogSegmentId());
+            return;
+        }
+
         RemoteLogSegmentId remoteLogSegmentId = remoteLogSegmentMetadata.remoteLogSegmentId();
         CacheValue existingValue = segmentCache.asMap().putIfAbsent(
             remoteLogSegmentId,
@@ -280,6 +295,7 @@ public class PrefetchSegmentManager implements Reconfigurable {
     }
 
     private void createDownloadTask(RemoteLogSegmentMetadata segmentMetadata) {
+        long startMs = time.milliseconds();
         try {
             Task task = new Task(segmentMetadata);
             threadPoolExecutor.submit(task);
@@ -287,10 +303,12 @@ public class PrefetchSegmentManager implements Reconfigurable {
         } catch (RejectedExecutionException e) {
             rsmMetrics.markPrefetchThreadPoolExecutorRejection();
             LOGGER.error("Task rejected by thread pool for segment: {}", segmentMetadata.remoteLogSegmentId(), e);
-            signalDownloadFailure(segmentMetadata);
+            signalDownloadFailure(segmentMetadata, false);
+            // don't include rejected execution exceptions in the circuit breaker
         } catch (Exception e) {
             LOGGER.error("Failed to submit download task for segment: {}", segmentMetadata.remoteLogSegmentId(), e);
-            signalDownloadFailure(segmentMetadata);
+            signalDownloadFailure(segmentMetadata, true);
+            circuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
         }
     }
 
@@ -300,9 +318,11 @@ public class PrefetchSegmentManager implements Reconfigurable {
         rsmMetrics.markPrefetchRequestSuccess();
     }
 
-    private void signalDownloadFailure(RemoteLogSegmentMetadata segmentMetadata) {
+    private void signalDownloadFailure(RemoteLogSegmentMetadata segmentMetadata, boolean recordFailureMetric) {
         segmentCache.invalidate(segmentMetadata.remoteLogSegmentId());
-        rsmMetrics.markPrefetchRequestFailure();
+        if (recordFailureMetric) {
+            rsmMetrics.markPrefetchRequestFailure();
+        }
     }
 
     private class Task implements Runnable {
@@ -316,13 +336,35 @@ public class PrefetchSegmentManager implements Reconfigurable {
 
         @Override
         public void run() {
+            long startMs = time.milliseconds();
             try {
                 FileChannel fileChannel = downloadTask.call();
                 signalDownloadSuccess(remoteLogSegmentMetadata, fileChannel);
+                circuitBreaker.onSuccess(time.milliseconds() - startMs, TimeUnit.MILLISECONDS);
             } catch (Exception e) {
                 LOGGER.error("Error while downloading segment: {}", downloadTask.getRemoteLogSegmentMetadata(), e);
-                signalDownloadFailure(remoteLogSegmentMetadata);
+                signalDownloadFailure(remoteLogSegmentMetadata, true);
+                circuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
             }
         }
+    }
+
+    private CircuitBreakerConfig getOrCreateBreakerConfig() {
+        if (breakerConfig == null) {
+            breakerConfig = CircuitBreakerConfig.custom()
+                    .slowCallRateThreshold(50)
+                    .waitIntervalFunctionInOpenState(
+                            IntervalFunction.ofRandomized(Duration.ofMinutes(5), 0.8))
+                    .build();
+        }
+        return breakerConfig;
+    }
+
+    CircuitBreaker breaker() {
+        return circuitBreaker;
+    }
+
+    void setCircuitBreakerConfig(CircuitBreakerConfig breakerConfig) {
+        this.breakerConfig = breakerConfig;
     }
 }

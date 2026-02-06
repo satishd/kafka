@@ -30,6 +30,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
+import org.apache.kafka.test.TestUtils;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -59,7 +60,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
 
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CACHE_EXPIRE_AFTER_ACCESS_TIME_MINUTES_PROP;
@@ -68,6 +74,7 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_CORE_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_CIRCUIT_BREAKER_STATE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_FILE_COUNT;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_DOWNLOAD_DIRECTORY_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.PREFETCH_REQUESTS_PER_SEC;
@@ -90,6 +97,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class PrefetchSegmentManagerTest {
@@ -104,6 +114,7 @@ public class PrefetchSegmentManagerTest {
     private RemoteLogSegmentId segmentId;
     private Map<String, Object> configs;
     private HDFSRemoteStorageManagerMetrics metrics;
+    private final TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), 0, "test-topic");
 
     @TempDir
     Path tempDir;
@@ -116,7 +127,6 @@ public class PrefetchSegmentManagerTest {
         segmentManager.setDataFetcher(mockDataFetcher);
 
         // Create test metadata
-        TopicIdPartition topicIdPartition = new TopicIdPartition(Uuid.randomUuid(), 0, "test-topic");
         segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
         Map<Integer, Long> segmentLeaderEpochs = Collections.singletonMap(5, 100L);
 
@@ -726,6 +736,141 @@ public class PrefetchSegmentManagerTest {
         segmentManager.reconfigure(newConfigs);
         assertEquals(1, threadPoolExecutor.getCorePoolSize());
         assertEquals(4, threadPoolExecutor.getMaximumPoolSize());
+    }
+
+    @Test
+    public void testNoPrefetchWhenCircuitBreakerIsOpen() {
+        clearKafkaMetrics();
+        segmentManager.configure(configs);
+
+        Cache<RemoteLogSegmentId, CacheValue> cache = spy(Caffeine.newBuilder().build());
+        segmentManager.setSegmentCache(cache);
+
+        // Manually open the circuit breaker
+        segmentManager.breaker().transitionToOpenState();
+        assertEquals(CircuitBreaker.State.OPEN, segmentManager.breaker().getState());
+        verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.OPEN.getOrder());
+
+        // Call the method under test
+        segmentManager.downloadSegment(metadata);
+
+        verify(cache, never()).asMap();
+        verifyMeter(PREFETCH_REQUESTS_PER_SEC, 0);
+    }
+
+    @Test
+    public void testPrefetchCircuitBreaker() throws IOException, InterruptedException {
+        clearKafkaMetrics();
+
+        segmentManager.setCircuitBreakerConfig(testCircuitBreakerConfig());
+        segmentManager.configure(configs);
+
+        Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
+        segmentManager.setSegmentCache(cache);
+
+        // Set up the mock data fetcher to throw an exception
+        // First mock fileLength to return a positive value
+        AtomicInteger invocationCount = new AtomicInteger();
+        when(mockDataFetcher.fileLength(any())).thenReturn(1024L);
+        when(mockDataFetcher.fetchSegmentData(any())).thenAnswer(invocation -> {
+            invocationCount.incrementAndGet();
+            throw new IOException("Test download exception");
+        });
+        segmentManager.setDataFetcher(mockDataFetcher);
+        RemoteLogSegmentId segmentId = metadata.remoteLogSegmentId();
+
+        // Call the method under test
+        for (int i = 0; i < 9; i++) {
+            segmentManager.downloadSegment(metadata);
+            TestUtils.waitForCondition(() -> !cache.asMap().containsKey(segmentId),
+                    "should be removed from cache");
+            assertEquals(CircuitBreaker.State.CLOSED, segmentManager.breaker().getState());
+            verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.CLOSED.getOrder());
+        }
+        segmentManager.downloadSegment(metadata);
+        TestUtils.waitForCondition(() -> !cache.asMap().containsKey(segmentId),
+                "should be removed from cache");
+        assertEquals(CircuitBreaker.State.OPEN, segmentManager.breaker().getState());
+        verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.OPEN.getOrder());
+        assertEquals(10, invocationCount.get());
+
+        segmentManager.breaker().transitionToHalfOpenState();
+        // The next download should be attempted
+        for (int i = 0; i < 5; i++) {
+            assertEquals(CircuitBreaker.State.HALF_OPEN, segmentManager.breaker().getState());
+            verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.HALF_OPEN.getOrder());
+            segmentManager.downloadSegment(metadata);
+            TestUtils.waitForCondition(() -> !cache.asMap().containsKey(segmentId),
+                    "should be removed from cache");
+        }
+        assertEquals(CircuitBreaker.State.OPEN, segmentManager.breaker().getState());
+        verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.OPEN.getOrder());
+        assertEquals(15, invocationCount.get());
+
+        // Once the circuit breaker is opened, future calls should not be sent
+        for (int i = 0; i < 100; i++) {
+            segmentManager.downloadSegment(metadata);
+        }
+        assertEquals(15, invocationCount.get());
+    }
+
+    @Test
+    public void shouldNotOpenCircuitBreakerWhenRejectedExecutionExceptionThrown() throws IOException {
+        clearKafkaMetrics();
+
+        segmentManager.setCircuitBreakerConfig(testCircuitBreakerConfig());
+        configs.put(PREFETCH_THREAD_POOL_CORE_SIZE_PROP, 1);
+        configs.put(PREFETCH_THREAD_POOL_MAX_SIZE_PROP, 1);
+        configs.put(PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP, 5);
+        segmentManager.configure(configs);
+
+        Cache<RemoteLogSegmentId, CacheValue> cache = Caffeine.newBuilder().build();
+        segmentManager.setSegmentCache(cache);
+
+        CountDownLatch blockingLatch = new CountDownLatch(1);
+        FSDataInputStream mockFSDataInputStream = mock(FSDataInputStream.class);
+        when(mockDataFetcher.fileLength(any())).thenReturn(1024L);
+        when(mockDataFetcher.fetchSegmentData(any())).thenAnswer(invocation -> {
+            blockingLatch.await();
+            return mockFSDataInputStream;
+        });
+        segmentManager.setDataFetcher(mockDataFetcher);
+        segmentManager.downloadSegment(metadata);
+        for (int i = 0; i < 100; i++) {
+            segmentManager.downloadSegment(generateCopyFinishedSegmentMetadata());
+        }
+        blockingLatch.countDown();
+        // should not transition the state to OPEN when RejectedExecutionException is thrown
+        assertEquals(CircuitBreaker.State.CLOSED, segmentManager.breaker().getState());
+        verifyGauge(PREFETCH_CIRCUIT_BREAKER_STATE, CircuitBreaker.State.CLOSED.getOrder());
+        verifyMeter(PREFETCH_REQUEST_FAILURE_PER_SEC, 0);
+        verifyMeter(PREFETCH_THREADPOOL_EXECUTOR_REJECTION_PER_SEC, 95);
+    }
+
+    private CircuitBreakerConfig testCircuitBreakerConfig() {
+        return CircuitBreakerConfig.custom()
+                .minimumNumberOfCalls(10)
+                .slidingWindowSize(10)
+                .permittedNumberOfCallsInHalfOpenState(5)
+                .slowCallRateThreshold(50)
+                .waitIntervalFunctionInOpenState(
+                        IntervalFunction.ofRandomized(Duration.ofMinutes(5), 0.8))
+                .build();
+    }
+
+    private RemoteLogSegmentMetadata generateCopyFinishedSegmentMetadata() {
+        segmentId = new RemoteLogSegmentId(topicIdPartition, Uuid.randomUuid());
+        return new RemoteLogSegmentMetadata(
+                segmentId,
+                0L,
+                100L,
+                1000L,
+                1,
+                System.currentTimeMillis(),
+                1024,
+                Optional.empty(),
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
+                Collections.singletonMap(0, 0L));
     }
 
     private void verifyMeter(String name, long expectedCount) {

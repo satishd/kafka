@@ -120,6 +120,7 @@ public class HDFSRemoteStorageManagerMetrics {
     // Tracks the state of the circuit breaker
     static final String COPY_CIRCUIT_BREAKER_STATE = "copy-circuit-breaker-state";
     static final String DELETE_CIRCUIT_BREAKER_STATE = "delete-circuit-breaker-state";
+    public static final String PREFETCH_CIRCUIT_BREAKER_STATE = "prefetch-circuit-breaker-state";
 
     private final Map<RemoteStorageProvider, Timer> segmentReadTimerByProvider = new HashMap<>();
     private final Map<RemoteStorageProvider, Timer> segmentHeaderReadTimerByProvider = new HashMap<>();
@@ -441,6 +442,17 @@ public class HDFSRemoteStorageManagerMetrics {
                     @Override
                     public Integer value() {
                         return deleteCircuitBreaker.getState().getOrder();
+                    }
+                });
+    }
+
+    public void registerPrefetchCircuitBreakerMetrics(CircuitBreaker prefetchCircuitBreaker) {
+        Class<?> klass = PrefetchEnabledHDFSRemoteStorageManager.class;
+        KafkaYammerMetrics.defaultRegistry().newGauge(
+                metricName(klass, PREFETCH_CIRCUIT_BREAKER_STATE), new Gauge<Integer>() {
+                    @Override
+                    public Integer value() {
+                        return prefetchCircuitBreaker.getState().getOrder();
                     }
                 });
     }
