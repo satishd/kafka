@@ -165,7 +165,7 @@ versions += [
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
   kafkasecurity: "2.0.14",
-  hadoop: '2.8.2.61',
+  hadoop: '2.8.2.72',
   brokerHadoopConnector: '0.10.8-176',
   resilience4j: '1.7.1',
 ]
@@ -275,5 +275,6 @@ libs += [
   hadoopCfsShaded: "org.apache.hadoop:hadoop-cfs-shaded:$versions.hadoop",
   ociHdfsFull: "com.oracle.oci.sdk:oci-hdfs-full:$versions.hadoop",
   brokerHadoopConnector: "com.google.cloud.broker:broker-hadoop-connector:$versions.brokerHadoopConnector:hadoop2-full",
+  resilience4jCircuitBreaker: "io.github.resilience4j:resilience4j-circuitbreaker:$versions.resilience4j",
   resilience4jRatelimiter: "io.github.resilience4j:resilience4j-ratelimiter:$versions.resilience4j",
 ]
