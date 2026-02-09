@@ -36,11 +36,13 @@ public class RemoteReadContextTest {
                 .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(null)
                 .withSegmentPrefetchEnabled(false)
+                .withMaxBytes(1000)
                 .build();
         assertTrue(context1.isBlockPrefetchEnabled());
         assertFalse(context1.isHedgedReadsEnabled());
         assertFalse(context1.isSegmentPrefetchEnabled());
         assertNull(context1.getNextSegmentOffsetAndEpoch());
+        assertEquals(1000, context1.maxBytes());
 
         // Test with non-null nextSegmentOffsetAndEpoch
         OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(100L, 5);
@@ -56,6 +58,7 @@ public class RemoteReadContextTest {
         assertEquals(offsetAndEpoch, context2.getNextSegmentOffsetAndEpoch());
         assertEquals(100L, context2.getNextSegmentOffsetAndEpoch().offset());
         assertEquals(5, context2.getNextSegmentOffsetAndEpoch().leaderEpoch());
+        assertEquals(-1, context2.maxBytes());
     }
 
     @Test
@@ -175,6 +178,7 @@ public class RemoteReadContextTest {
                 .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch)
                 .withSegmentPrefetchEnabled(true)
+                .withMaxBytes(1000)
                 .build();
         
         String toString = context.toString();
@@ -182,5 +186,6 @@ public class RemoteReadContextTest {
         assertTrue(toString.contains("hedgedReadsEnabled=false"));
         assertTrue(toString.contains("nextSegmentOffsetAndEpoch=" + offsetAndEpoch));
         assertTrue(toString.contains("segmentPrefetchEnabled=true"));
+        assertTrue(toString.contains("maxBytes=1000"));
     }
 }

@@ -40,6 +40,8 @@ import org.apache.kafka.server.log.remote.storage.RetriableRemoteStorageExceptio
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.oracle.bmc.hdfs.monitoring.StatsMonitorInputStream;
+import com.oracle.bmc.hdfs.store.BmcDirectRangedFSInputStream;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -556,7 +558,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 stream = new CachedInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
                         startPosition, endPosition, isHedgedReadsEnabled);
             } else {
-                stream = new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider, startPosition, endPosition);
+                stream = new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
+                        startPosition, endPosition, readContext.maxBytes());
             }
             return new SafeInputStream(stream, fetchErrorHandler);
         } catch (IOException e) {
@@ -1027,7 +1030,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                           String bucket,
                           RemoteStorageProvider storageProvider,
                           int startPos,
-                          int endPos) throws IOException {
+                          int endPos,
+                          int maxBytes) throws IOException {
             this.segmentId = segmentId;
             this.bucket = bucket;
             this.storageProvider = storageProvider;
@@ -1049,6 +1053,29 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     validSegmentLen = Math.min(endPos + 1, validSegmentLen);
                 }
                 readableSegmentLen = Math.max(0, validSegmentLen - startPos);
+                // 1 MB extra is added to the range of the GET request as the offset index is sparse and might skip a
+                // few record batches. Note that the exact amount of data gets read from the real stream, so there is
+                // no data thrash.
+                //
+                // KRP configures the batch.size to 16 KB, and linger.ms = [2 ms for lossless and 50 ms for lossy].
+                // UReplicator configures the batch.size to 256 KB, and linger.ms = 1000 ms.
+                // The offset-index search mechanism does a binary search and returns the file position that is
+                // lesser than or equal to the target offset.
+                //
+                // Offset-index maintains (last-offset-of-batch, position-of-batch) entries.
+                // So, in the worst-case, the offset-index might return the position of the previous batch.
+                // In such cases, the consumer will skip the current batch and start reading from the next batch.
+                // So, we need at least (2x of uRep batchSize + payload) to cover for the skipped record batches.
+                int firstBlockSize = Math.min((int) readableSegmentLen, maxBytes + 1048576);
+                if (firstBlockSize > 4 * 1048576 &&
+                        inputStream.getWrappedStream() instanceof StatsMonitorInputStream) {
+                    StatsMonitorInputStream statsMonitorInputStream = (StatsMonitorInputStream) inputStream.getWrappedStream();
+                    InputStream bmcInputStream = statsMonitorInputStream.getWrappedStream();
+                    if (bmcInputStream instanceof BmcDirectRangedFSInputStream) {
+                        ((BmcDirectRangedFSInputStream) bmcInputStream).setFirstBlockSize(firstBlockSize);
+                        LOGGER.debug("Set first block size to {} for {}", firstBlockSize, getString(segmentId));
+                    }
+                }
                 inputStream.seek(dataPosition.getPos() + startPos);
                 if (LOGGER.isTraceEnabled()) {
                     LOGGER.trace("SimpleInputStream started with segmentId: {}, startPos: {}, endPos: {}, " +

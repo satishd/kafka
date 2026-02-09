@@ -1970,6 +1970,7 @@ public class RemoteLogManager implements Closeable {
                 .withHedgedReadsEnabled(enableHedgedReads)
                 .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
                 .withSegmentPrefetchEnabled(enableSegmentPrefetch)
+                .withMaxBytes(maxBytes)
                 .build();
         EnrichedRecordBatch enrichedRecordBatch = new EnrichedRecordBatch(null, 0);
         InputStream remoteSegInputStream = null;

@@ -397,6 +397,7 @@ public class FileSystemManagerTest {
         assertNull(config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
         assertNull(config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
         assertNull(config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+        assertEquals("false", config.get(BmcConstants.READ_DIRECT_RANGED_KEY));
     }
 
     @Test

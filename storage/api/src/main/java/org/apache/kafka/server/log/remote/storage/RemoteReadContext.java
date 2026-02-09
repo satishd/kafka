@@ -25,15 +25,18 @@ public class RemoteReadContext {
     private final boolean hedgedReadsEnabled;
     private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
     private final boolean segmentPrefetchEnabled;
+    private final int maxBytes;
 
     private RemoteReadContext(boolean blockPrefetchEnabled,
                               boolean hedgedReadsEnabled,
                               OffsetAndEpoch nextSegmentOffsetAndEpoch,
-                              boolean segmentPrefetchEnabled) {
+                              boolean segmentPrefetchEnabled,
+                              int maxBytes) {
         this.blockPrefetchEnabled = blockPrefetchEnabled;
         this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
         this.segmentPrefetchEnabled = segmentPrefetchEnabled;
+        this.maxBytes = maxBytes;
     }
 
     public static Builder builder() {
@@ -45,6 +48,7 @@ public class RemoteReadContext {
         private boolean hedgedReadsEnabled = false;
         private OffsetAndEpoch nextSegmentOffsetAndEpoch = null;
         private boolean segmentPrefetchEnabled = false;
+        private int maxBytes = -1;
 
         private Builder() {
         }
@@ -69,9 +73,14 @@ public class RemoteReadContext {
             return this;
         }
 
+        public Builder withMaxBytes(int maxBytes) {
+            this.maxBytes = maxBytes;
+            return this;
+        }
+
         public RemoteReadContext build() {
             return new RemoteReadContext(blockPrefetchEnabled, hedgedReadsEnabled, 
-                                       nextSegmentOffsetAndEpoch, segmentPrefetchEnabled);
+                                       nextSegmentOffsetAndEpoch, segmentPrefetchEnabled, maxBytes);
         }
     }
 
@@ -91,6 +100,10 @@ public class RemoteReadContext {
         return nextSegmentOffsetAndEpoch;
     }
 
+    public int maxBytes() {
+        return maxBytes;
+    }
+
     @Override
     public String toString() {
         return "RemoteReadContext{" +
@@ -98,6 +111,7 @@ public class RemoteReadContext {
                 ", hedgedReadsEnabled=" + hedgedReadsEnabled +
                 ", nextSegmentOffsetAndEpoch=" + nextSegmentOffsetAndEpoch +
                 ", segmentPrefetchEnabled=" + segmentPrefetchEnabled +
+                ", maxBytes=" + maxBytes +
                 '}';
     }
 
@@ -108,11 +122,13 @@ public class RemoteReadContext {
         RemoteReadContext that = (RemoteReadContext) o;
         return blockPrefetchEnabled == that.blockPrefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled
                 && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch)
-                && segmentPrefetchEnabled == that.segmentPrefetchEnabled;
+                && segmentPrefetchEnabled == that.segmentPrefetchEnabled
+                && maxBytes == that.maxBytes;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch, segmentPrefetchEnabled);
+        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch,
+                segmentPrefetchEnabled, maxBytes);
     }
 }

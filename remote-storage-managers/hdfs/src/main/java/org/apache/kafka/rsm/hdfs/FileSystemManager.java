@@ -60,6 +60,7 @@ import static com.oracle.bmc.hdfs.BmcConstants.NUM_READ_AHEAD_THREADS_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_KEY;
+import static com.oracle.bmc.hdfs.BmcConstants.READ_DIRECT_RANGED_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
 import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
@@ -218,6 +219,9 @@ public class FileSystemManager {
         Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
         Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
         Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
+        // This setting is to ensure that BmcDirectFSInputStream is enabled instead of BmcDirectRangedFSInputStream
+        // for prefetch feature when OCI readAhead is disabled.
+        conf.setBoolean(READ_DIRECT_RANGED_KEY, false);
         conf.setBoolean(READ_AHEAD_KEY, isOciReadAheadEnabled);
         if (isOciReadAheadEnabled) {
             conf.setInt(READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
