@@ -35,7 +35,7 @@ java_standard:
   - 'RUN pip3 install pytz'
   - 'RUN pip3 install PyYAML'
   - 'RUN pip3 install m3'
-  - 'RUN apt-get update && apt-get install -y kafka-tools-odin=2.0.1~15082.gbp889939'
+  - 'RUN apt-get update && apt-get install -y kafka-tools-odin=2.0.1~15110.gbpfc0ac2'
   # Kerberos client libs are required to connect to
   #   1. secured HDFS cluster when remote storage option is enabled
   #   2. secured ZooKeeper cluster when zookeeper.set.acl=true
