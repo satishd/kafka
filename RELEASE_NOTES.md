@@ -1,3 +1,12 @@
+# Release Kafka 3.9.14-uber build (02/09/2026)
+- Streaming tool version: 2.0.1~15110.gbpfc0ac2
+- Use Direct range FS InputStream when reading from OCI (#57)
+- Upgrade oci-hdfs connector client to v2.8.2.72 (#60)
+- Support pod isolation with PodReplicaPlacer
+- Use circuit breaker for prefetch segment download failures (#54)
+- Avoid positional reads in CachedInputStream when reading from OCI (#58)
+- Add pod support in UsableBroker for canary isolation
+
 # Release Kafka 3.9.13-uber build (02/02/2026)
 - Streaming tool version: 2.0.1~15082.gbp889939
 - Revert "DKAFC-6839: Increase prefetch segment expiration to 15 mins to avoid thrashing"
@@ -6,15 +15,15 @@
 # Release Kafka 3.9.12-uber build (01/09/2026)
 - Reduce the HEAD call when deleting the segments in OCI storage.
 - Bump streaming-tools to 15011.gbpc9523f version.
-- Support for ISR Blocklist, new replica exclude list, leader deprioritized list, follower fetch latest offset feature, and URPByBrokerId metric on Kraft. 
-- Implemented rate limiter on segment upload in the connector layer. 
+- Support for ISR Blocklist, new replica exclude list, leader deprioritized list, follower fetch latest offset feature, and URPByBrokerId metric on Kraft.
+- Implemented rate limiter on segment upload in the connector layer.
 - ConfigCommand#validatePropsKey should accept `$` symbol.
 - DKAFC-6801: Remote Connector metrics should include reading Auxiliary files.
 - Change log level to debug when remote LIST_OFFSETS call fail to avoid noisy logs.
 - KAFKA-20026: Reduce the list metadata calls to RLMM during segment cleanup.
 - DKAFC-6837: Use OCI direct FS input stream for segment prefetch (#47).
 - DKAFC-6839: Increase prefetch segment expiration to 15 mins to avoid thrashing (#49).
-- BugFix: 
+- BugFix:
   - KAFKA-19970: Add configurable TTL for tiered storage index cache eviction (#39)
   - DKAFC-6830: Remote log size in DESCRIBE_LOG_DIRS API should exclude upload retries (#46)
 
@@ -24,7 +33,7 @@
 - Added metrics to configure alert for remote LIST_OFFSETS requests and errors.
 - Removed garbage characters when printing CustomMetadata in the RemoteLogSegmentMetadata.
 - Added circuit-breaker to reduce the copy / delete segment calls from Kafka to OCI when there is degradation in the object storage.
-- Provision to dynamically change the state of the circuit breaker for the copy / delete segment calls. 
+- Provision to dynamically change the state of the circuit breaker for the copy / delete segment calls.
 
 # Release Kafka 3.9.10-uber build (10/22/2025)
 - Enable parallel remote reads feature for remote storage with fix for heap-memory leak.
