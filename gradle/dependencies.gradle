@@ -165,7 +165,7 @@ versions += [
   zstd: "1.5.6-4",
   junitPlatform: "1.10.2",
   kafkasecurity: "2.0.14",
-  hadoop: '2.8.2.72',
+  hadoop: '2.8.2.74',
   brokerHadoopConnector: '0.10.8-176',
   resilience4j: '1.7.1',
 ]
