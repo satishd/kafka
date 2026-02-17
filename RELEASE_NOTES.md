@@ -1,3 +1,7 @@
+# Release Kafka 3.9.15-uber build (02/17/2026)
+- Bump oc-hdfs connector client to v2.9.2.74
+- Install confluent-kafka using pip for use in streaming tools script
+
 # Release Kafka 3.9.14-uber build (02/09/2026)
 - Streaming tool version: 2.0.1~15110.gbpfc0ac2
 - Use Direct range FS InputStream when reading from OCI (#57)
