@@ -31,6 +31,11 @@ export JVM_NEW_SIZE_MEM_MIN=${JVM_NEW_SIZE_MEM_MIN:-22G} # 22GB default
 export JVM_NEW_SIZE_MEM_MAX=${JVM_NEW_SIZE_MEM_MAX:-22G} # 22GB default
 export RSYNC_HEALTHY_WAIT_SEC=${RSYNC_HEALTHY_WAIT_SEC:-300} # 5min default
 export SERVER_STARTUP_WAIT_SEC=${SERVER_STARTUP_WAIT_SEC:-0} # 0s by default
+# Controller readiness wait timeout configuration
+# 0 = infinite wait (default), >0 = timeout in seconds
+export CONTROLLER_READINESS_WAIT_SECONDS=${CONTROLLER_READINESS_WAIT_SECONDS:-0}
+# Controller startup delay before checking readiness (in seconds)
+export CONTROLLER_STARTUP_DELAY_SECONDS=${CONTROLLER_STARTUP_DELAY_SECONDS:-30}
 HADOOP_CONF_DIR=/opt/hdfs/conf
 
 export DEFAULT_KAFKA_HEAP_OPTS="-Xms${JVM_HEAP_MEM_MIN} \
@@ -77,3 +82,4 @@ SHARED_RSYNC_PYTHON3_PATH=/shared/rsync_python3
 OFFLINE_REBUILD_ROOT_PATH_OVERRIDE="${SHARED_RSYNC_PYTHON3_PATH}/partition_moving_tools"
 OFFLINE_REBUILD_COMMAND_SUFFIX=/scripts/rebuild_broker_odin_kafka_container.sh
 OFFLINE_REBUILD_COMMAND_CLEANUP_SUFFIX=/scripts/rebuild_broker_odin_kafka_container_cleanup.sh
+TOOL_PATH=/usr/lib/python3/dist-packages/partition_moving_tools

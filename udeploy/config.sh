@@ -38,6 +38,7 @@ if [ "${dsc_server_properties_count}" -eq "1" ]; then
     rm -rf /tmp/dsc && mkdir -p /tmp/dsc
     bash ${DSC_SETUP_SCRIPT} /tmp/dsc
     cp /tmp/dsc/KAFKA/kafka/*/server.properties /etc/kafka/server.properties
+    cp /tmp/dsc/KAFKA/kafka/*/metadata.properties /etc/kafka/metadata.properties
     cp /tmp/dsc/KAFKA/kafka/*/broker-security.properties /etc/kafka/broker-security.properties || true
     cp /tmp/dsc/KAFKA/kafka/*/kafka_server_jaas.conf /etc/kafka/kafka_server_jaas.conf || true
     cp /tmp/dsc/KAFKA/kafka/*/log4j.xml /etc/kafka/log4j.xml || true

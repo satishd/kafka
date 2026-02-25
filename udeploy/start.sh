@@ -34,6 +34,7 @@ then
 fi
 
 source udeploy/vars.sh
+source udeploy/kraft_utils.sh
 
 # CLUSTER, UBER_PORT_KAFKA are replaced in odin-kafka-worker (src/code.uber.internal/storage/odin/kafka/worker/pkg/worker/dsc.go)
 export UBER_SECURE_PORT_KAFKA=9443
@@ -132,8 +133,46 @@ function override_rebuild_path_with_rsync() {
 #no need to use JMX_PORT anymore
 export JMX_PORT=""
 
-if [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}" ]
-then
+# Check if this is a controller-only node
+if is_controller_only; then
+    # Check for controller initialization marker file
+    if [ -f "/shared/INITIALIZE_QUORUM" ]; then
+        # Marker present: format as standalone (--ignore-formatted handles idempotency)
+        echo "=== Initializing Standalone Controller ==="
+        format_standalone_controller
+        if [ $? -eq 0 ]; then
+            start_kafka
+        else
+            die "Failed to initialize standalone controller"
+        fi
+    else
+        # Marker absent: join existing quorum (--ignore-formatted handles idempotency)
+        echo "=== Joining Existing Quorum ==="
+
+        format_controller_for_quorum
+        if [ $? -ne 0 ]; then
+            die "Failed to format controller for quorum"
+        fi
+
+        # Start background task to add controller to quorum after startup
+        # Note: Only needed if freshly formatted, but safe to run always
+        # The background process will continue independently after exec replaces this process
+        join_controller_to_quorum_background &
+        BACKGROUND_PID=$!
+        echo "Started background quorum join task (PID: ${BACKGROUND_PID})"
+
+        # Setup trap to cleanup background process if this script fails before exec
+        trap "echo 'Cleaning up background process ${BACKGROUND_PID}'; kill ${BACKGROUND_PID} 2>/dev/null || true" EXIT
+
+        # Start Kafka server in foreground (takes over PID 1)
+        # Note: exec replaces this process, so trap won't fire on successful startup
+        echo "Starting controller server..."
+        start_kafka
+    fi
+elif [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}" ]; then
+    # Existing offline rebuild logic for broker or combined mode
+    echo "Detected broker mode - checking for offline rebuild"
+
     # to prevent endless retry when something wrong and the offline rebuild keeps erroring out. for now retry=0, this logic can be enhanced to allow some retries.
     if [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.previous_run" ]
     then
@@ -147,22 +186,22 @@ then
     fi
     touch "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.previous_run"
 
-    # It needs to do offline rebuild first. 
-    # if the kafka container crashed or retarted (e.g. version upgrade), the rebuild can start from beginning. It's an idempotent operation. 
+    # It needs to do offline rebuild first.
+    # if the kafka container crashed or retarted (e.g. version upgrade), the rebuild can start from beginning. It's an idempotent operation.
     echo "Checking if rsync has a shared offline rebuild path which can be used"
     override_rebuild_path_with_rsync
     echo "kick off rebuild script"
     ${OFFLINE_REBUILD_COMMAND} >>/var/log/kafka/rebuild.log 2>&1
     echo "after rsync complete, if it's successful, starting kafka"
     if [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.done" ]
-    then 
-        echo "kick off the clean up after rsync and delta catch-up" 
+    then
+        echo "kick off the clean up after rsync and delta catch-up"
         echo "start kafka process"
         # Running the cleanup in background and handing over the control to start_kafka
         { unset JMX_PORT; unset KAFKA_JMX_OPTS; sleep 10; ${OFFLINE_REBUILD_COMMAND_CLEANUP} >>/var/log/kafka/rebuild.log 2>&1; } &
         start_kafka
-    fi 
-else 
+    fi
+else
     echo "start kafka process as normal"
     start_kafka
 fi
