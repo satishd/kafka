@@ -249,6 +249,7 @@ if (repo != null) {
     excludes.addAll([
         '**/.git/**',
         '**/build/**',
+        'CLAUDE.md',
         'CONTRIBUTING.md',
         'PULL_REQUEST_TEMPLATE.md',
         'gradlew',
