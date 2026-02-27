@@ -6940,7 +6940,7 @@ class ReplicaManagerTest {
     when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
     when(mockBrokerTopicStats.allTopicsStats).thenReturn(mockBrokerTopicMetrics)
 
-    val spyRm = spy(new ReplicaManager(
+    val rm: ReplicaManager = new ReplicaManager(
       metrics = metrics,
       config = config,
       time = time,
@@ -6951,7 +6951,8 @@ class ReplicaManagerTest {
       logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
       alterPartitionManager = alterPartitionManager,
       brokerTopicStats = mockBrokerTopicStats
-    ))
+    )
+    val spyRm = spy[ReplicaManager](rm)
 
     try {
       // Prepare a stubbed log read result with a positive segmentLargestTimestamp so that lookback is computed
@@ -7019,7 +7020,7 @@ class ReplicaManagerTest {
     when(mockBrokerTopicStats.allTopicsStats).thenReturn(mockBrokerTopicMetrics)
     when(mockBrokerTopicMetrics.totalFetchRequestRate()).thenReturn(mock(classOf[Meter]))
 
-    val spyRm = spy(new ReplicaManager(
+    val rm: ReplicaManager = new ReplicaManager(
       metrics = metrics,
       config = config,
       time = time,
@@ -7030,7 +7031,8 @@ class ReplicaManagerTest {
       logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size),
       alterPartitionManager = alterPartitionManager,
       brokerTopicStats = mockBrokerTopicStats
-    ))
+    )
+    val spyRm = spy[ReplicaManager](rm)
 
     try {
       val tp = new TopicPartition(topic, 0)
