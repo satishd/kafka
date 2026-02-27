@@ -28,7 +28,9 @@ import java.util.Set;
 import static org.apache.kafka.common.config.ConfigDef.Importance.LOW;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
 import static org.apache.kafka.common.config.ConfigDef.Type.CLASS;
+import static org.apache.kafka.common.config.ConfigDef.Type.DOUBLE;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
+import static org.apache.kafka.common.config.ConfigDef.Type.STRING;
 
 public class QuotaConfigs {
     public static final String NUM_QUOTA_SAMPLES_CONFIG = "quota.window.num";
@@ -58,6 +60,14 @@ public class QuotaConfigs {
             "which is used to determine quota limits applied to client requests. By default, the &lt;user&gt; and &lt;client-id&gt; " +
             "quotas that are stored in ZooKeeper are applied. For any given request, the most specific quota that matches the user principal " +
             "of the session and the client-id of the request is applied.";
+
+    public static final String ISR_EXPANSION_RATE_LIMIT_CONFIG = "isr.expansion.rate.limit";
+    public static final String ISR_EXPANSION_RATE_LIMIT_DOC = "The number of allowed replica expansions per second for the follower replicas from the given broker ids in isr.expansion.rate.limit.broker.list. This is useful" +
+            " when we have a lot of reassignments going on and blocked by isr.block.list, when we remove the isr.block.list, the rate" +
+            " limit will control the speed of joining isr, thus control the speed to finish reassignment, so that the controller won't see spike of events coming in.";
+
+    public static final String ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG = "isr.expansion.rate.limit.broker.list";
+    public static final String ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_DOC = "A list of broker ids that will be rate limited when replica on those broker try to join isr.";
 
     public static final String LEADER_REPLICATION_THROTTLED_REPLICAS_CONFIG = "leader.replication.throttled.replicas";
     public static final String LEADER_REPLICATION_THROTTLED_REPLICAS_DOC = "A list of replicas for which log replication should be throttled on " +
@@ -113,7 +123,9 @@ public class QuotaConfigs {
             .define(QuotaConfigs.REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG, INT, QuotaConfigs.QUOTA_WINDOW_SIZE_SECONDS_DEFAULT, atLeast(1), LOW, QuotaConfigs.REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC)
             .define(QuotaConfigs.ALTER_LOG_DIRS_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG, INT, QuotaConfigs.QUOTA_WINDOW_SIZE_SECONDS_DEFAULT, atLeast(1), LOW, QuotaConfigs.ALTER_LOG_DIRS_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_DOC)
             .define(QuotaConfigs.CONTROLLER_QUOTA_WINDOW_SIZE_SECONDS_CONFIG, INT, QuotaConfigs.QUOTA_WINDOW_SIZE_SECONDS_DEFAULT, atLeast(1), LOW, QuotaConfigs.CONTROLLER_QUOTA_WINDOW_SIZE_SECONDS_DOC)
-            .define(QuotaConfigs.CLIENT_QUOTA_CALLBACK_CLASS_CONFIG, CLASS, null, LOW, QuotaConfigs.CLIENT_QUOTA_CALLBACK_CLASS_DOC);
+            .define(QuotaConfigs.CLIENT_QUOTA_CALLBACK_CLASS_CONFIG, CLASS, null, LOW, QuotaConfigs.CLIENT_QUOTA_CALLBACK_CLASS_DOC)
+            .define(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, DOUBLE, Double.MAX_VALUE, atLeast(0.0001), LOW, QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_DOC)
+            .define(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, STRING, "", LOW, QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_DOC);
     private static final Set<String> USER_AND_CLIENT_QUOTA_NAMES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             PRODUCER_BYTE_RATE_OVERRIDE_CONFIG,
             CONSUMER_BYTE_RATE_OVERRIDE_CONFIG,

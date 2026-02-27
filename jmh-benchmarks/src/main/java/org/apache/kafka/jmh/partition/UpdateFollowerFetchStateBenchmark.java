@@ -34,6 +34,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.common.MetadataVersion;
+import org.apache.kafka.server.util.IsrExpansionRateLimiter;
 import org.apache.kafka.server.util.KafkaScheduler;
 import org.apache.kafka.storage.internals.log.CleanerConfig;
 import org.apache.kafka.storage.internals.log.LogConfig;
@@ -127,10 +128,11 @@ public class UpdateFollowerFetchStateBenchmark {
             .setIsNew(true);
         AlterPartitionListener alterPartitionListener = Mockito.mock(AlterPartitionListener.class);
         AlterPartitionManager alterPartitionManager = Mockito.mock(AlterPartitionManager.class);
+        IsrExpansionRateLimiter isrExpansionRateLimiter = Mockito.mock(IsrExpansionRateLimiter.class);
         partition = new Partition(topicPartition, 100,
                 MetadataVersion.latestTesting(), 0, () -> -1, Time.SYSTEM,
                 alterPartitionListener, delayedOperations,
-                Mockito.mock(MetadataCache.class), logManager, alterPartitionManager, topicId, Collections::emptySet);
+                Mockito.mock(MetadataCache.class), logManager, alterPartitionManager, isrExpansionRateLimiter, topicId, Collections::emptySet);
         partition.makeLeader(partitionState, offsetCheckpoints, topicId, Option.empty());
         replica1 = partition.getReplica(1).get();
         replica2 = partition.getReplica(2).get();

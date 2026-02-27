@@ -68,6 +68,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.common.MetadataVersion;
 import org.apache.kafka.server.common.OffsetAndEpoch;
+import org.apache.kafka.server.util.IsrExpansionRateLimiter;
 import org.apache.kafka.server.util.KafkaScheduler;
 import org.apache.kafka.server.util.MockTime;
 import org.apache.kafka.storage.internals.log.CleanerConfig;
@@ -182,7 +183,7 @@ public class ReplicaFetcherThreadBenchmark {
             AlterPartitionManager isrChannelManager = Mockito.mock(AlterPartitionManager.class);
             Partition partition = new Partition(tp, 100, MetadataVersion.latestTesting(),
                     0, () -> -1, Time.SYSTEM, alterPartitionListener, new DelayedOperationsMock(tp),
-                    Mockito.mock(MetadataCache.class), logManager, isrChannelManager, topicId, Collections::emptySet);
+                    Mockito.mock(MetadataCache.class), logManager, isrChannelManager,  Mockito.mock(IsrExpansionRateLimiter.class), topicId, Collections::emptySet);
 
             partition.makeFollower(partitionState, offsetCheckpoints, topicId, Option.empty());
             pool.put(tp, partition);

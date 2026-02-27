@@ -38,7 +38,7 @@ import org.apache.kafka.raft.QuorumConfig
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoderConfigs
 import org.apache.kafka.server.authorizer._
-import org.apache.kafka.server.config.{KRaftConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
+import org.apache.kafka.server.config.{KRaftConfigs, QuotaConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
 import org.apache.kafka.server.log.remote.storage.{RemoteLogManagerConfig, RemoteStorageManager, RemoteStorageProvider}
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.util.KafkaScheduler
@@ -417,6 +417,15 @@ class DynamicBrokerConfigTest {
     val listenerMaxConnectionsProp = s"listener.name.external.${SocketServerConfigs.MAX_CONNECTION_CREATION_RATE_CONFIG}"
     verifyConfigUpdate(listenerMaxConnectionsProp, "20", perBrokerConfig = true, expectFailure = false)
     verifyConfigUpdate(listenerMaxConnectionsProp, "30", perBrokerConfig = false, expectFailure = false)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testIsrExpansionRateLimitConfig(perBrokerConfig: Boolean): Unit = {
+    verifyConfigUpdate(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "0.1", perBrokerConfig, expectFailure = false)
+    verifyConfigUpdate(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "random", perBrokerConfig, expectFailure = true)
+    verifyConfigUpdate(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "0", perBrokerConfig, expectFailure = true)
+    verifyConfigUpdate(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "-1", perBrokerConfig, expectFailure = true)
   }
 
   private def verifyConfigUpdate(name: String, value: Object, perBrokerConfig: Boolean, expectFailure: Boolean): Unit = {
@@ -867,6 +876,62 @@ class DynamicBrokerConfigTest {
     verifyConfigUpdateWithInvalidConfig(config, props, Map.empty, Map(RemoteLogManagerConfig.LOG_LOCAL_RETENTION_MS_PROP -> "-3"))
     // Check for invalid localRetentionBytes < -2
     verifyConfigUpdateWithInvalidConfig(config, props, Map.empty, Map(RemoteLogManagerConfig.LOG_LOCAL_RETENTION_BYTES_PROP -> "-3"))
+  }
+
+  @Test
+  def testDynamicIsrExpansionRateLimitBrokerListConfig(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val oldConfig = KafkaConfig.fromProps(props)
+    val kafkaServer: KafkaServer = mock(classOf[kafka.server.KafkaServer])
+    when(kafkaServer.config).thenReturn(oldConfig)
+
+    // Default is ""
+    assertEquals("", oldConfig.isrExpansionRateLimitBrokerList)
+    val singleList = "0"
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, singleList)
+    val newConfig = KafkaConfig(props)
+
+    // call validateReconfiguration() to validate
+    val dynamicIsrExpansionRateLimitBrokerListConfig = new DynamicIsrExpansionRateLimitBrokerListConfig(kafkaServer)
+    dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(newConfig)
+    val changedConfig = KafkaConfig(props)
+    assertEquals(singleList, changedConfig.isrExpansionRateLimitBrokerList)
+
+    oldConfig.dynamicConfig.initialize(None, None)
+    oldConfig.dynamicConfig.addBrokerReconfigurable(dynamicIsrExpansionRateLimitBrokerListConfig)
+
+    // Restore it back to empty
+    val emptyList = ""
+    val newRestoreProps = new Properties()
+    newRestoreProps.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, emptyList)
+    oldConfig.dynamicConfig.updateDefaultConfig(newRestoreProps)
+    assertEquals(emptyList, oldConfig.isrExpansionRateLimitBrokerList)
+
+    val multipleList = "0:1:2"
+    val newMultipleProps = new Properties()
+    newMultipleProps.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, multipleList)
+    oldConfig.dynamicConfig.updateDefaultConfig(newMultipleProps)
+    assertEquals(multipleList, oldConfig.isrExpansionRateLimitBrokerList)
+
+    // Test with Invalid Value
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, "Invalid_Value")
+    assertThrows(classOf[ConfigException], () => dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(KafkaConfig(props)))
+
+    // Test with ":100"
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, ":100")
+    assertThrows(classOf[ConfigException], () => dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(KafkaConfig(props)))
+
+    // Test with "100:"
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, "100:")
+    assertThrows(classOf[ConfigException], () => dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(KafkaConfig(props)))
+
+    // Test with "100::101"
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, "100::101")
+    assertThrows(classOf[ConfigException], () => dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(KafkaConfig(props)))
+
+    // Test with ":"
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, ":")
+    assertThrows(classOf[ConfigException], () => dynamicIsrExpansionRateLimitBrokerListConfig.validateReconfiguration(KafkaConfig(props)))
   }
 
   @Test

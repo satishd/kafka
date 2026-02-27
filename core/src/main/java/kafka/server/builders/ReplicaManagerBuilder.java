@@ -38,6 +38,8 @@ import kafka.zk.KafkaZkClient;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.common.DirectoryEventHandler;
+import org.apache.kafka.server.util.IsrExpansionRateLimiter;
+import org.apache.kafka.server.util.NoOpIsrExpansionRateLimiter;
 import org.apache.kafka.server.util.Scheduler;
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel;
 
@@ -72,6 +74,7 @@ public class ReplicaManagerBuilder {
     private Long brokerEpoch = -1L;
     private Optional<AddPartitionsToTxnManager> addPartitionsToTxnManager = Optional.empty();
     private DirectoryEventHandler directoryEventHandler = DirectoryEventHandler.NOOP;
+    private IsrExpansionRateLimiter isrExpansionRateLimiter = new NoOpIsrExpansionRateLimiter();
 
     public ReplicaManagerBuilder setConfig(KafkaConfig config) {
         this.config = config;
@@ -183,6 +186,11 @@ public class ReplicaManagerBuilder {
         return this;
     }
 
+    public ReplicaManagerBuilder setIsrExpansionRateLimiter(IsrExpansionRateLimiter isrExpansionRateLimiter) {
+        this.isrExpansionRateLimiter = isrExpansionRateLimiter;
+        return this;
+    }
+
     public ReplicaManager build() {
         if (config == null) config = new KafkaConfig(Collections.emptyMap());
         if (logManager == null) throw new RuntimeException("You must set logManager");
@@ -194,6 +202,7 @@ public class ReplicaManagerBuilder {
         // metrics correctly. There might be a resource leak if it is initialized and an exception occurs between
         // its initialization and creation of ReplicaManager.
         if (metrics == null) metrics = new Metrics();
+        if (isrExpansionRateLimiter == null) isrExpansionRateLimiter = new NoOpIsrExpansionRateLimiter();
         return new ReplicaManager(config,
                              metrics,
                              time,
@@ -216,6 +225,7 @@ public class ReplicaManagerBuilder {
                              OptionConverters.toScala(threadNamePrefix),
                              () -> brokerEpoch,
                              OptionConverters.toScala(addPartitionsToTxnManager),
-                             directoryEventHandler);
+                             directoryEventHandler,
+                             isrExpansionRateLimiter);
     }
 }

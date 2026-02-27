@@ -61,7 +61,7 @@ import org.apache.kafka.server.common
 import org.apache.kafka.server.common.DirectoryEventHandler
 import org.apache.kafka.server.common.MetadataVersion._
 import org.apache.kafka.server.metrics.{KafkaMetricsGroup, MetricConfigs}
-import org.apache.kafka.server.util.{Scheduler, ShutdownableThread}
+import org.apache.kafka.server.util.{IsrExpansionRateLimiter, NoOpIsrExpansionRateLimiter, Scheduler, ShutdownableThread}
 import org.apache.kafka.storage.internals.log.{AppendOrigin, FetchDataInfo, FetchParams, FetchPartitionData, LeaderHwChange, LogAppendInfo, LogConfig, LogDirFailureChannel, LogOffsetMetadata, LogReadInfo, RecordValidationException, RemoteLogReadResult, RemoteStorageFetchInfo, VerificationGuard}
 
 import java.io.File
@@ -336,7 +336,8 @@ class ReplicaManager(val config: KafkaConfig,
                      threadNamePrefix: Option[String] = None,
                      val brokerEpochSupplier: () => Long = () => -1,
                      addPartitionsToTxnManager: Option[AddPartitionsToTxnManager] = None,
-                     val directoryEventHandler: DirectoryEventHandler = DirectoryEventHandler.NOOP
+                     val directoryEventHandler: DirectoryEventHandler = DirectoryEventHandler.NOOP,
+                     var isrExpansionRateLimiter: IsrExpansionRateLimiter = new NoOpIsrExpansionRateLimiter()
                      ) extends Logging {
   private val metricsGroup = new KafkaMetricsGroup(this.getClass)
 

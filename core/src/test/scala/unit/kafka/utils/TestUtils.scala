@@ -60,7 +60,7 @@ import org.apache.kafka.server.authorizer.{AuthorizableRequestContext, Authorize
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.kafka.server.config.{DelegationTokenManagerConfigs, KRaftConfigs, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
-import org.apache.kafka.server.util.MockTime
+import org.apache.kafka.server.util.{IsrExpansionRateLimiter, MockTime, RateLimiter}
 import org.apache.kafka.server.util.timer.SystemTimer
 import org.apache.kafka.server.{ClientMetricsManager, ControllerRequestCompletionHandler}
 import org.apache.kafka.storage.internals.log.{CleanerConfig, LogConfig, LogDirFailureChannel, ProducerStateManagerConfig}
@@ -1167,6 +1167,10 @@ object TestUtils extends Logging {
     }
     val threadCount = nonDaemonThreads.size
     assertEquals(0, threadCount, s"Found unexpected $threadCount NonDaemon threads=${nonDaemonThreads.map(t => t.getName).mkString(", ")}")
+  }
+
+  def createIsrExpansionRateLimiter(rate: Double = Double.MaxValue, time: MockTime = new MockTime()): IsrExpansionRateLimiter = {
+    new IsrExpansionRateLimiter(new RateLimiter(rate, time))
   }
 
   /**

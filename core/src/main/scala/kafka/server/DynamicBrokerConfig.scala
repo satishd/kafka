@@ -40,7 +40,7 @@ import org.apache.kafka.coordinator.transaction.TransactionLogConfigs
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.PasswordEncoder
 import org.apache.kafka.server.ProcessRole
-import org.apache.kafka.server.config.{ConfigType, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZooKeeperInternals}
+import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZooKeeperInternals}
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{ClientMetricsReceiverPlugin, MetricConfigs}
 import org.apache.kafka.server.telemetry.ClientTelemetry
@@ -99,6 +99,8 @@ object DynamicBrokerConfig {
     DynamicProducerStateManagerConfig ++
     DynamicRemoteLogConfig.ReconfigurableConfigs ++
     DynamicKafkaSuperUsersConfig.ReconfigurableConfigs ++
+    DynamicIsrExpansionRateLimitConfig.ReconfigurableConfigs ++
+    DynamicIsrExpansionRateLimitBrokerListConfig.ReconfigurableConfigs ++
     DynamicReplicaStartOffsetStrategyConfig.ReconfigurableConfigs ++
     DynamicLeaderDeprioritizedListConfig.ReconfigurableConfigs ++
     DynamicDeleteTopicEnableConfig.ReconfigurableConfigs ++
@@ -280,6 +282,8 @@ class DynamicBrokerConfig(private val kafkaConfig: KafkaConfig) extends Logging 
 
     addBrokerReconfigurable(new BrokerDynamicThreadPool(kafkaServer))
     addBrokerReconfigurable(new DynamicLogConfig(kafkaServer.logManager, kafkaServer))
+    addBrokerReconfigurable(new DynamicIsrExpansionRateLimitConfig(kafkaServer))
+    addBrokerReconfigurable(new DynamicIsrExpansionRateLimitBrokerListConfig(kafkaServer))
     addBrokerReconfigurable(new DynamicListenerConfig(kafkaServer))
     addBrokerReconfigurable(kafkaServer.socketServer)
     addBrokerReconfigurable(new DynamicProducerStateManagerConfig(kafkaServer.logManager.producerStateManagerConfig))
@@ -1380,6 +1384,78 @@ class DynamicReplicaStartOffsetStrategyConfig (server: KafkaBroker) extends Brok
   private def currentValue(name: String): String = {
     name match {
       case ReplicationConfigs.REPLICA_START_OFFSET_STRATEGY_CONFIG => server.config.replicaStartOffsetStrategy
+      case n => throw new IllegalStateException(s"Unexpected config $n")
+    }
+  }
+}
+object DynamicIsrExpansionRateLimitConfig {
+  val ReconfigurableConfigs = Set(
+    QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG)
+}
+
+class DynamicIsrExpansionRateLimitConfig (server: KafkaBroker) extends BrokerReconfigurable {
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG) {
+        val newValue = v.asInstanceOf[Double]
+        val oldValue = currentValue(k)
+        if (newValue != oldValue) {
+          if (newValue <= 0.0)
+            throw new ConfigException(s"Dynamic isr expansion rate limit failed for $k=$v, value must be larger than 0")
+        }
+      }
+    }
+  }
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicIsrExpansionRateLimitConfig.ReconfigurableConfigs
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    server.replicaManager.isrExpansionRateLimiter.updateRateLimit(newConfig.isrExpansionRateLimit)
+  }
+
+  private def currentValue(name: String): Double = {
+    name match {
+      case QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG => server.config.isrExpansionRateLimit
+      case n => throw new IllegalStateException(s"Unexpected config $n")
+    }
+  }
+}
+object DynamicIsrExpansionRateLimitBrokerListConfig {
+  val ReconfigurableConfigs = Set(
+    QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG)
+}
+
+class DynamicIsrExpansionRateLimitBrokerListConfig (server: KafkaBroker) extends BrokerReconfigurable {
+
+  val listConfigPattern = """(\d+(:\d+)*)?""".r.pattern
+
+  override def validateReconfiguration(newConfig: KafkaConfig): Unit = {
+    newConfig.values.asScala.forKeyValue { (k, v) =>
+      if (k == QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG) {
+        val newValue = v.asInstanceOf[String]
+        val oldValue = currentValue(k)
+        if (newValue != oldValue) {
+          if (!listConfigPattern.matcher(newValue).matches)
+            throw new ConfigException(s"Dynamic Isr expansion rate limit List failed for $k=$v, value contains invalid characters other than colon and digits. e.g. broker_id1:broker_id2, no spaces.")
+        }
+      }
+    }
+  }
+
+  override def reconfigurableConfigs: Set[String] = {
+    DynamicIsrExpansionRateLimitBrokerListConfig.ReconfigurableConfigs
+  }
+
+  override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+    server.replicaManager.isrExpansionRateLimiter.updateBrokerIds(newConfig.isrExpansionRateLimitBrokerList.toString)
+  }
+
+  private def currentValue(name: String): String = {
+    name match {
+      case QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG => server.config.isrExpansionRateLimitBrokerList.toString
       case n => throw new IllegalStateException(s"Unexpected config $n")
     }
   }

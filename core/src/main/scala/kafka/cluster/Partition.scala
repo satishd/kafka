@@ -47,6 +47,7 @@ import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.server.common.MetadataVersion
 import org.apache.kafka.storage.internals.log.{AppendOrigin, FetchDataInfo, FetchIsolation, FetchParams, LeaderHwChange, LogAppendInfo, LogOffsetMetadata, LogOffsetSnapshot, LogOffsetsListener, LogReadInfo, LogStartOffsetIncrementReason, VerificationGuard}
 import org.apache.kafka.server.metrics.KafkaMetricsGroup
+import org.apache.kafka.server.util.{IsrExpansionRateLimiter, NoOpIsrExpansionRateLimiter}
 
 import scala.collection.{Map, Seq}
 import scala.jdk.CollectionConverters._
@@ -149,6 +150,7 @@ object Partition {
       metadataCache = replicaManager.metadataCache,
       logManager = replicaManager.logManager,
       alterIsrManager = replicaManager.alterPartitionManager,
+      isrExpansionRateLimiter = replicaManager.isrExpansionRateLimiter,
       isrBlackList = () => replicaManager.isrBlacklist)
   }
 
@@ -304,6 +306,7 @@ class Partition(val topicPartition: TopicPartition,
                 metadataCache: MetadataCache,
                 logManager: LogManager,
                 alterIsrManager: AlterPartitionManager,
+                isrExpansionRateLimiter: IsrExpansionRateLimiter = new NoOpIsrExpansionRateLimiter(),
                 @volatile private var _topicId: Option[Uuid] = None, // TODO: merge topicPartition and _topicId into TopicIdPartition once TopicId persist in most of the code by KAFKA-16212,
                 isrBlackList: () => util.Set[Int] = () => Collections.emptySet()
                ) extends Logging {
@@ -1029,6 +1032,10 @@ class Partition(val topicPartition: TopicPartition,
       needsExpandIsr(followerReplica)
     }
     if (needsIsrUpdate) {
+      if (!isrExpansionRateLimiter.tryAcquire(followerReplica.brokerId)) {
+        debug(s"ISR expansion is rejected by rate limiter for replica on partition: $this and follower: $followerReplica")
+        return
+      }
       val alterIsrUpdateOpt = inWriteLock(leaderIsrUpdateLock) {
         // check if this replica needs to be added to the ISR
         partitionState match {

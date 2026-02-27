@@ -135,6 +135,7 @@ public class CheckpointBench {
             setMetadataCache(metadataCache).
             setLogDirFailureChannel(failureChannel).
             setAlterPartitionManager(alterPartitionManager).
+            setIsrExpansionRateLimiter(TestUtils.createIsrExpansionRateLimiter(Double.MAX_VALUE, time)).
             build();
         replicaManager.startup();
 

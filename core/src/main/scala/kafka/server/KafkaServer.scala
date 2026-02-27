@@ -62,7 +62,7 @@ import org.apache.kafka.server.config.{ConfigType, ZkConfigs}
 import org.apache.kafka.server.fault.LoggingFaultHandler
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
-import org.apache.kafka.server.util.KafkaScheduler
+import org.apache.kafka.server.util.{IsrExpansionRateLimiter, KafkaScheduler, RateLimiter}
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel
 import org.apache.zookeeper.client.ZKClientConfig
 
@@ -186,6 +186,8 @@ class KafkaServer(
   val brokerFeatures: BrokerFeatures = BrokerFeatures.createEmpty()
 
   override def brokerState: BrokerState = _brokerState
+
+  val isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
 
   def clusterId: String = _clusterId
 
@@ -753,7 +755,8 @@ class KafkaServer(
       delayedRemoteFetchPurgatoryParam = None,
       threadNamePrefix = threadNamePrefix,
       brokerEpochSupplier = brokerEpochSupplier,
-      addPartitionsToTxnManager = Some(addPartitionsToTxnManager))
+      addPartitionsToTxnManager = Some(addPartitionsToTxnManager),
+      isrExpansionRateLimiter = isrExpansionRateLimiter)
   }
 
   private def initZkClient(time: Time): Unit = {

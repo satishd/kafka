@@ -681,6 +681,8 @@ class KafkaConfig private(doLog: Boolean, val props: util.Map[_, _])
   val alterLogDirsReplicationQuotaWindowSizeSeconds = getInt(QuotaConfigs.ALTER_LOG_DIRS_REPLICATION_QUOTA_WINDOW_SIZE_SECONDS_CONFIG)
   val numControllerQuotaSamples = getInt(QuotaConfigs.NUM_CONTROLLER_QUOTA_SAMPLES_CONFIG)
   val controllerQuotaWindowSizeSeconds = getInt(QuotaConfigs.CONTROLLER_QUOTA_WINDOW_SIZE_SECONDS_CONFIG)
+  def isrExpansionRateLimit = getDouble(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG)
+  def isrExpansionRateLimitBrokerList = getString(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG)
 
   /** ********* Fetch Configuration **************/
   val maxIncrementalFetchSessionCacheSlots = getInt(ServerConfigs.MAX_INCREMENTAL_FETCH_SESSION_CACHE_SLOTS_CONFIG)

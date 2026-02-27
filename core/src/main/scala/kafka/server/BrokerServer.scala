@@ -47,7 +47,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{ClientMetricsReceiverPlugin, KafkaYammerMetrics}
 import org.apache.kafka.server.network.{EndpointReadyFutures, KafkaAuthorizerServerInfo}
 import org.apache.kafka.server.util.timer.{SystemTimer, SystemTimerReaper}
-import org.apache.kafka.server.util.{Deadline, FutureUtils, KafkaScheduler}
+import org.apache.kafka.server.util.{Deadline, FutureUtils, IsrExpansionRateLimiter, KafkaScheduler, RateLimiter}
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel
 
 import java.time.Duration
@@ -141,6 +141,8 @@ class BrokerServer(
   var brokerRegistrationTracker: BrokerRegistrationTracker = _
 
   val brokerFeatures: BrokerFeatures = BrokerFeatures.createDefault(config.unstableFeatureVersionsEnabled)
+
+  val isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
 
   def kafkaYammerMetrics: KafkaYammerMetrics = KafkaYammerMetrics.INSTANCE
 
@@ -325,7 +327,8 @@ class BrokerServer(
         delayedRemoteFetchPurgatoryParam = None,
         brokerEpochSupplier = () => lifecycleManager.brokerEpoch,
         addPartitionsToTxnManager = Some(addPartitionsToTxnManager),
-        directoryEventHandler = directoryEventHandler
+        directoryEventHandler = directoryEventHandler,
+        isrExpansionRateLimiter = isrExpansionRateLimiter
       )
 
       /* start token manager */

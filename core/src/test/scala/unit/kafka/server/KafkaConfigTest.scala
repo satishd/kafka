@@ -1004,6 +1004,8 @@ class KafkaConfigTest {
         case MetricConfigs.METRIC_RECORDING_LEVEL_CONFIG => // ignore string
         case ServerConfigs.BROKER_RACK_CONFIG => // ignore string
         case ServerConfigs.BROKER_POD_CONFIG => // ignore string
+        case QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG => // ignore string
+        case QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number", "0", "-1")
 
         case ServerConfigs.COMPRESSION_GZIP_LEVEL_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number", "0")
         case ServerConfigs.COMPRESSION_LZ4_LEVEL_CONFIG => assertPropertyInvalid(baseProperties, name, "not_a_number", "0")
