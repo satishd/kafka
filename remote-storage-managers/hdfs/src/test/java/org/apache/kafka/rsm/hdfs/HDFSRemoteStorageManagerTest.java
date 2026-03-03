@@ -270,10 +270,11 @@ public class HDFSRemoteStorageManagerTest {
         verifyDeleteRemoteLogSegment(rsm, metadata, tp, uuid);
     }
 
-    @Test
-    public void testFetchOnOptionalFile() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testFetchOnOptionalFile(boolean withOptionalFiles) throws Exception {
         Uuid uuid = Uuid.randomUuid();
-        RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, false);
+        RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, withOptionalFiles);
         verifyGauge(FS_OPEN_OUTPUT_STREAM, 0);
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
 
@@ -295,17 +296,48 @@ public class HDFSRemoteStorageManagerTest {
         }
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
 
-        try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
-            verifyGauge(FS_OPEN_INPUT_STREAM, 1);
-            assertEquals(0, stream.available());
-            verifyTimerCount(FS_OPEN_RATE_AND_TIME_MS, openCount + 2);
-            // status is already cached
-            verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, statusCount);
-            // empty file, the metric should not change
-            assertEquals(-1, stream.read());
-            verifyTimerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags, segmentIndexCount + 1);
+        if (!withOptionalFiles) {
+            try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+                verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+                assertEquals(0, stream.available());
+                verifyTimerCount(FS_OPEN_RATE_AND_TIME_MS, openCount + 1);
+                // status is already cached
+                verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, statusCount);
+                // empty file, the metric should not change
+                assertEquals(-1, stream.read());
+                verifyTimerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags, segmentIndexCount + 1);
+            }
+        } else {
+            try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+                verifyGauge(FS_OPEN_INPUT_STREAM, 1);
+                assertNotEquals(0, stream.available());
+                verifyTimerCount(FS_OPEN_RATE_AND_TIME_MS, openCount + 2);
+                // status is already cached
+                verifyTimerCount(FS_STATUS_RATE_AND_TIME_MS, statusCount);
+                assertNotEquals(-1, stream.read());
+                verifyTimerCount(SEGMENT_INDEX_READ_RATE_AND_TIME_MS, hdfsTags, segmentIndexCount + 2);
+            }
         }
         verifyGauge(FS_OPEN_INPUT_STREAM, 0);
+    }
+
+    @Test
+    public void testFetchEmptyTransactionIndex() throws Exception {
+        Uuid uuid = Uuid.randomUuid();
+        RemoteLogSegmentMetadata metadata = verifyUpload(rsm, tp, uuid, 0, 1000, false);
+        RemoteLogSegmentMetadata metadata1 = new RemoteLogSegmentMetadata(
+                metadata.remoteLogSegmentId(), metadata.startOffset(), metadata.endOffset(), metadata.maxTimestampMs(),
+                metadata.brokerId(), metadata.eventTimestampMs(), metadata.segmentSizeInBytes(),
+                metadata.customMetadata(), metadata.state(), metadata.segmentLeaderEpochs(),
+                // inverting the transaction idx emptiness state to test the fetch logic for empty transaction index
+                !metadata.isTxnIdxEmpty());
+
+        try (InputStream stream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+            try (InputStream stream1 = rsm.fetchIndex(metadata1, RemoteStorageManager.IndexType.TRANSACTION)) {
+                assertEquals(stream.available(), stream1.available());
+                assertEquals(stream.read(), stream1.read());
+            }
+        }
     }
 
     @Test
@@ -1423,8 +1455,9 @@ public class HDFSRemoteStorageManagerTest {
                                                   boolean withOptionalFiles) throws Exception {
         long bytesReadFromRemoteSoFar = ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote();
         RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, uuid);
+        boolean isTxnIdxEmpty = !withOptionalFiles;
         RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
-                0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L));
+                0, 100, 0, 0, 1L, segSize, Collections.singletonMap(0, 0L), isTxnIdxEmpty);
         LogSegmentData segmentData = TestLogSegmentUtils
                 .createLogSegmentData(logDir, startOffset, segSize, withOptionalFiles);
         Optional<RemoteLogSegmentMetadata.CustomMetadata> customMetadataOpt = rsm.copyLogSegmentData(segmentMetadata, segmentData);

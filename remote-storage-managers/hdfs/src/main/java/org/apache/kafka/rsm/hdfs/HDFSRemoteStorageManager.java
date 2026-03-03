@@ -53,6 +53,7 @@ import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -399,7 +400,11 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             case TIMESTAMP:
                 return fetchAuxFile(metadata, TIMESTAMP_INDEX);
             case TRANSACTION:
-                return fetchAuxFile(metadata, TRANSACTION_INDEX);
+                if (!metadata.isTxnIdxEmpty()) {
+                    return fetchAuxFile(metadata, TRANSACTION_INDEX);
+                } else {
+                    return new ByteArrayInputStream(new byte[0]);
+                }
             case PRODUCER_SNAPSHOT:
                 return fetchAuxFile(metadata, PRODUCER_SNAPSHOT);
             case LEADER_EPOCH:
