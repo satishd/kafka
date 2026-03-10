@@ -339,6 +339,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         final Path path = new Path(bucket + getSegmentRemoteDir(metadata.remoteLogSegmentId()));
         metrics.timeSegmentWrite(provider, () -> {
             openOutputStreamCount.incrementAndGet();
+            Exception ex = null;
             try (final FSDataOutputStream fsOut = getFS(bucket).create(path)) {
                 final LogSegmentDataHeader header = LogSegmentDataHeader.create(segmentData);
                 byte[] serializedHeader = LogSegmentDataHeader.serialize(header);
@@ -352,12 +353,19 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 }
                 uploadFile(segmentData.logSegment(), fsOut);
                 fsOut.flush();
-                copyCircuitBreaker.onSuccess(time.milliseconds() - startMs, TimeUnit.MILLISECONDS);
             } catch (Exception e) {
-                copyCircuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
+                ex = e;
                 throw new RemoteStorageException("Failed to copy log segment to remote storage", e);
             } finally {
                 openOutputStreamCount.decrementAndGet();
+                long durationMs = time.milliseconds() - startMs;
+                if (ex == null) {
+                    // Note that the OCI connector uploads the segment to remote on closing the `FSDataOutputStream`
+                    // stream. See the `BmcFileBackedOutputStream` implementation for more details.
+                    copyCircuitBreaker.onSuccess(durationMs, TimeUnit.MILLISECONDS);
+                } else {
+                    copyCircuitBreaker.onError(durationMs, TimeUnit.MILLISECONDS, ex);
+                }
             }
         });
         metrics.recordSegmentWriteSize(provider, metadata.segmentSizeInBytes());
@@ -420,6 +428,7 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             throw new RetriableRemoteStorageException("Remote deletion circuit is open. Skipping the current call");
         }
         long startMs = time.milliseconds();
+        Exception ex = null;
         try {
             segmentHeaderHolderCache.invalidate(segmentMetadata.remoteLogSegmentId());
             String bucket = fileSystemManager.getBucket(segmentMetadata);
@@ -432,11 +441,17 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                 LOGGER.warn("Skipping the call to delete log segment data: {} as the segment file doesn't exists",
                         segmentMetadata);
             }
-            deleteCircuitBreaker.onSuccess(time.milliseconds() - startMs, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            deleteCircuitBreaker.onError(time.milliseconds() - startMs, TimeUnit.MILLISECONDS, e);
+            ex = e;
             throw new RemoteStorageException("Failed to delete remote log segment with id:" +
                     segmentMetadata.remoteLogSegmentId(), e);
+        } finally {
+            long durationMs = time.milliseconds() - startMs;
+            if (ex == null) {
+                deleteCircuitBreaker.onSuccess(durationMs, TimeUnit.MILLISECONDS);
+            } else {
+                deleteCircuitBreaker.onError(durationMs, TimeUnit.MILLISECONDS, ex);
+            }
         }
     }
 

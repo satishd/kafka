@@ -44,6 +44,7 @@ import com.yammer.metrics.core.Metric;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
@@ -969,10 +970,18 @@ public class HDFSRemoteStorageManagerTest {
             FileSystem spyFileSystem = spy(hdfs);
             mockedFileSystem.when(() -> FileSystem.get(any(URI.class), any(Configuration.class)))
                     .thenReturn(spyFileSystem);
-            doThrow(new IOException("Test exception")).when(spyFileSystem).create(any());
             rsm.configure(configs);
             rsm.setTime(time);
             rsm.registerStreamMetrics();
+
+            doAnswer(invocation -> {
+                Path path = invocation.getArgument(0);
+                FSDataOutputStream spyOutputStream = spy(hdfs.create(path));
+                // Throw error on close.
+                // The OCI connector uploads the object on closing the stream by re-directing the contents to a tmp buffer-file
+                doThrow(new IOException("Test exception")).when(spyOutputStream).close();
+                return spyOutputStream;
+            }).when(spyFileSystem).create(any(Path.class));
 
             RemoteLogSegmentId segmentId = new RemoteLogSegmentId(tp, Uuid.randomUuid());
             RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(segmentId,
