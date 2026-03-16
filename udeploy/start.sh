@@ -133,6 +133,9 @@ function override_rebuild_path_with_rsync() {
 #no need to use JMX_PORT anymore
 export JMX_PORT=""
 
+# Configure server identity (broker.id and node.id) based on state files if present
+configure_server_identity
+
 # Check if this is a controller-only node
 if is_controller_only; then
     # Check for controller initialization marker file

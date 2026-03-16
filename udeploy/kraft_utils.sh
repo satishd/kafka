@@ -36,6 +36,47 @@ is_controller_only() {
     fi
 }
 
+# Configure Kafka server identity (broker.id and node.id) from state file
+#
+# Reads the node ID from /shared/state/node_id.txt and sets both broker.id and node.id
+# in server.properties to this value. This approach works across all server modes
+# (ZooKeeper, KRaft, and migration) because Kafka's configuration validation enforces
+# that both properties must have identical values when both are set.
+configure_server_identity() {
+    local NODE_ID_FILE="/shared/state/node_id.txt"
+
+    # Check if state file exists
+    if [ ! -f "${NODE_ID_FILE}" ]; then
+        echo "Node ID state file not found at ${NODE_ID_FILE}, skipping dynamic configuration"
+        return 0
+    fi
+
+    # Read node ID
+    local NODE_ID=$(cat "${NODE_ID_FILE}" | tr -d '[:space:]')
+
+    # Validate node ID is numeric
+    if ! [[ "${NODE_ID}" =~ ^[0-9]+$ ]]; then
+        die "Invalid node ID '${NODE_ID}' in ${NODE_ID_FILE}. Must be a non-negative integer."
+    fi
+
+    echo "Configuring Kafka server identity from state: broker.id=${NODE_ID}, node.id=${NODE_ID}"
+
+    local SERVER_PROPERTIES="/etc/kafka/server.properties"
+
+    # Remove any existing broker.id and node.id lines to avoid duplicates
+    sed -i '/^broker\.id=/d' "${SERVER_PROPERTIES}"
+    sed -i '/^node\.id=/d' "${SERVER_PROPERTIES}"
+
+    # Set both properties to ensure consistent identity across all modes
+    echo "" >> "${SERVER_PROPERTIES}"
+    echo "broker.id=${NODE_ID}" >> "${SERVER_PROPERTIES}"
+    echo "node.id=${NODE_ID}" >> "${SERVER_PROPERTIES}"
+
+    echo "Successfully configured Kafka server identity in ${SERVER_PROPERTIES}"
+    echo "Final configuration:"
+    grep -E '^(broker\.id|node\.id)=' "${SERVER_PROPERTIES}"
+}
+
 # Get metadata log directory from server.properties
 # Returns the metadata.log.dir if set, otherwise falls back to first log.dirs entry
 get_metadata_log_dir() {
