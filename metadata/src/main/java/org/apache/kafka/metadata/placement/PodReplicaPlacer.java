@@ -39,6 +39,9 @@ import java.util.stream.Collectors;
  * for a partition that matches with any pod defined in {@code partitionPredicateByPod}, the partition will be placed on that specific pod
  * otherwise the partition will be placed on all the other pods not defined in partitionPredicateByPod
  *
+ * IMPORTANT: Each partition can match at most ONE isolation rule. If multiple pod predicates match the same
+ * partition, an IllegalStateException will be thrown during placement.
+ *
  * special cases:
  * - A broker with empty pod will be treated as any pod
  * - A pod defined in partitionPredicateByPod but not match any broker pod will be ignored
@@ -115,13 +118,37 @@ public class PodReplicaPlacer implements ReplicaPlacer {
      * @param partition the partition to map from
      * @param pods pods of the whole cluster
      * @return pods of the partition
+     * @throws IllegalStateException if multiple pod isolation rules match the same partition
      */
     private Set<String> selectPodsByPartition(int partition, Set<String> pods) {
+        List<String> matchingPods = new ArrayList<>();
+
+        // Check all pods for matches
         for (String pod : pods) {
-            if (partitionPredicateByPod.getOrDefault(pod, x -> false).test(partition))
-                return Collections.singleton(pod);
+            if (partitionPredicateByPod.getOrDefault(pod, x -> false).test(partition)) {
+                matchingPods.add(pod);
+            }
         }
-        // for partitions not match any pod, distribute to all other pods
+
+        // Validate: at most one match allowed
+        if (matchingPods.size() > 1) {
+            Collections.sort(matchingPods);  // Sort for deterministic error messages
+            throw new IllegalStateException(
+                String.format(
+                    "Partition %d matches multiple pod isolation rules: %s. " +
+                    "Each partition must map to at most one isolated pod. " +
+                    "Please review your canary specification.",
+                    partition, matchingPods
+                )
+            );
+        }
+
+        // Single match - isolate to this pod
+        if (matchingPods.size() == 1) {
+            return Collections.singleton(matchingPods.get(0));
+        }
+
+        // No matches - distribute to all non-isolated pods
         return pods.stream()
                 .filter(pod -> !partitionPredicateByPod.containsKey(pod))
                 .collect(Collectors.toSet());
