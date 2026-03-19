@@ -181,6 +181,7 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -275,6 +276,7 @@ public class RemoteLogManagerTest {
         };
         doReturn(true).when(remoteLogMetadataManager).isReady(any(TopicIdPartition.class));
         doReturn(new LogConfig(Collections.emptyMap())).when(mockLog).config();
+        doCallRealMethod().when(remoteStorageManager).fetchAuxiliaryFiles(any(RemoteLogSegmentMetadata.class));
     }
 
     @AfterEach

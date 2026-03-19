@@ -20,11 +20,10 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
-import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
-import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType;
 import org.apache.kafka.server.util.KafkaScheduler;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -35,7 +34,6 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -410,14 +408,10 @@ public class RemoteIndexCache implements Closeable {
 
     private RemoteIndexCache.Entry createCacheEntry(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
         long startOffset = remoteLogSegmentMetadata.startOffset();
-        try {
+        try (AuxiliaryFiles auxiliaryFiles = remoteStorageManager.fetchAuxiliaryFiles(remoteLogSegmentMetadata)) {
             File offsetIndexFile = remoteOffsetIndexFile(cacheDir, remoteLogSegmentMetadata);
             OffsetIndex offsetIndex = loadIndexFile(offsetIndexFile, remoteLogSegmentMetadata, rlsMetadata -> {
-                try {
-                    return remoteStorageManager.fetchIndex(rlsMetadata, IndexType.OFFSET);
-                } catch (RemoteStorageException e) {
-                    throw new KafkaException(e);
-                }
+                return auxiliaryFiles.offsetIndexStream();
             }, file -> {
                 try {
                     OffsetIndex index = new OffsetIndex(file, startOffset, Integer.MAX_VALUE, false);
@@ -429,11 +423,7 @@ public class RemoteIndexCache implements Closeable {
             });
             File timeIndexFile = remoteTimeIndexFile(cacheDir, remoteLogSegmentMetadata);
             TimeIndex timeIndex = loadIndexFile(timeIndexFile, remoteLogSegmentMetadata, rlsMetadata -> {
-                try {
-                    return remoteStorageManager.fetchIndex(rlsMetadata, IndexType.TIMESTAMP);
-                } catch (RemoteStorageException e) {
-                    throw new KafkaException(e);
-                }
+                return auxiliaryFiles.timestampIndexStream();
             }, file -> {
                 try {
                     TimeIndex index = new TimeIndex(file, startOffset, Integer.MAX_VALUE, false);
@@ -445,15 +435,7 @@ public class RemoteIndexCache implements Closeable {
             });
             File txnIndexFile = remoteTransactionIndexFile(cacheDir, remoteLogSegmentMetadata);
             TransactionIndex txnIndex = loadIndexFile(txnIndexFile, remoteLogSegmentMetadata, rlsMetadata -> {
-                try {
-                    return remoteStorageManager.fetchIndex(rlsMetadata, IndexType.TRANSACTION);
-                } catch (RemoteResourceNotFoundException e) {
-                    // Don't throw an exception since the transaction index may not exist because of no transactional
-                    // records. Instead, we return an empty stream so that an empty file is created in the cache
-                    return new ByteArrayInputStream(new byte[0]);
-                } catch (RemoteStorageException e) {
-                    throw new KafkaException(e);
-                }
+                return auxiliaryFiles.transactionIndexStream();
             }, file -> {
                 try {
                     TransactionIndex index = new TransactionIndex(startOffset, file);
@@ -465,7 +447,7 @@ public class RemoteIndexCache implements Closeable {
             });
 
             return new Entry(offsetIndex, timeIndex, txnIndex);
-        } catch (IOException e) {
+        } catch (IOException | RemoteStorageException e) {
             throw new KafkaException(e);
         }
     }

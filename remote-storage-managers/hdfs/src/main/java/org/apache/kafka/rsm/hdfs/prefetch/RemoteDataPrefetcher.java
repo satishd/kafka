@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.server.common.OffsetAndEpoch;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
@@ -68,4 +69,12 @@ public interface RemoteDataPrefetcher extends Reconfigurable {
      * preventing resource leaks or excessive memory usage.
      */
     void cleanup();
+
+    /**
+     * Checks if the specified remote log segment has been successfully downloaded and is available for use.
+     *
+     * @param segmentId the unique identifier of the remote log segment to check
+     * @return {@code true} if the segment is downloaded and available, {@code false} otherwise
+     */
+    boolean isSegmentDownloaded(RemoteLogSegmentId segmentId);
 }

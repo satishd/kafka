@@ -373,5 +373,7 @@
     <!-- Remote Storage Managers -->
     <suppress checks="ClassFanOutComplexity"
               files="(HDFSRemoteStorageManager|HDFSRemoteStorageManagerTest).java"/>
+    <suppress checks="ClassDataAbstractionCoupling"
+              files="(HDFSRemoteStorageManager|HDFSRemoteStorageManagerTest).java"/>
 
 </suppressions>

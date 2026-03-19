@@ -139,4 +139,9 @@ public class ClassLoaderAwareRemoteStorageManager implements RemoteStorageManage
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata remoteLogSegmentMetadata, RemoteReadContext readContext, int startPosition, int endPosition) throws RemoteStorageException {
         return withClassLoader(() -> delegate.fetchLogSegment(remoteLogSegmentMetadata, readContext, startPosition, endPosition));
     }
+
+    @Override
+    public AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        return withClassLoader(() -> delegate.fetchAuxiliaryFiles(metadata));
+    }
 }

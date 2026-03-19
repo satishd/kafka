@@ -29,6 +29,7 @@ import org.apache.kafka.rsm.hdfs.generated.ConnectorCustomMetadata;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPool;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferPoolImpl;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -420,6 +421,82 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             default:
                 throw new KafkaException("Unknown index type :" + indexType);
         }
+    }
+
+    @Override
+    public AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        String bucket = fileSystemManager.getBucket(metadata);
+        RemoteLogSegmentId segmentId = metadata.remoteLogSegmentId();
+        RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
+        Path dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
+        long currentTimeMs = time.milliseconds();
+        FSDataInputStream inputStream = null;
+        try {
+            FileSystem fileSystem = getFS(bucket);
+            inputStream = fileSystem.open(dataPath);
+            openInputStreamCount.incrementAndGet();
+            SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
+            if (headerHolder == null) {
+                headerHolder = fetchSegmentHeaderHolder(dataPath, segmentId, bucket, storageProvider, inputStream);
+                segmentHeaderHolderCache.put(segmentId, headerHolder);
+            }
+            LogSegmentDataHeader header = headerHolder.header();
+            long fileLength = headerHolder.fileLength();
+
+            InputStream offsetIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
+                    header.getDataPosition(OFFSET_INDEX));
+            InputStream timeIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
+                    header.getDataPosition(TIMESTAMP_INDEX));
+            InputStream leaderEpochCheckpointStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
+                    segmentId, header.getDataPosition(LEADER_EPOCH_CHECKPOINT));
+            InputStream producerSnapshotStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
+                    segmentId, header.getDataPosition(PRODUCER_SNAPSHOT));
+            InputStream transactionIndexStream;
+            if (metadata.isTxnIdxEmpty()) {
+                transactionIndexStream = new ByteArrayInputStream(new byte[0]);
+            } else {
+                transactionIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
+                        segmentId, header.getDataPosition(TRANSACTION_INDEX));
+            }
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Time taken to fetch the index files: {} ms. offsetIdxBytes: {}, timestampIdxBytes: {}, " +
+                                "leaderEpochCheckpointBytes: {}, producerSnapshot: {}, transactionIdxBytes: {}",
+                        time.milliseconds() - currentTimeMs, offsetIndexStream.available(), timeIndexStream.available(),
+                        leaderEpochCheckpointStream.available(), producerSnapshotStream.available(),
+                        transactionIndexStream.available());
+            }
+            return new AuxiliaryFiles(offsetIndexStream, timeIndexStream, leaderEpochCheckpointStream,
+                    producerSnapshotStream, transactionIndexStream);
+        } catch (IOException e) {
+            fetchErrorHandler.accept(e);
+            throw new RemoteStorageException("Failed to fetch index files from remote storage. Metadata: " + metadata, e);
+        } finally {
+            openInputStreamCount.decrementAndGet();
+            if (inputStream != null) {
+                Utils.closeQuietly(inputStream, "AuxiliaryFileInputStream for segment: " + segmentId);
+            }
+        }
+    }
+
+    private InputStream readAuxiliaryFile(FSDataInputStream inputStream,
+                                          RemoteStorageProvider storageProvider,
+                                          long fileLength,
+                                          RemoteLogSegmentId segmentId,
+                                          LogSegmentDataHeader.DataPosition dataPosition) throws IOException {
+        if (dataPosition.getLength() <= 0) {
+            return new ByteArrayInputStream(new byte[0]);
+        }
+        if (fileLength < dataPosition.getPos() + dataPosition.getLength()) {
+            throw new IOException(String.format("File length: %d is less than the expected length: %d for %s file.",
+                    fileLength, dataPosition.getPos() + dataPosition.getLength(), getString(segmentId)));
+        }
+        if (inputStream.getPos() != dataPosition.getPos()) {
+            inputStream.seek(dataPosition.getPos());
+        }
+        byte[] buffer = new byte[dataPosition.getLength()];
+        metrics.timeSegmentIndexRead(storageProvider, () -> inputStream.readFully(buffer));
+        auxBytesReadFromRemote.addAndGet(buffer.length);
+        return new ByteArrayInputStream(buffer);
     }
 
     @Override

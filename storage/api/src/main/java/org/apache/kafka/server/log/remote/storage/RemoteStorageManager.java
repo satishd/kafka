@@ -21,6 +21,7 @@ import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.InputStream;
 import java.util.List;
@@ -198,5 +199,29 @@ public interface RemoteStorageManager extends Reconfigurable, Closeable {
                                         int startPosition,
                                         int endPosition) throws RemoteStorageException {
         return fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
+    }
+
+    /**
+     * Fetches auxiliary files associated with a remote log segment.
+     *
+     * @param metadata the metadata of the remote log segment for which the auxiliary files need to be fetched.
+     * @return an AuxiliaryFiles object containing the different types of auxiliary indexes such as offset, timestamp,
+     *         leader epoch, producer snapshot, and transaction.
+     * @throws RemoteStorageException if an error occurs while fetching the auxiliary files from remote storage.
+     */
+    default AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        InputStream offsetIdxStream = fetchIndex(metadata, IndexType.OFFSET);
+        InputStream timestampIdxStream = fetchIndex(metadata, IndexType.TIMESTAMP);
+        InputStream leaderEpochStream = fetchIndex(metadata, IndexType.LEADER_EPOCH);
+        InputStream producerSnapshotStream = fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+        InputStream transactionIdxStream;
+        try {
+            transactionIdxStream = fetchIndex(metadata, IndexType.TRANSACTION);
+        } catch (RemoteResourceNotFoundException e) {
+            transactionIdxStream = new ByteArrayInputStream(new byte[0]);
+        }
+        return new AuxiliaryFiles(offsetIdxStream, timestampIdxStream,
+                leaderEpochStream, producerSnapshotStream,
+                transactionIdxStream);
     }
 }

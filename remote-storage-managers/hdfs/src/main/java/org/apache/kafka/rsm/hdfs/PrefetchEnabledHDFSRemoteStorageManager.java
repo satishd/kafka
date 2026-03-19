@@ -22,6 +22,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.rsm.hdfs.prefetch.DefaultPrefetchEvaluator;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcher;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcherImpl;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
@@ -162,6 +163,21 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
             return is;
         }
         return hdfsRemoteStorageManager.fetchIndex(remoteLogSegmentMetadata, indexType);
+    }
+
+    @Override
+    public AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
+        if (remoteDataPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())) {
+            return new AuxiliaryFiles(
+                    fetchIndex(metadata, IndexType.OFFSET),
+                    fetchIndex(metadata, IndexType.TIMESTAMP),
+                    fetchIndex(metadata, IndexType.LEADER_EPOCH),
+                    fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT),
+                    fetchIndex(metadata, IndexType.TRANSACTION)
+            );
+        } else {
+            return hdfsRemoteStorageManager.fetchAuxiliaryFiles(metadata);
+        }
     }
 
     @Override

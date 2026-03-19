@@ -4724,6 +4724,7 @@ class ReplicaManagerTest {
     when(remoteLogManager.isPartitionReady(ArgumentMatchers.eq(tp0))).thenReturn(true)
     val storageManager = mock(classOf[RemoteStorageManager])
     when(storageManager.fetchIndex(any(), any())).thenReturn(new ByteArrayInputStream("0".getBytes()))
+    doCallRealMethod().when(storageManager).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
     when(remoteLogManager.storageManager()).thenReturn(storageManager)
 
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteLogManager = Some(remoteLogManager), buildRemoteLogAuxState = true)
@@ -4776,6 +4777,7 @@ class ReplicaManagerTest {
     val remoteLogManager = mock(classOf[RemoteLogManager])
     val storageManager = mock(classOf[RemoteStorageManager])
     when(storageManager.fetchIndex(any(), any())).thenReturn(new ByteArrayInputStream("0".getBytes()))
+    doCallRealMethod().when(storageManager).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
     when(remoteLogManager.storageManager()).thenReturn(storageManager)
 
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteLogManager = Some(remoteLogManager), buildRemoteLogAuxState = true)
@@ -4835,6 +4837,7 @@ class ReplicaManagerTest {
 
     val storageManager = mock(classOf[RemoteStorageManager])
     when(storageManager.fetchIndex(any(), any())).thenReturn(new ByteArrayInputStream("0".getBytes()))
+    doCallRealMethod().when(storageManager).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
     when(remoteLogManager.storageManager()).thenReturn(storageManager)
 
     val replicaManager = setupReplicaManagerWithMockedPurgatories(new MockTimer(time), aliveBrokerIds = Seq(0, 1, 2), enableRemoteStorage = true, shouldMockLog = true, remoteLogManager = Some(remoteLogManager), buildRemoteLogAuxState = true)

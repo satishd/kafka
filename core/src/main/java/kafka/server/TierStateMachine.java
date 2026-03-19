@@ -30,9 +30,9 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.common.CheckpointFile;
 import org.apache.kafka.server.common.OffsetAndEpoch;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
-import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageNotReadyException;
 import org.apache.kafka.storage.internals.checkpoint.LeaderEpochCheckpointFile;
 import org.apache.kafka.storage.internals.log.EpochEntry;
@@ -149,26 +149,23 @@ public class TierStateMachine {
         return epochEndOffset;
     }
 
-    private List<EpochEntry> readLeaderEpochCheckpoint(RemoteLogManager rlm,
-                                                       RemoteLogSegmentMetadata remoteLogSegmentMetadata) throws IOException, RemoteStorageException {
-        try (InputStream inputStream = rlm.storageManager().fetchIndex(remoteLogSegmentMetadata, RemoteStorageManager.IndexType.LEADER_EPOCH);
-             BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            CheckpointFile.CheckpointReadBuffer<EpochEntry> readBuffer = new CheckpointFile.CheckpointReadBuffer<>("", bufferedReader, 0, LeaderEpochCheckpointFile.FORMATTER);
+    private List<EpochEntry> readLeaderEpochCheckpoint(InputStream leaderEpochCheckpointStream) throws IOException {
+        try (BufferedReader bufferedReader =
+                     new BufferedReader(new InputStreamReader(leaderEpochCheckpointStream, StandardCharsets.UTF_8))) {
+            CheckpointFile.CheckpointReadBuffer<EpochEntry> readBuffer =
+                    new CheckpointFile.CheckpointReadBuffer<>("", bufferedReader, 0, LeaderEpochCheckpointFile.FORMATTER);
             return readBuffer.read();
         }
     }
 
     private void buildProducerSnapshotFile(UnifiedLog unifiedLog,
                                            long nextOffset,
-                                           RemoteLogSegmentMetadata remoteLogSegmentMetadata,
-                                           RemoteLogManager rlm) throws IOException, RemoteStorageException {
+                                           InputStream producerSnapshotStream) throws IOException {
         // Restore producer snapshot
         File snapshotFile = LogFileUtils.producerSnapshotFile(unifiedLog.dir(), nextOffset);
         Path tmpSnapshotFile = Paths.get(snapshotFile.getAbsolutePath() + ".tmp");
         // Copy it to snapshot file in atomic manner.
-        try (InputStream inputStream = rlm.storageManager().fetchIndex(remoteLogSegmentMetadata, RemoteStorageManager.IndexType.PRODUCER_SNAPSHOT)) {
-            Files.copy(inputStream, tmpSnapshotFile, StandardCopyOption.REPLACE_EXISTING);
-        }
+        Files.copy(producerSnapshotStream, tmpSnapshotFile, StandardCopyOption.REPLACE_EXISTING);
         Utils.atomicMoveWithFallback(tmpSnapshotFile, snapshotFile.toPath(), false);
 
         // Reload producer snapshots.
@@ -256,19 +253,21 @@ public class TierStateMachine {
         unifiedLog.maybeIncrementLocalLogStartOffset(nextOffset, LeaderOffsetIncremented);
 
         // Build leader epoch cache.
-        List<EpochEntry> epochs = readLeaderEpochCheckpoint(rlm, remoteLogSegmentMetadata);
-        if (unifiedLog.leaderEpochCache().isDefined()) {
-            unifiedLog.leaderEpochCache().get().assign(epochs);
+        try (AuxiliaryFiles auxiliaryFiles = rlm.storageManager().fetchAuxiliaryFiles(remoteLogSegmentMetadata)) {
+            List<EpochEntry> epochs = readLeaderEpochCheckpoint(auxiliaryFiles.leaderEpochCheckpointStream());
+            if (unifiedLog.leaderEpochCache().isDefined()) {
+                unifiedLog.leaderEpochCache().get().assign(epochs);
+            }
+
+            log.info("Updated the epoch cache from remote tier till offset: {} with size: {} for {}", leaderLocalLogStartOffset, epochs.size(), partition);
+
+            buildProducerSnapshotFile(unifiedLog, nextOffset, auxiliaryFiles.producerSnapshotStream());
+
+            log.debug("Built the leader epoch cache and producer snapshots from remote tier for {}, " +
+                            "with active producers size: {}, leaderLogStartOffset: {}, and logEndOffset: {}",
+                    partition, unifiedLog.producerStateManager().activeProducers().size(), leaderLogStartOffset, nextOffset);
+
+            return nextOffset;
         }
-
-        log.info("Updated the epoch cache from remote tier till offset: {} with size: {} for {}", leaderLocalLogStartOffset, epochs.size(), partition);
-
-        buildProducerSnapshotFile(unifiedLog, nextOffset, remoteLogSegmentMetadata, rlm);
-
-        log.debug("Built the leader epoch cache and producer snapshots from remote tier for {}, " +
-                        "with active producers size: {}, leaderLogStartOffset: {}, and logEndOffset: {}",
-                partition, unifiedLog.producerStateManager().activeProducers().size(), leaderLogStartOffset, nextOffset);
-
-        return nextOffset;
     }
 }

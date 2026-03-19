@@ -26,6 +26,7 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.pool.ByteBufferWrapper;
 import org.apache.kafka.rsm.hdfs.prefetch.RSMTestUtils;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -1477,9 +1478,10 @@ public class HDFSRemoteStorageManagerTest {
                 TestLogSegmentUtils.LEADER_EPOCH_INDEX_FILE_SIZE + TestLogSegmentUtils.PRODUCER_SNAPSHOT_FILE_SIZE;
         long expectedBytesReadWithTxnIndex = expectedBytesRead + TestLogSegmentUtils.TXN_INDEX_FILE_SIZE;
         if (withOptionalFiles) {
-            assertEquals(expectedBytesReadWithTxnIndex, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
+            // one for fetchIndex() and another for fetchAuxiliaryFiles()
+            assertEquals(2 * expectedBytesReadWithTxnIndex, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
         } else {
-            assertEquals(expectedBytesRead, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
+            assertEquals(2 * expectedBytesRead, ((HDFSRemoteStorageManager) rsm).bytesReadFromRemote() - bytesReadFromRemoteSoFar);
         }
         assertTrue(customMetadataOpt.isPresent());
         assertEquals(defaultFsUri, FileSystemManager.getBucket(customMetadataOpt.get()));
@@ -1526,28 +1528,41 @@ public class HDFSRemoteStorageManagerTest {
     private void checkAssociatedFileContents(RemoteStorageManager rsm,
                                              RemoteLogSegmentMetadata metadata,
                                              LogSegmentData segmentData) throws Exception {
-        // Fetch the files in random order
-        try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TIMESTAMP)) {
-            assertFileEquals(segmentData.timeIndex().toFile(), actualStream);
-        }
-        try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET)) {
-            assertFileEquals(segmentData.offsetIndex().toFile(), actualStream);
-        }
-        if (segmentData.transactionIndex().isPresent()) {
-            try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
-                assertFileEquals(segmentData.transactionIndex().get().toFile(), actualStream);
+        try (AuxiliaryFiles auxiliaryFiles = rsm.fetchAuxiliaryFiles(metadata)) {
+            // Fetch the files in random order
+            try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TIMESTAMP)) {
+                assertFileEquals(segmentData.timeIndex().toFile(), actualStream);
+                assertFileEquals(segmentData.timeIndex().toFile(), auxiliaryFiles.timestampIndexStream());
+            }
+            try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.OFFSET)) {
+                assertFileEquals(segmentData.offsetIndex().toFile(), actualStream);
+                assertFileEquals(segmentData.offsetIndex().toFile(), auxiliaryFiles.offsetIndexStream());
+            }
+            if (segmentData.transactionIndex().isPresent()) {
+                try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.TRANSACTION)) {
+                    assertFileEquals(segmentData.transactionIndex().get().toFile(), actualStream);
+                    assertFileEquals(segmentData.transactionIndex().get().toFile(), auxiliaryFiles.transactionIndexStream());
+                }
+            } else {
+                assertEquals(0, auxiliaryFiles.transactionIndexStream().available());
+            }
+            try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.LEADER_EPOCH)) {
+                ByteBuffer leaderEpochIndex = segmentData.leaderEpochIndex();
+                leaderEpochIndex.rewind();
+                assertDataEquals(leaderEpochIndex, actualStream);
+                leaderEpochIndex.rewind();
+                assertDataEquals(leaderEpochIndex, auxiliaryFiles.leaderEpochCheckpointStream());
+            }
+            if (segmentData.producerSnapshotIndex() != null) {
+                try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.PRODUCER_SNAPSHOT)) {
+                    assertFileEquals(segmentData.producerSnapshotIndex().toFile(), actualStream);
+                    assertFileEquals(segmentData.producerSnapshotIndex().toFile(), auxiliaryFiles.producerSnapshotStream());
+                }
+            } else {
+                assertEquals(0, auxiliaryFiles.producerSnapshotStream().available());
             }
         }
-        try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.LEADER_EPOCH)) {
-            ByteBuffer leaderEpochIndex = segmentData.leaderEpochIndex();
-            leaderEpochIndex.rewind();
-            assertDataEquals(leaderEpochIndex, actualStream);
-        }
-        if (segmentData.producerSnapshotIndex() != null) {
-            try (InputStream actualStream = rsm.fetchIndex(metadata, RemoteStorageManager.IndexType.PRODUCER_SNAPSHOT)) {
-                assertFileEquals(segmentData.producerSnapshotIndex().toFile(), actualStream);
-            }
-        }
+
         // Fetch the segment with and without LRU cache.
         for (boolean enablePrefetch : Arrays.asList(true, false)) {
             RemoteReadContext readContext = RemoteReadContext.builder()

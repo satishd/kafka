@@ -166,4 +166,9 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
     public void cleanup() {
         prefetchSegmentManager.cleanup();
     }
+
+    @Override
+    public boolean isSegmentDownloaded(RemoteLogSegmentId segmentId) {
+        return prefetchSegmentManager.isSegmentDownloaded(segmentId);
+    }
 }

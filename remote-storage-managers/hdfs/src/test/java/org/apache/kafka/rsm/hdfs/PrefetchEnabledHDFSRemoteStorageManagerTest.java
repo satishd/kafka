@@ -21,6 +21,7 @@ import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcher;
 import org.apache.kafka.server.common.OffsetAndEpoch;
+import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
 import java.util.HashMap;
@@ -43,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -313,6 +316,60 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
         verify(mockPrefetcher, never()).signalSegmentRead(any(), anyInt(), any());
         verify(mockPrefetcher, never()).fetchLogSegment(any(), anyInt(), anyInt());
         verify(mockHdfsRsm).fetchLogSegment(metadata, readContext, 10, Integer.MAX_VALUE);
+    }
+
+    @Test
+    public void testFetchAuxiliaryFilesWhenSegmentIsDownloaded() throws RemoteStorageException, IOException {
+        // Setup: segment is downloaded in prefetcher
+        when(mockPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())).thenReturn(true);
+
+        // Create expected streams for each index type
+        InputStream offsetStream = new ByteArrayInputStream(new byte[]{1});
+        InputStream timestampStream = new ByteArrayInputStream(new byte[]{2});
+        InputStream leaderEpochStream = new ByteArrayInputStream(new byte[]{3});
+        InputStream producerSnapshotStream = new ByteArrayInputStream(new byte[]{4});
+        InputStream transactionStream = new ByteArrayInputStream(new byte[]{5});
+
+        when(mockPrefetcher.fetchIndex(metadata, IndexType.OFFSET)).thenReturn(offsetStream);
+        when(mockPrefetcher.fetchIndex(metadata, IndexType.TIMESTAMP)).thenReturn(timestampStream);
+        when(mockPrefetcher.fetchIndex(metadata, IndexType.LEADER_EPOCH)).thenReturn(leaderEpochStream);
+        when(mockPrefetcher.fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT)).thenReturn(producerSnapshotStream);
+        when(mockPrefetcher.fetchIndex(metadata, IndexType.TRANSACTION)).thenReturn(transactionStream);
+
+        AuxiliaryFiles result = manager.fetchAuxiliaryFiles(metadata);
+
+        assertNotNull(result);
+        assertSame(offsetStream, result.offsetIndexStream());
+        assertSame(timestampStream, result.timestampIndexStream());
+        assertSame(leaderEpochStream, result.leaderEpochCheckpointStream());
+        assertSame(producerSnapshotStream, result.producerSnapshotStream());
+        assertSame(transactionStream, result.transactionIndexStream());
+
+        verify(mockPrefetcher).isSegmentDownloaded(metadata.remoteLogSegmentId());
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.OFFSET);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.TIMESTAMP);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.LEADER_EPOCH);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.TRANSACTION);
+        verify(mockHdfsRsm, never()).fetchAuxiliaryFiles(any());
+        result.close();
+    }
+
+    @Test
+    public void testFetchAuxiliaryFilesWhenSegmentIsNotDownloaded() throws RemoteStorageException, IOException {
+        // Setup: segment is NOT downloaded in prefetcher
+        when(mockPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())).thenReturn(false);
+
+        AuxiliaryFiles expectedAuxFiles = mock(AuxiliaryFiles.class);
+        when(mockHdfsRsm.fetchAuxiliaryFiles(metadata)).thenReturn(expectedAuxFiles);
+
+        AuxiliaryFiles result = manager.fetchAuxiliaryFiles(metadata);
+
+        assertSame(expectedAuxFiles, result);
+        verify(mockPrefetcher).isSegmentDownloaded(metadata.remoteLogSegmentId());
+        verify(mockPrefetcher, never()).fetchIndex(any(), any());
+        verify(mockHdfsRsm).fetchAuxiliaryFiles(metadata);
+        result.close();
     }
 
     @Test

@@ -286,6 +286,11 @@ public class PrefetchSegmentManager implements Reconfigurable {
         }
     }
 
+    public boolean isSegmentDownloaded(RemoteLogSegmentId segmentId) {
+        CacheValue cacheValue = segmentCache.getIfPresent(segmentId);
+        return cacheValue != null && cacheValue.status() == PrefetchStatus.SUCCESS;
+    }
+
     public void cleanup() {
         // Shutdown the executor first, before clearing the cache, so that no new files are added by new/in-progress
         // tasks after the cache was cleared

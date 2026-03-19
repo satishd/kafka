@@ -88,6 +88,7 @@ import static org.apache.kafka.server.config.ServerLogConfigs.LOG_DIR_CONFIG;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.METRICS;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -361,6 +362,8 @@ public class PrefetchSegmentManagerTest {
                 Thread.sleep(10);
             }
         });
+        assertFalse(segmentManager.isSegmentDownloaded(segmentId),
+                "Segment should not be marked as downloaded after exception");
 
         verifyMeter(PREFETCH_REQUESTS_PER_SEC, 1);
         verifyMeter(PREFETCH_REQUEST_SUCCESS_PER_SEC, 0);
@@ -413,6 +416,7 @@ public class PrefetchSegmentManagerTest {
         CacheValue cacheValue = cache.getIfPresent(segmentId);
         assertNotNull(cacheValue, "Segment should be added to cache");
         assertEquals(PrefetchStatus.SUCCESS, cacheValue.status(), "Status should be SUCCESS");
+        assertTrue(segmentManager.isSegmentDownloaded(segmentId));
 
         // Verify the metrics
         verifyMeter(PREFETCH_REQUESTS_PER_SEC, 1);

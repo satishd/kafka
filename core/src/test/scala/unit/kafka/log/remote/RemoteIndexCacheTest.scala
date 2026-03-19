@@ -37,7 +37,7 @@ import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
 import org.slf4j.{Logger, LoggerFactory}
 
-import java.io.{File, FileInputStream, FilenameFilter, IOException, PrintWriter, UncheckedIOException}
+import java.io.{ByteArrayInputStream, File, FileInputStream, FilenameFilter, IOException, PrintWriter, UncheckedIOException}
 import java.nio.file.{Files, NoSuchFileException, Path, Paths}
 import java.util
 import java.util.concurrent.{CountDownLatch, Executors, Future, TimeUnit}
@@ -148,8 +148,9 @@ class RemoteIndexCacheTest {
           case IndexType.TIMESTAMP => new FileInputStream(timeIdx.file)
           // Throw RemoteResourceNotFoundException since transaction index is not available
           case IndexType.TRANSACTION => throw new RemoteResourceNotFoundException("txn index not found")
-          case IndexType.LEADER_EPOCH => // leader-epoch-cache is not accessed.
-          case IndexType.PRODUCER_SNAPSHOT => // producer-snapshot is not accessed.
+          // leader-epoch-cache and producer-snapshot are not accessed, it is invoked by rsm#fetchAuxiliaryFiles
+          case IndexType.LEADER_EPOCH => new ByteArrayInputStream(Array.emptyByteArray)
+          case IndexType.PRODUCER_SNAPSHOT => new ByteArrayInputStream(Array.emptyByteArray)
         }
       })
 
@@ -370,6 +371,7 @@ class RemoteIndexCacheTest {
     assertCacheSize(1)
     verifyFetchIndexInvocation(count = 1, Seq(IndexType.OFFSET, IndexType.TIMESTAMP))
     reset(rsm)
+    doCallRealMethod().when(rsm).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
 
     // Simulate a concurrency situation where one thread is reading the entry already present in the cache (cache hit)
     // and the other thread is reading an entry which is not available in the cache (cache miss). The expected behaviour
@@ -824,15 +826,17 @@ class RemoteIndexCacheTest {
           case IndexType.OFFSET => new FileInputStream(offsetIdx.file)
           case IndexType.TIMESTAMP => new FileInputStream(timeIdx.file)
           case IndexType.TRANSACTION => new FileInputStream(txnIdx.file)
-          case IndexType.LEADER_EPOCH => // leader-epoch-cache is not accessed.
-          case IndexType.PRODUCER_SNAPSHOT => // producer-snapshot is not accessed.
+          // leader-epoch-cache and producer-snapshot are not accessed, it is invoked by rsm#fetchAuxiliaryFiles
+          case IndexType.LEADER_EPOCH => new ByteArrayInputStream(Array.emptyByteArray)
+          case IndexType.PRODUCER_SNAPSHOT => new ByteArrayInputStream(Array.emptyByteArray)
         }
       })
+    doCallRealMethod().when(rsm).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
 
     assertThrows(classOf[CorruptIndexException], () => cache.getIndexEntry(rlsMetadata))
     assertNull(cache.internalCache().getIfPresent(rlsMetadata.remoteLogSegmentId().id()))
     verifyFetchIndexInvocation(1, Seq(IndexType.OFFSET, IndexType.TIMESTAMP))
-    verifyFetchIndexInvocation(0, Seq(IndexType.TRANSACTION))
+    verifyFetchIndexInvocation(1, Seq(IndexType.TRANSACTION))
     // Current status
     // (cache is null)
     // RemoteCacheDir contain
@@ -850,11 +854,9 @@ class RemoteIndexCacheTest {
     // rsm should return no corrupted file in the 2nd execution
     mockRsmFetchIndex(rsm)
     cache.getIndexEntry(rlsMetadata)
-    // rsm should not be called to fetch offset Index
-    verifyFetchIndexInvocation(0, Seq(IndexType.OFFSET))
+    // rsm should be called to fetch the offset, time, and txn index files again as the previous execution was failed.
+    verifyFetchIndexInvocation(1, Seq(IndexType.OFFSET))
     verifyFetchIndexInvocation(1, Seq(IndexType.TIMESTAMP))
-    // Transaction index would be fetched again
-    // as previous getIndexEntry failed before fetchTransactionIndex
     verifyFetchIndexInvocation(1, Seq(IndexType.TRANSACTION))
   }
 
@@ -889,8 +891,8 @@ class RemoteIndexCacheTest {
     // validate cache entry for the above key should be null
     assertNull(cache.internalCache().getIfPresent(rlsMetadata.remoteLogSegmentId().id()))
     cache.getIndexEntry(rlsMetadata)
-    // Index  Files already exist ,rsm should not fetch them again.
-    verifyFetchIndexInvocation(count = 1)
+    // Index  Files already exist ,rsm#fetchAuxiliaryFiles should fetch them again.
+    verifyFetchIndexInvocation(count = 2)
     // verify index files on disk
     assertTrue(getIndexFileFromRemoteCacheDir(cache, LogFileUtils.INDEX_FILE_SUFFIX).isPresent, s"Offset index file should be present on disk at ${remoteIndexCacheDir.toPath}")
     assertTrue(getIndexFileFromRemoteCacheDir(cache, LogFileUtils.TXN_INDEX_FILE_SUFFIX).isPresent, s"Txn index file should be present on disk at ${remoteIndexCacheDir.toPath}")
@@ -914,10 +916,12 @@ class RemoteIndexCacheTest {
           case IndexType.OFFSET => new FileInputStream(offsetIdx.file)
           case IndexType.TIMESTAMP => new FileInputStream(timeIdx.file)
           case IndexType.TRANSACTION => new FileInputStream(txnIdx.file)
-          case IndexType.LEADER_EPOCH => // leader-epoch-cache is not accessed.
-          case IndexType.PRODUCER_SNAPSHOT => // producer-snapshot is not accessed.
+          // leader-epoch-cache and producer-snapshot are not accessed, it is invoked by rsm#fetchAuxiliaryFiles
+          case IndexType.LEADER_EPOCH => new ByteArrayInputStream(Array.emptyByteArray)
+          case IndexType.PRODUCER_SNAPSHOT => new ByteArrayInputStream(Array.emptyByteArray)
         }
       })
+    doCallRealMethod().when(rsm).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
     assertThrows(classOf[CorruptIndexException], () => cache.getIndexEntry(rlsMetadata))
   }
 
@@ -1204,20 +1208,25 @@ class RemoteIndexCacheTest {
 
   private def verifyFetchIndexInvocation(count: Int,
                                          indexTypes: Seq[IndexType] =
-                                         Seq(IndexType.OFFSET, IndexType.TIMESTAMP, IndexType.TRANSACTION)): Unit = {
+                                         Seq(IndexType.OFFSET, IndexType.TIMESTAMP, IndexType.TRANSACTION,
+                                           IndexType.LEADER_EPOCH, IndexType.PRODUCER_SNAPSHOT)): Unit = {
     for (indexType <- indexTypes) {
       verify(rsm, times(count)).fetchIndex(any(classOf[RemoteLogSegmentMetadata]), ArgumentMatchers.eq(indexType))
     }
+    verify(rsm, times(count)).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
   }
 
   private def verifyFetchIndexInvocationWithRange(lower: Int,
                                                   upper: Int,
                                          indexTypes: Seq[IndexType] =
-                                         Seq(IndexType.OFFSET, IndexType.TIMESTAMP, IndexType.TRANSACTION)): Unit = {
+                                         Seq(IndexType.OFFSET, IndexType.TIMESTAMP, IndexType.TRANSACTION,
+                                           IndexType.LEADER_EPOCH, IndexType.PRODUCER_SNAPSHOT)): Unit = {
     for (indexType <- indexTypes) {
       verify(rsm, atLeast(lower)).fetchIndex(any(classOf[RemoteLogSegmentMetadata]), ArgumentMatchers.eq(indexType))
       verify(rsm, atMost(upper)).fetchIndex(any(classOf[RemoteLogSegmentMetadata]), ArgumentMatchers.eq(indexType))
     }
+    verify(rsm, atLeast(lower)).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
+    verify(rsm, atMost(upper)).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
   }
 
   private def createTxIndexForSegmentMetadata(metadata: RemoteLogSegmentMetadata, dir: File): TransactionIndex = {
@@ -1305,10 +1314,12 @@ class RemoteIndexCacheTest {
           case IndexType.OFFSET => new FileInputStream(offsetIdx.file)
           case IndexType.TIMESTAMP => new FileInputStream(timeIdx.file)
           case IndexType.TRANSACTION => new FileInputStream(txnIdx.file)
-          case IndexType.LEADER_EPOCH => // leader-epoch-cache is not accessed.
-          case IndexType.PRODUCER_SNAPSHOT => // producer-snapshot is not accessed.
+          // leader-epoch-cache and producer-snapshot are not accessed, it is invoked by rsm#fetchAuxiliaryFiles
+          case IndexType.LEADER_EPOCH => new ByteArrayInputStream(Array.emptyByteArray)
+          case IndexType.PRODUCER_SNAPSHOT => new ByteArrayInputStream(Array.emptyByteArray)
         }
       })
+    doCallRealMethod().when(rsm).fetchAuxiliaryFiles(any(classOf[RemoteLogSegmentMetadata]))
   }
 
   private def createCorruptOffsetIndexFile(dir: File): Unit = {
