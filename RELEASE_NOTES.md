@@ -1,3 +1,16 @@
+# Release Kafka 3.9.16-uber build (03/23/2026)
+- Support controller and broker mode differentiation in startup script [kraft]
+- Add CLAUDE.md with build, test, and architecture guidance
+- [cherry-pick] 2.9 add rate limit logic (#69)
+- Fix the scala 2.12 compilation issues in tests (#72)
+- Use PodReplicaPlacer in Controller
+- DKAFC-6997: Don't initialize FS inputStream when txn index file is empty (#73)
+- DKAFC-7021: Update the copy-circuit breaker handling logic in RSM (#75)
+- Set broker.id/node.id from worker's node.id state file (#74)
+- PodReplicaPlacer detects placement rule confliction
+- DKAFC-7030: Read all associated remote segment file in one request (#77)
+- DKAFC-7004: Don't instantiate the FileSystem eagerly for HDFS buckets (#80)
+
 # Release Kafka 3.9.15-uber build (02/17/2026)
 - Bump oc-hdfs connector client to v2.9.2.74
 - Install confluent-kafka using pip for use in streaming tools script
