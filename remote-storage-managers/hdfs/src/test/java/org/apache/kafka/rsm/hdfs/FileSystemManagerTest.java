@@ -77,6 +77,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -285,10 +286,9 @@ public class FileSystemManagerTest {
             rsm.configure(configs);
 
             assertEquals(allBuckets, rsm.ociBuckets());
-            // verify that the FileSystem instance is called 8 times
-            // once for the default filesystem, once for the hedged reads enabled filesystem and 3 times for the OCI
-            // buckets with and without read ahead
-            assertEquals(8, instanceCount.get());
+            // verify that the FileSystem instance is called 6 times on default
+            // 3 times for the OCI buckets with and without read ahead
+            assertEquals(6, instanceCount.get());
 
             Uuid topicId = Uuid.fromString("p9egHc6hSBGpCXzSk59d7g");
             String topic = "topicA";
@@ -314,7 +314,7 @@ public class FileSystemManagerTest {
             configs.put(HDFS_OCI_BUCKETS_PROP, updatedOciBuckets);
             rsm.reconfigure(configs);
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket4)));
-            assertEquals(9, instanceCount.get());
+            assertEquals(7, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
 
             // Reconfigure the OCI Buckets -- remove some buckets
@@ -324,8 +324,13 @@ public class FileSystemManagerTest {
             rsm.reconfigure(configs);
             // removed bucket should still be accessible for reads.
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(ociBucket2)));
-            assertEquals(9, instanceCount.get());
+            assertEquals(7, instanceCount.get());
             assertEquals(expectedBuckets, rsm.ociBuckets());
+
+            // Test HDFS FileSystem creation on demand
+            assertNotNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri)));
+            assertNotNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)));
+            assertEquals(9, instanceCount.get());
         }
     }
 
@@ -340,12 +345,14 @@ public class FileSystemManagerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"abcd", "invalid-uri"})
-    public void testConfigureInvalidHdfsBuckets(String hdfsBuckets) {
+    @ValueSource(strings = {"abcd", "invalid-uri", ""})
+    public void testConfigureInvalidHdfsBucketsShouldNotThrowError(String hdfsBuckets) {
         configs.put(HDFS_DEFAULT_FS_URI_PROP, hdfsBuckets);
         try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
             rsm.setDefaultHadoopConfiguration(hadoopConf);
-            assertThrows(IllegalArgumentException.class, () -> rsm.configure(configs));
+            rsm.configure(configs);
+        } catch (Exception ex) {
+            fail("Should not throw exception");
         }
     }
 
@@ -702,15 +709,14 @@ public class FileSystemManagerTest {
             rsm.configure(configs);
 
             assertEquals(allBuckets, rsm.ociBuckets());
-            // verify that the FileSystem instance is called 4 times
-            // once for the default filesystem, once for the hedged reads enabled filesystem and 1 time for the OCI
-            // buckets with and without read ahead
-            assertEquals(4, instanceCount.get());
+            // verify that the FileSystem instance is called 2 times
+            // 1 time for the OCI buckets with and without read ahead
+            assertEquals(2, instanceCount.get());
             rsm.close();
 
             // should not recreate the same instance when the RSM is closed.
             rsm.getFS(ociBucket);
-            assertEquals(4, instanceCount.get());
+            assertEquals(2, instanceCount.get());
         }
     }
 }

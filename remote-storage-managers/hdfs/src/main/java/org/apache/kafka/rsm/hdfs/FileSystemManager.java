@@ -178,13 +178,7 @@ public class FileSystemManager {
         }
 
         hdfsBucket = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP);
-        validateScheme(hdfsBucket, RemoteStorageProvider.HDFS);
-        // FileSystem for HDFS without hedged reads enabled
-        FileSystemOptions defaultHdfsOpts = new FileSystemOptions(hdfsBucket);
-        getFS(defaultHdfsOpts);
-        // FileSystem for HDFS with hedged reads enabled
-        FileSystemOptions hedgedReadsOpts = new FileSystemOptions(hdfsBucket, true);
-        getFS(hedgedReadsOpts);
+        // Don't instantiate the FileSystem for HDFS with and without hedged reads enabled eagerly.
 
         ociBuckets.addAll(conf.getList(HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP));
         for (String ociBucket : ociBuckets) {

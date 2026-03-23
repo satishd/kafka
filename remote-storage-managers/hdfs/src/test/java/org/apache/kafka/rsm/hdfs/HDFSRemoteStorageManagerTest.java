@@ -114,14 +114,6 @@ import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_OUTPUT_STREAM;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_OPEN_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.FS_STATUS_RATE_AND_TIME_MS;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.HEDGED_READ_OPS_WIN;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_POOL_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_REJECTION_COUNT;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_HEADER_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_INDEX_READ_RATE_AND_TIME_MS;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerMetrics.SEGMENT_READ_RATE_AND_TIME_MS;
@@ -548,45 +540,6 @@ public class HDFSRemoteStorageManagerTest {
             Optional<Metric> thrashRequestsPerSec = findKafkaMetric("HDFSCacheThrashRequestPerSec");
             assertTrue(thrashRequestsPerSec.isPresent());
             assertEquals(0, ((Meter) thrashRequestsPerSec.get()).count());
-        }
-    }
-
-    @Test
-    public void testHedgedReadsMetrics() throws Exception {
-        try (HDFSRemoteStorageManager rsm = new HDFSRemoteStorageManager()) {
-            rsm.setDefaultHadoopConfiguration(hadoopConf);
-            rsm.configure(configs);
-            clearKafkaMetrics();
-            rsm.registerHedgedReadMetrics();
-
-            // Verify initial values
-            verifyGauge(HEDGED_READ_OPS, 0L);
-            verifyGauge(HEDGED_READ_OPS_WIN, 0L);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE, 0);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_REJECTION_COUNT, 0L);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT, 0.0);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE, 1);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE, 100);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_POOL_SIZE, 0);
-
-            // Copy one segment and fetch it via Remote Storage Manager
-            Uuid uuid = Uuid.randomUuid();
-            RemoteLogSegmentId id = new RemoteLogSegmentId(tp, uuid);
-            RemoteLogSegmentMetadata segmentMetadata = new RemoteLogSegmentMetadata(id,
-                    0, 100, 0, 0, 1L, ONE_MB, Collections.singletonMap(0, 0L));
-            LogSegmentData segmentData = TestLogSegmentUtils.createLogSegmentData(logDir, 0, ONE_MB, false);
-            rsm.copyLogSegmentData(segmentMetadata, segmentData);
-            verifyFetchLogSegmentDefaultPrefetchAndHedgedReads(rsm, segmentMetadata, segmentData, 0, Integer.MAX_VALUE, ONE_MB);
-
-            // Verify the metrics
-            verifyGauge(HEDGED_READ_OPS, 0L);
-            verifyGauge(HEDGED_READ_OPS_WIN, 0L);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE, 0);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_REJECTION_COUNT, 0L);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT, 100.0);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE, 1);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE, 100);
-            verifyGauge(READ_THREADPOOL_EXECUTOR_POOL_SIZE, 1);
         }
     }
 

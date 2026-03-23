@@ -167,7 +167,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         registerMetrics(readCache);
         registerBufferPoolMetrics();
-        registerHedgedReadMetrics();
         registerHDFSReadMetrics();
         registerStreamMetrics();
         registerCircuitBreakerMetrics();
@@ -290,18 +289,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     void registerBufferPoolMetrics() {
         metrics.registerBufferPoolMetrics(byteBufferPool);
-    }
-
-    void registerHedgedReadMetrics() {
-        metrics.registerHedgedReadMetrics(() -> {
-            // We can use either:
-            //  1. getFs(bucket) or
-            //  2. getFS(bucket, true)
-            // since those metrics are captured at the JVM level and not at FS instance level.
-            // When using `getFS(bucket, true)`, then it might create another FileSystem instance for Hedged reads,
-            // even though none of the topics are enabled with Hedged reads.
-            return getFS(fileSystemManager.getHdfsBucket());
-        });
     }
 
     void registerHDFSReadMetrics() {
