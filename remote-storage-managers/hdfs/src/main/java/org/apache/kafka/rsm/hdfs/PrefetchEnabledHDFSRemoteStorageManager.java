@@ -19,6 +19,7 @@ package org.apache.kafka.rsm.hdfs;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.rsm.hdfs.prefetch.DefaultPrefetchEvaluator;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcher;
 import org.apache.kafka.rsm.hdfs.prefetch.RemoteDataPrefetcherImpl;
@@ -26,6 +27,7 @@ import org.apache.kafka.server.log.remote.storage.AuxiliaryFiles;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
+import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
@@ -33,6 +35,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.HashSet;
 import java.util.List;
@@ -168,13 +171,32 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
     @Override
     public AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         if (remoteDataPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())) {
-            return new AuxiliaryFiles(
-                    fetchIndex(metadata, IndexType.OFFSET),
-                    fetchIndex(metadata, IndexType.TIMESTAMP),
-                    fetchIndex(metadata, IndexType.LEADER_EPOCH),
-                    fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT),
-                    fetchIndex(metadata, IndexType.TRANSACTION)
-            );
+            InputStream offsetIdxStream = null;
+            InputStream timestampIdxStream = null;
+            InputStream leaderEpochStream = null;
+            InputStream producerSnapshotStream = null;
+            InputStream transactionIdxStream = null;
+            try {
+                offsetIdxStream = fetchIndex(metadata, IndexType.OFFSET);
+                timestampIdxStream = fetchIndex(metadata, IndexType.TIMESTAMP);
+                leaderEpochStream = fetchIndex(metadata, IndexType.LEADER_EPOCH);
+                producerSnapshotStream = fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+                try {
+                    transactionIdxStream = fetchIndex(metadata, IndexType.TRANSACTION);
+                } catch (RemoteResourceNotFoundException e) {
+                    transactionIdxStream = new ByteArrayInputStream(new byte[0]);
+                }
+            } catch (RemoteStorageException e) {
+                Utils.closeQuietly(offsetIdxStream, "offsetIndexStream");
+                Utils.closeQuietly(timestampIdxStream, "timestampIndexStream");
+                Utils.closeQuietly(leaderEpochStream, "leaderEpochCheckpointStream");
+                Utils.closeQuietly(producerSnapshotStream, "producerSnapshotStream");
+                Utils.closeQuietly(transactionIdxStream, "transactionIndexStream");
+                throw e;
+            }
+            return new AuxiliaryFiles(offsetIdxStream, timestampIdxStream,
+                    leaderEpochStream, producerSnapshotStream,
+                    transactionIdxStream);
         } else {
             return hdfsRemoteStorageManager.fetchAuxiliaryFiles(metadata);
         }

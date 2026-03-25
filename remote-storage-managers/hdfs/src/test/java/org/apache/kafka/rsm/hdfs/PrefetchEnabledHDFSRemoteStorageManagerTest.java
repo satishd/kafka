@@ -27,6 +27,7 @@ import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 import org.apache.kafka.server.log.remote.storage.RemoteReadContext;
+import org.apache.kafka.server.log.remote.storage.RemoteResourceNotFoundException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager.IndexType;
 
@@ -47,11 +48,13 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -370,6 +373,80 @@ public class PrefetchEnabledHDFSRemoteStorageManagerTest {
         verify(mockPrefetcher, never()).fetchIndex(any(), any());
         verify(mockHdfsRsm).fetchAuxiliaryFiles(metadata);
         result.close();
+    }
+
+    @Test
+    public void testFetchAuxiliaryFilesWhenDownloadedSegmentRemovedDuringAccess() throws Exception {
+        // Setup: segment is downloaded in prefetcher
+        when(mockPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())).thenReturn(true);
+        // Downloaded segment is removed from prefetcher during access
+        when(mockPrefetcher.fetchIndex(eq(metadata), any()))
+                .thenReturn(null);
+
+        // Create expected streams for each index type
+        InputStream offsetStream = new ByteArrayInputStream(new byte[]{1});
+        InputStream timestampStream = new ByteArrayInputStream(new byte[]{2});
+        InputStream leaderEpochStream = new ByteArrayInputStream(new byte[]{3});
+        InputStream producerSnapshotStream = new ByteArrayInputStream(new byte[]{4});
+
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.OFFSET)).thenReturn(offsetStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.TIMESTAMP)).thenReturn(timestampStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.LEADER_EPOCH)).thenReturn(leaderEpochStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT)).thenReturn(producerSnapshotStream);
+        // empty transaction stream
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.TRANSACTION))
+                .thenThrow(new RemoteResourceNotFoundException("Transaction index not found"));
+
+        AuxiliaryFiles result = manager.fetchAuxiliaryFiles(metadata);
+
+        assertNotNull(result);
+        assertSame(offsetStream, result.offsetIndexStream());
+        assertSame(timestampStream, result.timestampIndexStream());
+        assertSame(leaderEpochStream, result.leaderEpochCheckpointStream());
+        assertSame(producerSnapshotStream, result.producerSnapshotStream());
+        assertEquals(0, result.transactionIndexStream().available());
+
+        verify(mockPrefetcher).isSegmentDownloaded(metadata.remoteLogSegmentId());
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.OFFSET);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.TIMESTAMP);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.LEADER_EPOCH);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+        verify(mockPrefetcher).fetchIndex(metadata, IndexType.TRANSACTION);
+        verify(mockHdfsRsm, never()).fetchAuxiliaryFiles(any());
+
+        verify(mockHdfsRsm).fetchIndex(metadata, IndexType.OFFSET);
+        verify(mockHdfsRsm).fetchIndex(metadata, IndexType.TIMESTAMP);
+        verify(mockHdfsRsm).fetchIndex(metadata, IndexType.LEADER_EPOCH);
+        verify(mockHdfsRsm).fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+        verify(mockHdfsRsm).fetchIndex(metadata, IndexType.TRANSACTION);
+        result.close();
+    }
+
+    @Test
+    public void testFetchAuxiliaryFilesClosesStreamOnError() throws Exception {
+        // Setup: segment is downloaded in prefetcher but removed during access
+        when(mockPrefetcher.isSegmentDownloaded(metadata.remoteLogSegmentId())).thenReturn(true);
+        when(mockPrefetcher.fetchIndex(eq(metadata), any()))
+                .thenReturn(null);
+
+        // Create expected streams for each index type
+        InputStream spiedOffsetStream = spy(new ByteArrayInputStream(new byte[]{1}));
+        InputStream spiedTimestampStream = spy(new ByteArrayInputStream(new byte[]{2}));
+        InputStream spiedLeaderEpochStream = spy(new ByteArrayInputStream(new byte[]{3}));
+
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.OFFSET)).thenReturn(spiedOffsetStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.TIMESTAMP)).thenReturn(spiedTimestampStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.LEADER_EPOCH)).thenReturn(spiedLeaderEpochStream);
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT))
+                .thenThrow(new RemoteStorageException("Failed to fetch producer snapshot index"));
+        // empty transaction stream
+        when(mockHdfsRsm.fetchIndex(metadata, IndexType.TRANSACTION))
+                .thenThrow(new RemoteResourceNotFoundException("Transaction index not found"));
+
+        assertThrows(RemoteStorageException.class, () -> manager.fetchAuxiliaryFiles(metadata));
+        verify(spiedOffsetStream).close();
+        verify(spiedTimestampStream).close();
+        verify(spiedLeaderEpochStream).close();
     }
 
     @Test

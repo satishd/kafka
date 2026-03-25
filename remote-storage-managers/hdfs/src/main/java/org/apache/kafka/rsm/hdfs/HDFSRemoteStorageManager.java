@@ -416,8 +416,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         RemoteLogSegmentId segmentId = metadata.remoteLogSegmentId();
         RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
         Path dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
-        long currentTimeMs = time.milliseconds();
+        long startTimeMs = time.milliseconds();
         FSDataInputStream inputStream = null;
+
+        InputStream offsetIndexStream = null;
+        InputStream timeIndexStream = null;
+        InputStream leaderEpochCheckpointStream = null;
+        InputStream producerSnapshotStream = null;
+        InputStream transactionIndexStream = null;
         try {
             FileSystem fileSystem = getFS(bucket);
             inputStream = fileSystem.open(dataPath);
@@ -430,15 +436,14 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
             LogSegmentDataHeader header = headerHolder.header();
             long fileLength = headerHolder.fileLength();
 
-            InputStream offsetIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
+            offsetIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
                     header.getDataPosition(OFFSET_INDEX));
-            InputStream timeIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
+            timeIndexStream = readAuxiliaryFile(inputStream, storageProvider, fileLength, segmentId,
                     header.getDataPosition(TIMESTAMP_INDEX));
-            InputStream leaderEpochCheckpointStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
+            leaderEpochCheckpointStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
                     segmentId, header.getDataPosition(LEADER_EPOCH_CHECKPOINT));
-            InputStream producerSnapshotStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
+            producerSnapshotStream = readAuxiliaryFile(inputStream, storageProvider, fileLength,
                     segmentId, header.getDataPosition(PRODUCER_SNAPSHOT));
-            InputStream transactionIndexStream;
             if (metadata.isTxnIdxEmpty()) {
                 transactionIndexStream = new ByteArrayInputStream(new byte[0]);
             } else {
@@ -446,15 +451,22 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                         segmentId, header.getDataPosition(TRANSACTION_INDEX));
             }
             if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Time taken to fetch the index files: {} ms. offsetIdxBytes: {}, timestampIdxBytes: {}, " +
-                                "leaderEpochCheckpointBytes: {}, producerSnapshot: {}, transactionIdxBytes: {}",
-                        time.milliseconds() - currentTimeMs, offsetIndexStream.available(), timeIndexStream.available(),
+                LOGGER.debug("Time taken to fetch the index files: {} ms for segmentId: {}. offsetIdxBytes: {}, " +
+                                "timestampIdxBytes: {}, leaderEpochCheckpointBytes: {}, producerSnapshot: {}, " +
+                                "transactionIdxBytes: {}", time.milliseconds() - startTimeMs, segmentId,
+                        offsetIndexStream.available(), timeIndexStream.available(),
                         leaderEpochCheckpointStream.available(), producerSnapshotStream.available(),
                         transactionIndexStream.available());
             }
             return new AuxiliaryFiles(offsetIndexStream, timeIndexStream, leaderEpochCheckpointStream,
                     producerSnapshotStream, transactionIndexStream);
         } catch (IOException e) {
+            // close the streams if any exception is thrown to avoid leaking the streams.
+            Utils.closeQuietly(offsetIndexStream, "OffsetIndexStream");
+            Utils.closeQuietly(timeIndexStream, "TimeIndexStream");
+            Utils.closeQuietly(leaderEpochCheckpointStream, "LeaderEpochCheckpointStream");
+            Utils.closeQuietly(producerSnapshotStream, "ProducerSnapshotStream");
+            Utils.closeQuietly(transactionIndexStream, "TransactionIndexStream");
             fetchErrorHandler.accept(e);
             throw new RemoteStorageException("Failed to fetch index files from remote storage. Metadata: " + metadata, e);
         } finally {
@@ -478,6 +490,8 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                     fileLength, dataPosition.getPos() + dataPosition.getLength(), getString(segmentId)));
         }
         if (inputStream.getPos() != dataPosition.getPos()) {
+            LOGGER.warn("Seeking to new position {} for segmentId {} to read index. currentPosition: {}",
+                    dataPosition.getPos(), segmentId, inputStream.getPos());
             inputStream.seek(dataPosition.getPos());
         }
         byte[] buffer = new byte[dataPosition.getLength()];

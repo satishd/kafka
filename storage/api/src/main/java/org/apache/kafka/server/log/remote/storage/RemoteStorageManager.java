@@ -19,6 +19,7 @@ package org.apache.kafka.server.log.remote.storage;
 import org.apache.kafka.common.Reconfigurable;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.annotation.InterfaceStability;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata.CustomMetadata;
 
 import java.io.ByteArrayInputStream;
@@ -210,15 +211,28 @@ public interface RemoteStorageManager extends Reconfigurable, Closeable {
      * @throws RemoteStorageException if an error occurs while fetching the auxiliary files from remote storage.
      */
     default AuxiliaryFiles fetchAuxiliaryFiles(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
-        InputStream offsetIdxStream = fetchIndex(metadata, IndexType.OFFSET);
-        InputStream timestampIdxStream = fetchIndex(metadata, IndexType.TIMESTAMP);
-        InputStream leaderEpochStream = fetchIndex(metadata, IndexType.LEADER_EPOCH);
-        InputStream producerSnapshotStream = fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
-        InputStream transactionIdxStream;
+        InputStream offsetIdxStream = null;
+        InputStream timestampIdxStream = null;
+        InputStream leaderEpochStream = null;
+        InputStream producerSnapshotStream = null;
+        InputStream transactionIdxStream = null;
         try {
-            transactionIdxStream = fetchIndex(metadata, IndexType.TRANSACTION);
-        } catch (RemoteResourceNotFoundException e) {
-            transactionIdxStream = new ByteArrayInputStream(new byte[0]);
+            offsetIdxStream = fetchIndex(metadata, IndexType.OFFSET);
+            timestampIdxStream = fetchIndex(metadata, IndexType.TIMESTAMP);
+            leaderEpochStream = fetchIndex(metadata, IndexType.LEADER_EPOCH);
+            producerSnapshotStream = fetchIndex(metadata, IndexType.PRODUCER_SNAPSHOT);
+            try {
+                transactionIdxStream = fetchIndex(metadata, IndexType.TRANSACTION);
+            } catch (RemoteResourceNotFoundException e) {
+                transactionIdxStream = new ByteArrayInputStream(new byte[0]);
+            }
+        } catch (RemoteStorageException e) {
+            Utils.closeQuietly(offsetIdxStream, "offsetIndexStream");
+            Utils.closeQuietly(timestampIdxStream, "timestampIndexStream");
+            Utils.closeQuietly(leaderEpochStream, "leaderEpochCheckpointStream");
+            Utils.closeQuietly(producerSnapshotStream, "producerSnapshotStream");
+            Utils.closeQuietly(transactionIdxStream, "transactionIndexStream");
+            throw e;
         }
         return new AuxiliaryFiles(offsetIdxStream, timestampIdxStream,
                 leaderEpochStream, producerSnapshotStream,
