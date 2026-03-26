@@ -1,3 +1,7 @@
+# Release Kafka 3.9.17-uber build (03/26/2026)
+- Bump streaming-tools version 2.0.1~15149.gbp02cc20.
+- DKAFC-7030: Fix resource leaks while handling error in RSM fetchAuxiliaryFiles
+
 # Release Kafka 3.9.16-uber build (03/23/2026)
 - Support controller and broker mode differentiation in startup script [kraft]
 - Add CLAUDE.md with build, test, and architecture guidance
