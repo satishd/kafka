@@ -36,6 +36,56 @@ is_controller_only() {
     fi
 }
 
+# Detect if this node is running with broker role (broker-only or combined mode)
+is_kraft_broker() {
+    local PROCESS_ROLES=$(grep "^process.roles=" /etc/kafka/server.properties 2>/dev/null | cut -d'=' -f2 | tr -d '[:space:]')
+
+    if [[ "$PROCESS_ROLES" == *"broker"* ]]; then
+        return 0  # true - has broker role
+    else
+        return 1  # false - no broker role
+    fi
+}
+
+# Format broker storage directories for KRaft mode
+format_kraft_broker() {
+    echo "Formatting broker storage directories for KRaft mode..."
+
+    local CLUSTER_ID=$(get_cluster_id)
+    if [ -z "${CLUSTER_ID}" ]; then
+        echo "ERROR: Failed to get cluster ID for broker formatting"
+        return 1
+    fi
+
+    echo "Using cluster ID: ${CLUSTER_ID}"
+
+    ${APP_HOME}/bin/kafka-storage.sh format \
+        --cluster-id "${CLUSTER_ID}" \
+        --config /etc/kafka/server.properties \
+        --ignore-formatted
+
+    if [ $? -eq 0 ]; then
+        echo "Successfully formatted broker storage directories"
+        return 0
+    else
+        echo "ERROR: Failed to format broker storage directories"
+        return 1
+    fi
+}
+
+# Wrapper function to format KRaft broker if needed
+# Checks if node is a KRaft broker and formats storage directories
+# Dies on failure to ensure startup doesn't proceed with unformatted directories
+ensure_kraft_broker_formatted() {
+    if is_kraft_broker; then
+        echo "KRaft broker detected - formatting storage directories"
+        format_kraft_broker
+        if [ $? -ne 0 ]; then
+            die "Failed to format broker storage directories"
+        fi
+    fi
+}
+
 # Configure Kafka server identity (broker.id and node.id) from state file
 #
 # Reads the node ID from /shared/state/node_id.txt and sets both broker.id and node.id

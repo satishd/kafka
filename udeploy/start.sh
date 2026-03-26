@@ -176,6 +176,9 @@ elif [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}" ]; then
     # Existing offline rebuild logic for broker or combined mode
     echo "Detected broker mode - checking for offline rebuild"
 
+    # Format KRaft broker directories if in KRaft mode
+    ensure_kraft_broker_formatted
+
     # to prevent endless retry when something wrong and the offline rebuild keeps erroring out. for now retry=0, this logic can be enhanced to allow some retries.
     if [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}.previous_run" ]
     then
@@ -205,6 +208,9 @@ elif [ -f "${KAFKA_CONTAINER_OFFLINE_REBUILD_FILE}" ]; then
         start_kafka
     fi
 else
+    # Format KRaft broker directories if in KRaft mode
+    ensure_kraft_broker_formatted
+
     echo "start kafka process as normal"
     start_kafka
 fi
