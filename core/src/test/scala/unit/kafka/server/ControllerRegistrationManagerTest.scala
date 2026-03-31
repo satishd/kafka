@@ -22,7 +22,7 @@ import org.apache.kafka.common.message.ControllerRegistrationResponseData
 import org.apache.kafka.common.metadata.{FeatureLevelRecord, RegisterControllerRecord}
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.ControllerRegistrationResponse
-import org.apache.kafka.common.utils.{ExponentialBackoff, Time}
+import org.apache.kafka.common.utils.ExponentialBackoff
 import org.apache.kafka.image.loader.{LogDeltaManifest, SnapshotManifest}
 import org.apache.kafka.image.{MetadataDelta, MetadataImage, MetadataProvenance}
 import org.apache.kafka.metadata.{ListenerInfo, RecordTestUtils, VersionRange}
@@ -72,7 +72,7 @@ class ControllerRegistrationManagerTest {
   ): ControllerRegistrationManager = {
     new ControllerRegistrationManager(context.config.nodeId,
       context.clusterId,
-      Time.SYSTEM,
+      context.time,
       "controller-registration-manager-test-",
       createSupportedFeatures(MetadataVersion.IBP_3_7_IV0),
       false,
@@ -261,8 +261,64 @@ class ControllerRegistrationManagerTest {
         MetadataVersion.IBP_3_7_IV0,
         r => if (r.controllerId() == 1) None else Some(r))
       TestUtils.retryOnExceptionWithTimeout(30000, () => {
+        context.time.sleep(10) // Advance mock time to trigger retry
         context.mockChannelManager.poll()
         assertEquals((false, 1, 0), rpcStats(manager))
+      })
+    } finally {
+      manager.close()
+    }
+  }
+
+  @Test
+  def testTimeoutResetsPendingRpc(): Unit = {
+    val context = new RegistrationTestContext(configProperties)
+    val manager = newControllerRegistrationManager(context)
+
+    try {
+      // Phase 1: Queue a registration request that cannot be sent (no controller node set)
+      manager.start(context.mockChannelManager)
+      doMetadataUpdate(MetadataImage.EMPTY,
+        manager,
+        MetadataVersion.IBP_3_7_IV0,
+        r => if (r.controllerId() == 1) None else Some(r))
+
+      // Verify request is pending but unsent (pendingRpc=true, successfulRpcs=0, failedRpcs=0)
+      TestUtils.retryOnExceptionWithTimeout(30000, () => {
+        context.mockChannelManager.poll()
+        assertEquals((true, 0, 0), rpcStats(manager))
+      })
+
+      // Phase 2: Trigger timeout by advancing time beyond the retry timeout threshold
+      // Add margin to ensure we exceed the 60-second retryTimeoutMs
+      val timeoutMargin = 1000L
+      context.time.sleep(context.mockChannelManager.retryTimeoutMs + timeoutMargin)
+
+      // Verify timeout was processed and retry scheduled
+      // Note: We don't assert on pendingRpc here because the retry may fire immediately.
+      // After timeout, pendingRpc is set to false, but then a retry is scheduled with
+      // exponential backoff starting at 1ms. Since we've advanced time by 61000ms,
+      // the retry (scheduled for +1ms) has already passed and may fire in the same poll().
+      TestUtils.retryOnExceptionWithTimeout(30000, () => {
+        context.mockChannelManager.poll()
+        val (_, successfulRpcs, failedRpcs) = rpcStats(manager)
+        assertEquals(0, successfulRpcs, "No successful RPCs yet")
+        assertEquals(1, failedRpcs, "Timeout should increment failedRpcs to 1")
+      })
+
+      // Phase 3: Enable the retry to succeed by setting controller node
+      context.controllerNodeProvider.node.set(controller1)
+      context.mockClient.prepareResponseFrom(new ControllerRegistrationResponse(
+        new ControllerRegistrationResponseData()), controller1)
+
+      // Advance time to allow scheduled retry to fire and wait for it to complete successfully
+      context.time.sleep(10)
+      TestUtils.retryOnExceptionWithTimeout(30000, () => {
+        context.mockChannelManager.poll()
+        val (pendingRpc, successfulRpcs, failedRpcs) = rpcStats(manager)
+        assertFalse(pendingRpc, "No RPC should be pending after successful retry")
+        assertEquals(1, successfulRpcs, "Retry should succeed")
+        assertEquals(0, failedRpcs, "Failed RPC count is reset to 0 after success")
       })
     } finally {
       manager.close()

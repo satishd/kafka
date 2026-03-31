@@ -266,6 +266,7 @@ class ControllerRegistrationManager(
     }
 
     override def onTimeout(): Unit = {
+      pendingRpc = false
       error(s"RegistrationResponseHandler: channel manager timed out before sending the request.")
       scheduleNextCommunicationAfterFailure()
     }
