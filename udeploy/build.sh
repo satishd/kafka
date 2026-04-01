@@ -38,6 +38,11 @@ sed -i 's/^version=.*$/version='"$VERSION"'/' gradle.properties
 
 cp core/build/distributions/!(*docs*) /tmp
 
+# Build hybrid JMX exporter shadow JAR
+echo "Building hybrid JMX exporter..."
+./gradlew :metrics-exporter:shadowJar --no-daemon
+cp metrics-exporter/build/libs/kafka-jmx-exporter-1.0.0.jar /usr/share/jmx_exporter/kafka-jmx-exporter-1.0.0.jar
+
 # Remove unwanted except for the below
 rm -rf !(udeploy)
 

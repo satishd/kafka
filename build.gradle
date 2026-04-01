@@ -2381,6 +2381,36 @@ project(':tools') {
   }
 }
 
+project(':metrics-exporter') {
+  base {
+    archivesName = "kafka-jmx-exporter"
+  }
+
+  // Shadow plugin packages all dependencies into a single fat JAR for standalone deployment
+  apply plugin: 'com.github.johnrengelman.shadow'
+
+  dependencies {
+    implementation 'io.prometheus.jmx:jmx_prometheus_httpserver:1.0.1'
+    implementation libs.argparse4j
+    testImplementation libs.junitJupiter
+    testImplementation libs.mockitoCore
+    testRuntimeOnly libs.junitPlatformLanucher
+  }
+
+  // Standalone module with a non-Kafka package; skip checkstyle only
+  tasks.withType(Checkstyle).configureEach { enabled = false }
+
+  shadowJar {
+    archiveBaseName.set('kafka-jmx-exporter')
+    archiveClassifier.set('')
+    archiveVersion.set('1.0.0')
+    manifest {
+      attributes 'Main-Class': 'com.uber.kafka.metricsexporter.KafkaJmxExporter'
+    }
+    mergeServiceFiles()
+  }
+}
+
 project(':trogdor') {
   base {
     archivesName = "trogdor"
