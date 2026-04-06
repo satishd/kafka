@@ -1,3 +1,9 @@
+# Release Kafka 3.9.18-uber build (04/06/2026)
+- Add KRaft mode broker storage directory formatting (#85)
+- Fix controller registration deadlock after RPC timeout (#86)
+- Add hybrid JMX exporter for graphite to M3 metrics migration (#78)
+
+
 # Release Kafka 3.9.17-uber build (03/26/2026)
 - Bump streaming-tools version 2.0.1~15149.gbp02cc20.
 - DKAFC-7030: Fix resource leaks while handling error in RSM fetchAuxiliaryFiles
