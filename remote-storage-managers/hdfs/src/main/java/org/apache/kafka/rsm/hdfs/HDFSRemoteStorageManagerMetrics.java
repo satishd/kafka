@@ -62,17 +62,6 @@ public class HDFSRemoteStorageManagerMetrics {
     static final String BUFFER_POOL_DISCARD_COUNT = "buffer-pool-discard-count";
     static final String BUFFER_POOL_SIZE = "buffer-pool-size";
 
-    // Hedged read metrics
-    static final String HEDGED_READ_OPS = "hedged-read-ops";
-    static final String HEDGED_READ_OPS_WIN = "hedged-read-ops-win";
-    static final String READ_THREADPOOL_EXECUTOR_PREFIX = "read-threadpool-executor-";
-    static final String READ_THREADPOOL_EXECUTOR_TASK_QUEUE_SIZE = READ_THREADPOOL_EXECUTOR_PREFIX + TASK_QUEUE_SIZE;
-    static final String READ_THREADPOOL_EXECUTOR_REJECTION_COUNT = READ_THREADPOOL_EXECUTOR_PREFIX + REJECTION_COUNT;
-    static final String READ_THREADPOOL_EXECUTOR_AVG_IDLE_PERCENT = READ_THREADPOOL_EXECUTOR_PREFIX + AVG_IDLE_PERCENT;
-    static final String READ_THREADPOOL_EXECUTOR_CORE_POOL_SIZE = READ_THREADPOOL_EXECUTOR_PREFIX + CORE_POOL_SIZE;
-    static final String READ_THREADPOOL_EXECUTOR_MAX_POOL_SIZE = READ_THREADPOOL_EXECUTOR_PREFIX + MAX_POOL_SIZE;
-    static final String READ_THREADPOOL_EXECUTOR_POOL_SIZE = READ_THREADPOOL_EXECUTOR_PREFIX + POOL_SIZE;
-
     // Prefetch read metrics
     private static final String PREFETCH_CACHE_METRICS_PREFIX = "prefetch-cache-metrics-";
     private static final String PREFETCH_THREADPOOL_METRICS_PREFIX = "prefetch-threadpool-executor-";

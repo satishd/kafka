@@ -1959,15 +1959,11 @@ public class RemoteLogManager implements Closeable {
 
         RemoteLogSegmentMetadata remoteLogSegmentMetadata = rlsMetadataOptional.get();
         OffsetAndEpoch nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch(logOptional, remoteLogSegmentMetadata);
-        boolean enableHedgedReads = logConfigOptional
-                .map(LogConfig::remoteHedgedReadsEnable)
-                .orElse(false);
         boolean enableSegmentPrefetch = logConfigOptional
                 .map(LogConfig::remoteStoragePrefetchEnable)
                 .orElse(false);
         RemoteReadContext readContext = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(enableBlockPrefetch)
-                .withHedgedReadsEnabled(enableHedgedReads)
                 .withNextSegmentOffsetAndEpoch(nextSegmentOffsetAndEpoch)
                 .withSegmentPrefetchEnabled(enableSegmentPrefetch)
                 .withMaxBytes(maxBytes)

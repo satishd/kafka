@@ -29,36 +29,24 @@ public class FileSystemOptionsTest {
     @Test
     public void testConstructorWithBucketOnly() {
         FileSystemOptions options = new FileSystemOptions(TEST_BUCKET);
-        
+
         assertEquals(TEST_BUCKET, options.bucket());
-        assertFalse(options.hedgedReadsEnabled());
         assertFalse(options.readAheadEnabled());
     }
 
     @Test
-    public void testConstructorWithBucketAndHedgedReads() {
+    public void testConstructorWithReadAheadEnabled() {
         FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, true);
-        
+
         assertEquals(TEST_BUCKET, options.bucket());
-        assertTrue(options.hedgedReadsEnabled());
+        assertTrue(options.readAheadEnabled());
+    }
+
+    @Test
+    public void testConstructorWithReadAheadDisabled() {
+        FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, false);
+
+        assertEquals(TEST_BUCKET, options.bucket());
         assertFalse(options.readAheadEnabled());
-    }
-
-    @Test
-    public void testConstructorWithAllParameters() {
-        FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, true, true);
-        
-        assertEquals(TEST_BUCKET, options.bucket());
-        assertTrue(options.hedgedReadsEnabled());
-        assertTrue(options.readAheadEnabled());
-    }
-
-    @Test
-    public void testConstructorWithHedgedReadsDisabledAndReadAheadEnabled() {
-        FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, false, true);
-        
-        assertEquals(TEST_BUCKET, options.bucket());
-        assertFalse(options.hedgedReadsEnabled());
-        assertTrue(options.readAheadEnabled());
     }
 }

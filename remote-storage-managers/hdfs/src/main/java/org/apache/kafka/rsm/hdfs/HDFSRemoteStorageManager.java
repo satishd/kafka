@@ -650,11 +650,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         try {
             String bucket = fileSystemManager.getBucket(metadata);
             RemoteStorageProvider storageProvider = fileSystemManager.getRemoteStorageProvider(bucket);
-            boolean isHedgedReadsEnabled = storageProvider == RemoteStorageProvider.HDFS && readContext.isHedgedReadsEnabled();
             InputStream stream;
-            if (readContext.isBlockPrefetchEnabled() || isHedgedReadsEnabled) {
+            if (readContext.isBlockPrefetchEnabled()) {
                 stream = new CachedInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
-                        startPosition, endPosition, isHedgedReadsEnabled);
+                        startPosition, endPosition);
             } else {
                 stream = new SimpleInputStream(metadata.remoteLogSegmentId(), bucket, storageProvider,
                         startPosition, endPosition, readContext.maxBytes());
@@ -668,11 +667,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
     FileSystem getFS(String bucket) {
         FileSystemOptions options = new FileSystemOptions(bucket);
-        return fileSystemManager.getFS(options);
-    }
-
-    FileSystem getFS(String bucket, boolean enableHedgedReads) {
-        FileSystemOptions options = new FileSystemOptions(bucket, enableHedgedReads);
         return fileSystemManager.getFS(options);
     }
 
@@ -864,7 +858,6 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
         private final RemoteLogSegmentId segmentId;
         private final String bucket;
         private final RemoteStorageProvider storageProvider;
-        private final boolean enableHedgedReads;
         private final Path dataPath;
         private final LogSegmentDataHeader.DataPosition dataPosition;
         // Represents the length of the segment file that is readable
@@ -889,12 +882,10 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
                           String bucket,
                           RemoteStorageProvider storageProvider,
                           int currentPos,
-                          int endPos,
-                          boolean enableHedgedReads) throws IOException {
+                          int endPos) throws IOException {
             this.segmentId = segmentId;
             this.bucket = bucket;
             this.storageProvider = storageProvider;
-            this.enableHedgedReads = enableHedgedReads;
             this.dataPath = new Path(bucket + getSegmentRemoteDir(segmentId));
             try {
                 SegmentHeaderHolder headerHolder = segmentHeaderHolderCache.getIfPresent(segmentId);
@@ -925,12 +916,12 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
         private void openFileStream() throws IOException {
             long currentTimeMs = time.milliseconds();
-            FileSystem fileSystem = getFS(bucket, enableHedgedReads);
+            FileSystem fileSystem = getFS(bucket);
             metrics.timeFileSystemOpen(() -> inputStream = fileSystem.open(dataPath));
             openInputStreamCount.incrementAndGet();
             if (LOGGER.isTraceEnabled()) {
-                LOGGER.trace("Opened file stream for segment {} in {} ms (hedged reads enabled: {})", getString(segmentId),
-                        time.milliseconds() - currentTimeMs, enableHedgedReads);
+                LOGGER.trace("Opened file stream for segment {} in {} ms", getString(segmentId),
+                        time.milliseconds() - currentTimeMs);
             }
         }
 
@@ -1056,17 +1047,13 @@ public class HDFSRemoteStorageManager implements RemoteStorageManager {
 
             ByteBuffer byteBuffer = wrapper.getByteBuffer();
             metrics.timeSegmentRead(storageProvider, () -> {
-                if (enableHedgedReads) {
-                    inputStream.readFully(actualPosition, byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
-                } else {
-                    // There is a chance that the same chunk of data might be read by a different thread in a separate
-                    // stream instance and cached, and this stream might read that cached data, so we cannot expect
-                    // that the inputStream.getPos() to always match with the actualPosition.
-                    if (inputStream.getPos() != actualPosition) {
-                        inputStream.seek(actualPosition);
-                    }
-                    inputStream.readFully(byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
+                // There is a chance that the same chunk of data might be read by a different thread in a separate
+                // stream instance and cached, and this stream might read that cached data, so we cannot expect
+                // that the inputStream.getPos() to always match with the actualPosition.
+                if (inputStream.getPos() != actualPosition) {
+                    inputStream.seek(actualPosition);
                 }
+                inputStream.readFully(byteBuffer.array(), byteBuffer.arrayOffset(), (int) dataLength);
             });
             // Explicitly set the position to 0 since we wrote to the buffer from the beginning.
             byteBuffer.position(0);

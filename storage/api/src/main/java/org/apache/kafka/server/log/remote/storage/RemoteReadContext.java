@@ -22,18 +22,15 @@ import java.util.Objects;
 
 public class RemoteReadContext {
     private final boolean blockPrefetchEnabled;
-    private final boolean hedgedReadsEnabled;
     private final OffsetAndEpoch nextSegmentOffsetAndEpoch;
     private final boolean segmentPrefetchEnabled;
     private final int maxBytes;
 
     private RemoteReadContext(boolean blockPrefetchEnabled,
-                              boolean hedgedReadsEnabled,
                               OffsetAndEpoch nextSegmentOffsetAndEpoch,
                               boolean segmentPrefetchEnabled,
                               int maxBytes) {
         this.blockPrefetchEnabled = blockPrefetchEnabled;
-        this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.nextSegmentOffsetAndEpoch = nextSegmentOffsetAndEpoch;
         this.segmentPrefetchEnabled = segmentPrefetchEnabled;
         this.maxBytes = maxBytes;
@@ -45,7 +42,6 @@ public class RemoteReadContext {
 
     public static class Builder {
         private boolean blockPrefetchEnabled = false;
-        private boolean hedgedReadsEnabled = false;
         private OffsetAndEpoch nextSegmentOffsetAndEpoch = null;
         private boolean segmentPrefetchEnabled = false;
         private int maxBytes = -1;
@@ -55,11 +51,6 @@ public class RemoteReadContext {
 
         public Builder withBlockPrefetchEnabled(boolean blockPrefetchEnabled) {
             this.blockPrefetchEnabled = blockPrefetchEnabled;
-            return this;
-        }
-
-        public Builder withHedgedReadsEnabled(boolean hedgedReadsEnabled) {
-            this.hedgedReadsEnabled = hedgedReadsEnabled;
             return this;
         }
 
@@ -79,17 +70,13 @@ public class RemoteReadContext {
         }
 
         public RemoteReadContext build() {
-            return new RemoteReadContext(blockPrefetchEnabled, hedgedReadsEnabled, 
+            return new RemoteReadContext(blockPrefetchEnabled,
                                        nextSegmentOffsetAndEpoch, segmentPrefetchEnabled, maxBytes);
         }
     }
 
     public boolean isBlockPrefetchEnabled() {
         return blockPrefetchEnabled;
-    }
-
-    public boolean isHedgedReadsEnabled() {
-        return hedgedReadsEnabled;
     }
 
     public boolean isSegmentPrefetchEnabled() {
@@ -108,7 +95,6 @@ public class RemoteReadContext {
     public String toString() {
         return "RemoteReadContext{" +
                 "prefetchEnabled=" + blockPrefetchEnabled +
-                ", hedgedReadsEnabled=" + hedgedReadsEnabled +
                 ", nextSegmentOffsetAndEpoch=" + nextSegmentOffsetAndEpoch +
                 ", segmentPrefetchEnabled=" + segmentPrefetchEnabled +
                 ", maxBytes=" + maxBytes +
@@ -120,7 +106,7 @@ public class RemoteReadContext {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RemoteReadContext that = (RemoteReadContext) o;
-        return blockPrefetchEnabled == that.blockPrefetchEnabled && hedgedReadsEnabled == that.hedgedReadsEnabled
+        return blockPrefetchEnabled == that.blockPrefetchEnabled
                 && Objects.equals(nextSegmentOffsetAndEpoch, that.nextSegmentOffsetAndEpoch)
                 && segmentPrefetchEnabled == that.segmentPrefetchEnabled
                 && maxBytes == that.maxBytes;
@@ -128,7 +114,7 @@ public class RemoteReadContext {
 
     @Override
     public int hashCode() {
-        return Objects.hash(blockPrefetchEnabled, hedgedReadsEnabled, nextSegmentOffsetAndEpoch,
+        return Objects.hash(blockPrefetchEnabled, nextSegmentOffsetAndEpoch,
                 segmentPrefetchEnabled, maxBytes);
     }
 }

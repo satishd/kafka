@@ -139,7 +139,7 @@ public class DownloadTask implements Callable<FileChannel> {
             ByteBuffer buffer = threadLocalBuffer.get();
             byte[] tempBuffer = threadLocalTempBuffer.get();
 
-            // We are using positioned read API because hedged reads in HDFS are supported only for positioned read API
+            // Use positioned read API when configured
             ReadFunction readFunc = usePositionalReads
                     ? inputStream::read
                     : (pos, buf, off, len) -> inputStream.read(buf, off, len);

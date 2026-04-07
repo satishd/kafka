@@ -38,7 +38,7 @@ public class HDFSDataFetcher implements DataFetcher {
 
     private FileSystem getFS(RemoteLogSegmentMetadata metadata) {
         String bucket = fileSystemManager.getBucket(metadata);
-        FileSystemOptions options = new FileSystemOptions(bucket, true, true);
+        FileSystemOptions options = new FileSystemOptions(bucket, true);
         return fileSystemManager.getFS(options);
     }
 

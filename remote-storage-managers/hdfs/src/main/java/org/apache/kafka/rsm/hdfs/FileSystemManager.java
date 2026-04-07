@@ -28,8 +28,6 @@ import org.apache.kafka.server.log.remote.storage.RemoteStorageProvider;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,20 +59,9 @@ import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_AHEAD_KEY;
 import static com.oracle.bmc.hdfs.BmcConstants.READ_DIRECT_RANGED_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP;
@@ -89,12 +76,6 @@ public class FileSystemManager {
     private static final String HDFS_BUCKET_PREFIX = RemoteStorageProvider.HDFS + "://";
     private static final String OCI_BUCKET_PREFIX = RemoteStorageProvider.OCI + "://";
 
-    static final Map<String, String> DYNAMIC_HEDGED_READS_CONFIG_MAP = Utils.mkMap(
-        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, THRESHOLD_MILLIS_KEY),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, CORE_SIZE_KEY),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, MAX_SIZE_KEY)
-    );
-
     static final Map<String, String> DYNAMIC_READ_AHEAD_CONFIG_MAP = Utils.mkMap(
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, READ_AHEAD_BLOCK_SIZE_KEY),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, READ_AHEAD_BLOCK_COUNT_KEY),
@@ -102,9 +83,6 @@ public class FileSystemManager {
     );
 
     private final Map<String, BiConsumer<String, Map<String, ?>>> dynamicConfigHandlers = Utils.mkMap(
-        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, (k, c) -> setHedgedReadThresholdMillis(Long.parseLong((String) c.get(k)))),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, (k, c) -> setReadThreadPoolCoreSize(Integer.parseInt((String) c.get(k)))),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, (k, c) -> setReadThreadPoolMaxSize(Integer.parseInt((String) c.get(k)))),
         Utils.mkEntry(HDFS_OCI_BUCKETS_PROP, (k, c) -> reconfigureBuckets((String) c.get(k))),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, (k, c) -> setReadAheadBlockCount(Integer.parseInt((String) c.get(k)))),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, (k, c) -> setReadAheadBlockSize(Integer.parseInt((String) c.get(k)))),
@@ -112,9 +90,6 @@ public class FileSystemManager {
     );
 
     private static final Map<String, Function<String, Number>> NUMBER_CONFIG_PARSERS = Utils.mkMap(
-        Utils.mkEntry(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, Long::parseLong),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, Integer::parseInt),
-        Utils.mkEntry(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, Integer::parseInt),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP, Integer::parseInt),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP, Integer::parseInt),
         Utils.mkEntry(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, Integer::parseInt)
@@ -123,12 +98,9 @@ public class FileSystemManager {
     private String hdfsBucket;
     private final List<String> ociBuckets = new CopyOnWriteArrayList<>();
     private final Map<FileSystemKey, FileSystem> fileSystemByBucket = new ConcurrentHashMap<>();
-    private final AtomicBoolean isHedgedReadsThresholdChanged = new AtomicBoolean();
-    private final AtomicBoolean isHedgedReadsThreadConfigChanged = new AtomicBoolean();
     private final AtomicBoolean isReadAheadConfigChanged = new AtomicBoolean();
 
     private Configuration defaultHadoopConf;
-    private volatile Configuration hedgedReadsHadoopConf;
     private volatile Configuration readAheadHadoopConf;
 
     // TODO fix the thread factory name pattern
@@ -161,14 +133,6 @@ public class FileSystemManager {
         }
         LOGGER.info("Default Hadoop Configuration: {}", confToString(defaultHadoopConf));
 
-        if (hedgedReadsHadoopConf == null) {
-            Configuration hadoopConf = new Configuration(defaultHadoopConf);
-            setHedgedReadsConfiguration(hadoopConf, conf);
-            // Disable cache for HDFS, otherwise FileSystem get will return the same filesystem for HDFS without hedged reads enabled
-            hadoopConf.setBoolean("fs.hdfs.impl.disable.cache", true);
-            hedgedReadsHadoopConf = hadoopConf;
-        }
-
         if (readAheadHadoopConf == null) {
             Configuration hadoopConf = new Configuration(defaultHadoopConf);
             setOCIReadAheadConfiguration(hadoopConf, conf);
@@ -178,7 +142,7 @@ public class FileSystemManager {
         }
 
         hdfsBucket = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP);
-        // Don't instantiate the FileSystem for HDFS with and without hedged reads enabled eagerly.
+        // Don't instantiate the FileSystem for HDFS eagerly.
 
         ociBuckets.addAll(conf.getList(HDFSRemoteStorageManagerConfig.HDFS_OCI_BUCKETS_PROP));
         for (String ociBucket : ociBuckets) {
@@ -186,16 +150,13 @@ public class FileSystemManager {
             FileSystemOptions defaultOciOpts = new FileSystemOptions(ociBucket);
             getFS(defaultOciOpts);
 
-            FileSystemOptions readAheadOciOpts = new FileSystemOptions(ociBucket, false, true);
+            FileSystemOptions readAheadOciOpts = new FileSystemOptions(ociBucket, true);
             getFS(readAheadOciOpts);
         }
 
         // Schedule periodic tasks
         executor.scheduleWithFixedDelay(this::relogin, 0, 5, TimeUnit.MINUTES);
-        executor.scheduleWithFixedDelay(() -> {
-            handleDynamicHedgedReadsConfigUpdates();
-            handleDynamicReadAheadConfigUpdates();
-        }, 0, 1, TimeUnit.MINUTES);
+        executor.scheduleWithFixedDelay(this::handleDynamicReadAheadConfigUpdates, 0, 1, TimeUnit.MINUTES);
     }
 
     /**
@@ -261,42 +222,16 @@ public class FileSystemManager {
         }
     }
 
-    /**
-     * Handles dynamic hedged reads configuration updates.
-     */
-    public void handleDynamicHedgedReadsConfigUpdates() {
-        try {
-            FileSystemOptions hedgedReadsOpts = new FileSystemOptions(hdfsBucket, true);
-            if (isHedgedReadsThresholdChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hedgedReadsOpts);
-                if (shouldHandleHedgedReadsThresholdMsChange(hedgedReadsEnabledFs)) {
-                    FileSystemKey fileSystemKey = new FileSystemKey(hdfsBucket, true, false);
-                    FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(hdfsBucket, hedgedReadsHadoopConf));
-                    Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + hdfsBucket + " with hedged reads enabled");
-                }
-                LOGGER.info("Dynamic hedged reads thresholdMs config change handled");
-            }
-            if (isHedgedReadsThreadConfigChanged.compareAndSet(true, false)) {
-                FileSystem hedgedReadsEnabledFs = getFS(hedgedReadsOpts);
-                handleReadThreadPoolCoreSizeChange(hedgedReadsEnabledFs);
-                handleReadThreadPoolMaxSizeChange(hedgedReadsEnabledFs);
-                LOGGER.info("Dynamic hedged reads thread pool configuration change handled");
-            }
-        } catch (Exception ex) {
-            LOGGER.error("Failed to handle dynamic hedged reads config updates", ex);
-        }
-    }
-
     public void handleDynamicReadAheadConfigUpdates() {
         try {
             if (isReadAheadConfigChanged.compareAndSet(true, false)) {
                 for (String ociBucket : ociBuckets) {
-                    FileSystemOptions readAheadOpts = new FileSystemOptions(ociBucket, false, true);
+                    FileSystemOptions readAheadOpts = new FileSystemOptions(ociBucket, true);
                     FileSystem readAheadEnabledFs = getFS(readAheadOpts);
                     if (shouldHandleReadAheadBlockCountChange(ociBucket, readAheadEnabledFs) ||
                         shouldHandleReadAheadBlockSizeChange(ociBucket, readAheadEnabledFs) ||
                         shouldHandleReadAheadNumThreadsChange(ociBucket, readAheadEnabledFs)) {
-                        FileSystemKey fileSystemKey = new FileSystemKey(ociBucket, false, true);
+                        FileSystemKey fileSystemKey = new FileSystemKey(ociBucket, true);
                         FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(ociBucket, readAheadHadoopConf));
                         Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + ociBucket + " with readAhead enabled");
                         LOGGER.info("Dynamic readAhead config updated for bucket: {}", ociBucket);
@@ -354,8 +289,7 @@ public class FileSystemManager {
      * @return the set of reconfigurable configs
      */
     public Set<String> reconfigurableConfigs() {
-        Set<String> reconfigurableConfigs = new HashSet<>(DYNAMIC_HEDGED_READS_CONFIG_MAP.keySet());
-        reconfigurableConfigs.addAll(DYNAMIC_READ_AHEAD_CONFIG_MAP.keySet());
+        Set<String> reconfigurableConfigs = new HashSet<>(DYNAMIC_READ_AHEAD_CONFIG_MAP.keySet());
         reconfigurableConfigs.add(HDFS_OCI_BUCKETS_PROP);
         LOGGER.debug("Reconfigurable configs: {}", reconfigurableConfigs);
         return reconfigurableConfigs;
@@ -378,21 +312,15 @@ public class FileSystemManager {
             String prop = entry.getKey();
             if (configs.containsKey(prop)) {
                 // Find the corresponding Hadoop configuration property and configuration
-                String hadoopConfKey = DYNAMIC_HEDGED_READS_CONFIG_MAP.get(prop);
-                Configuration hadoopConf = hedgedReadsHadoopConf;
-
-                if (hadoopConfKey == null) {
-                    hadoopConfKey = DYNAMIC_READ_AHEAD_CONFIG_MAP.get(prop);
-                    hadoopConf = readAheadHadoopConf;
-                }
+                String hadoopConfKey = DYNAMIC_READ_AHEAD_CONFIG_MAP.get(prop);
 
                 if (hadoopConfKey == null) {
                     throw new ConfigException(
-                        String.format("Supplied property %s is neither a dynamic hedged reads config nor a dynamic readAhead config", prop));
+                        String.format("Supplied property %s is not a dynamic readAhead config", prop));
                 }
 
                 Function<String, Number> parserFunc = entry.getValue();
-                Number oldValue = parserFunc.apply(hadoopConf.get(hadoopConfKey));
+                Number oldValue = parserFunc.apply(readAheadHadoopConf.get(hadoopConfKey));
                 Number newValue = parserFunc.apply((String) configs.get(prop));
                 RSMUtils.validateConfigValueRange(prop, oldValue.longValue(), newValue.longValue());
             }
@@ -427,62 +355,6 @@ public class FileSystemManager {
                 handler.accept(key, configs);
             }
         });
-    }
-
-    /**
-     * Sets the hedged reads configuration.
-     *
-     * @param conf                        the Hadoop configuration
-     * @param hdfsRemoteStorageManagerConfig the HDFS remote storage manager config
-     */
-    public void setHedgedReadsConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
-        LOGGER.debug("Hadoop configuration before setting hedged read properties: {}", conf);
-        Long hedgedReadThresholdMillis = hdfsRemoteStorageManagerConfig.getLong(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP);
-        Integer clientReadThreadPoolCoreSize = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP);
-        Integer clientReadThreadPoolMaxSize = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP);
-        Integer clientReadThreadPoolKeepAliveTime = hdfsRemoteStorageManagerConfig.getInt(HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP);
-        Boolean isClientReadThreadPoolCoreThreadTimeoutAllowed = hdfsRemoteStorageManagerConfig.getBoolean(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP);
-
-        conf.set(HdfsClientConfigKeys.HedgedRead.ENABLED, Boolean.TRUE.toString());
-        conf.set(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, hedgedReadThresholdMillis.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY, clientReadThreadPoolCoreSize.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, clientReadThreadPoolMaxSize.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY, clientReadThreadPoolKeepAliveTime.toString());
-        conf.set(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY, isClientReadThreadPoolCoreThreadTimeoutAllowed.toString());
-        LOGGER.info("Hadoop configuration after setting hedged read properties: {}", confToString(conf));
-    }
-
-    /**
-     * Sets the hedged read threshold millis.
-     *
-     * @param hedgedReadThresholdMillis the hedged read threshold millis
-     */
-    void setHedgedReadThresholdMillis(long hedgedReadThresholdMillis) {
-        LOGGER.info("Setting hedged read threshold millis to: {}", hedgedReadThresholdMillis);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, String.valueOf(hedgedReadThresholdMillis));
-        isHedgedReadsThresholdChanged.set(true);
-    }
-
-    /**
-     * Sets the read thread pool core size.
-     *
-     * @param coreSize the core size
-     */
-    void setReadThreadPoolCoreSize(int coreSize) {
-        LOGGER.info("Setting read thread pool core size to: {}", coreSize);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY, String.valueOf(coreSize));
-        isHedgedReadsThreadConfigChanged.set(true);
-    }
-
-    /**
-     * Sets the read thread pool max size.
-     *
-     * @param maxSize the max size
-     */
-    void setReadThreadPoolMaxSize(int maxSize) {
-        LOGGER.info("Setting read thread pool max size to: {}", maxSize);
-        updateHedgedReadsHadoopConf(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY, String.valueOf(maxSize));
-        isHedgedReadsThreadConfigChanged.set(true);
     }
 
     /**
@@ -526,22 +398,6 @@ public class FileSystemManager {
     }
 
     /**
-     * Updates the hedged reads Hadoop configuration.
-     *
-     * @param key   the key
-     * @param value the value
-     */
-    private void updateHedgedReadsHadoopConf(String key, String value) {
-        if (!DYNAMIC_HEDGED_READS_CONFIG_MAP.containsValue(key)) {
-            throw new IllegalArgumentException(String.format("Hedged reads configuration: %s is not allowed for updates", key));
-        }
-
-        Configuration hadoopConf = new Configuration(hedgedReadsHadoopConf);
-        hadoopConf.set(key, value);
-        this.hedgedReadsHadoopConf = hadoopConf;
-    }
-
-    /**
      * Updates the read-ahead configuration in the Hadoop configuration object.
      * If the provided key is not in the allowed list of dynamic read-ahead configurations,
      * an exception will be thrown.
@@ -562,13 +418,11 @@ public class FileSystemManager {
 
     public FileSystem getFS(FileSystemOptions options) {
         String bucket = options.bucket();
-        // Only use hedged reads for the HDFS bucket when explicitly enabled
-        boolean useHedgedReads = bucket.equals(hdfsBucket) && options.hedgedReadsEnabled();
-        // Only use read ahead for OCS buckets when explicitly enabled
+        // Only use read ahead for OCI buckets when explicitly enabled
         boolean useReadAhead = !bucket.equals(hdfsBucket) && options.readAheadEnabled();
 
-        Configuration conf = useHedgedReads ? hedgedReadsHadoopConf : useReadAhead ? readAheadHadoopConf : defaultHadoopConf;
-        FileSystemKey key = new FileSystemKey(bucket, useHedgedReads, useReadAhead);
+        Configuration conf = useReadAhead ? readAheadHadoopConf : defaultHadoopConf;
+        FileSystemKey key = new FileSystemKey(bucket, useReadAhead);
         return fileSystemByBucket.computeIfAbsent(key, k -> createFileSystem(bucket, conf));
     }
 
@@ -586,59 +440,6 @@ public class FileSystemManager {
             return fs;
         } catch (URISyntaxException | IOException e) {
             throw new RuntimeException("Unable to create file system instance for uri: " + bucket, e);
-        }
-    }
-
-    /**
-     * Checks if the hedged reads threshold has changed.
-     *
-     * @param hedgedReadsEnabledFs the hedged reads enabled FileSystem
-     * @return true if the threshold has changed, false otherwise
-     */
-    private boolean shouldHandleHedgedReadsThresholdMsChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY;
-        long defaultValue = DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS;
-
-        long currentThreshold = hedgedReadsEnabledFs.getConf().getLong(key, defaultValue);
-        long newThreshold = hedgedReadsHadoopConf.getLong(key, defaultValue);
-        if (currentThreshold != newThreshold) {
-            LOGGER.debug("Hedged reads thresholdMs changed from {} ms to {} ms", currentThreshold, newThreshold);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Handles changes to the read thread pool core size.
-     *
-     * @param hedgedReadsEnabledFs the hedged reads enabled FileSystem
-     */
-    private void handleReadThreadPoolCoreSizeChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY;
-        int defaultValue = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
-
-        int currentCoreSize = hedgedReadsEnabledFs.getConf().getInt(key, defaultValue);
-        int newCoreSize = hedgedReadsHadoopConf.getInt(key, defaultValue);
-        if (currentCoreSize != newCoreSize) {
-            LOGGER.debug("Core pool size changed from {} to {}", currentCoreSize, newCoreSize);
-            ((DistributedFileSystem) hedgedReadsEnabledFs).setDFSClientReaderThreadPoolCoreSize(newCoreSize);
-        }
-    }
-
-    /**
-     * Handles changes to the read thread pool max size.
-     *
-     * @param hedgedReadsEnabledFs the hedged reads enabled FileSystem
-     */
-    private void handleReadThreadPoolMaxSizeChange(FileSystem hedgedReadsEnabledFs) {
-        String key = HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY;
-        int defaultValue = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
-
-        int currentMaxSize = hedgedReadsEnabledFs.getConf().getInt(key, defaultValue);
-        int newMaxSize = hedgedReadsHadoopConf.getInt(key, defaultValue);
-        if (currentMaxSize != newMaxSize) {
-            LOGGER.debug("Max pool size changed from {} to {}", currentMaxSize, newMaxSize);
-            ((DistributedFileSystem) hedgedReadsEnabledFs).setDFSClientReaderThreadPoolMaxSize(newMaxSize);
         }
     }
 
@@ -748,12 +549,10 @@ public class FileSystemManager {
      */
     static class FileSystemKey {
         final String bucket;
-        final boolean hedgedReadsEnabled;
         final boolean readAheadEnabled;
 
-        public FileSystemKey(String bucket, boolean hedgedReadsEnabled, boolean readAheadEnabled) {
+        public FileSystemKey(String bucket, boolean readAheadEnabled) {
             this.bucket = bucket;
-            this.hedgedReadsEnabled = hedgedReadsEnabled;
             this.readAheadEnabled = readAheadEnabled;
         }
 
@@ -761,7 +560,6 @@ public class FileSystemManager {
         public String toString() {
             return "FileSystemKey{" +
                 "bucket='" + bucket + '\'' +
-                ", hedgedReadsEnabled=" + hedgedReadsEnabled +
                 ", readAheadEnabled=" + readAheadEnabled +
                 '}';
         }
@@ -771,12 +569,12 @@ public class FileSystemManager {
         public boolean equals(Object o) {
             if (o == null || getClass() != o.getClass()) return false;
             FileSystemKey that = (FileSystemKey) o;
-            return hedgedReadsEnabled == that.hedgedReadsEnabled && readAheadEnabled == that.readAheadEnabled && Objects.equals(bucket, that.bucket);
+            return readAheadEnabled == that.readAheadEnabled && Objects.equals(bucket, that.bucket);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(bucket, hedgedReadsEnabled, readAheadEnabled);
+            return Objects.hash(bucket, readAheadEnabled);
         }
     }
 }

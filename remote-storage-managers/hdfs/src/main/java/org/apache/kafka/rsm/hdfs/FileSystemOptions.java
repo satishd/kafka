@@ -18,7 +18,6 @@ package org.apache.kafka.rsm.hdfs;
 
 public class FileSystemOptions {
     private final String bucket;
-    private final boolean hedgedReadsEnabled;
     private final boolean readAheadEnabled;
 
     /**
@@ -27,38 +26,22 @@ public class FileSystemOptions {
      * @param bucket the bucket URI
      */
     public FileSystemOptions(String bucket) {
-        this(bucket, false, false);
-    }
-
-    /**
-     * Creates a new FileSystemOptions with the specified bucket and hedgedReadsEnabled option.
-     *
-     * @param bucket the bucket URI
-     * @param hedgedReadsEnabled whether hedged reads are enabled
-     */
-    public FileSystemOptions(String bucket, boolean hedgedReadsEnabled) {
-        this(bucket, hedgedReadsEnabled, false);
+        this(bucket, false);
     }
 
     /**
      * Creates a new FileSystemOptions with all options specified.
      *
      * @param bucket the bucket URI
-     * @param hedgedReadsEnabled whether hedged reads are enabled
      * @param readAheadEnabled whether read ahead is enabled
      */
-    public FileSystemOptions(String bucket, boolean hedgedReadsEnabled, boolean readAheadEnabled) {
+    public FileSystemOptions(String bucket, boolean readAheadEnabled) {
         this.bucket = bucket;
-        this.hedgedReadsEnabled = hedgedReadsEnabled;
         this.readAheadEnabled = readAheadEnabled;
     }
 
     public String bucket() {
         return bucket;
-    }
-
-    public boolean hedgedReadsEnabled() {
-        return hedgedReadsEnabled;
     }
 
     public boolean readAheadEnabled() {

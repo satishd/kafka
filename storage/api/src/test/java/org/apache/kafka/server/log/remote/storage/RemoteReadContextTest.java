@@ -33,13 +33,11 @@ public class RemoteReadContextTest {
         // Test with null nextSegmentOffsetAndEpoch
         RemoteReadContext context1 = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(null)
                 .withSegmentPrefetchEnabled(false)
                 .withMaxBytes(1000)
                 .build();
         assertTrue(context1.isBlockPrefetchEnabled());
-        assertFalse(context1.isHedgedReadsEnabled());
         assertFalse(context1.isSegmentPrefetchEnabled());
         assertNull(context1.getNextSegmentOffsetAndEpoch());
         assertEquals(1000, context1.maxBytes());
@@ -48,12 +46,10 @@ public class RemoteReadContextTest {
         OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(100L, 5);
         RemoteReadContext context2 = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(false)
-                .withHedgedReadsEnabled(true)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch)
                 .withSegmentPrefetchEnabled(true)
                 .build();
         assertFalse(context2.isBlockPrefetchEnabled());
-        assertTrue(context2.isHedgedReadsEnabled());
         assertTrue(context2.isSegmentPrefetchEnabled());
         assertEquals(offsetAndEpoch, context2.getNextSegmentOffsetAndEpoch());
         assertEquals(100L, context2.getNextSegmentOffsetAndEpoch().offset());
@@ -66,104 +62,89 @@ public class RemoteReadContextTest {
         // Create test objects with different parameter combinations
         OffsetAndEpoch offsetAndEpoch1 = new OffsetAndEpoch(100L, 5);
         OffsetAndEpoch offsetAndEpoch2 = new OffsetAndEpoch(200L, 10);
-        
+
         // Reference object
         RemoteReadContext context = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
                 .withSegmentPrefetchEnabled(false)
                 .build();
-        
+
         // Equal objects
         RemoteReadContext equalContext1 = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
                 .withSegmentPrefetchEnabled(false)
                 .build();
         RemoteReadContext equalContext2 = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
                 .withSegmentPrefetchEnabled(false)
                 .build();
-        
+
         // Different objects - varying each parameter
         RemoteReadContext differentPrefetchEnabled = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(false)
-                .withHedgedReadsEnabled(false)
-                .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
-                .withSegmentPrefetchEnabled(false)
-                .build();
-        RemoteReadContext differentHedgedReadsEnabled = RemoteReadContext.builder()
-                .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(true)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
                 .withSegmentPrefetchEnabled(false)
                 .build();
         RemoteReadContext differentOffsetAndEpoch = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch2)
                 .withSegmentPrefetchEnabled(false)
                 .build();
         RemoteReadContext differentNullOffsetAndEpoch = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(null)
                 .withSegmentPrefetchEnabled(false)
                 .build();
         RemoteReadContext differentRemoteStoragePrefetchEnabled = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch1)
                 .withSegmentPrefetchEnabled(true)
                 .build();
-        
+
         // Test reflexivity: x.equals(x) should be true
         assertTrue(context.equals(context), "An object should equal itself");
-        
+
         // Test symmetry: if x.equals(y) then y.equals(x)
         assertTrue(context.equals(equalContext1), "Equal objects should be symmetric");
         assertTrue(equalContext1.equals(context), "Equal objects should be symmetric");
-        
+
         // Test transitivity: if x.equals(y) and y.equals(z) then x.equals(z)
         assertTrue(context.equals(equalContext1), "First equality for transitivity");
         assertTrue(equalContext1.equals(equalContext2), "Second equality for transitivity");
         assertTrue(context.equals(equalContext2), "Transitive equality should hold");
-        
+
         // Test consistency: multiple invocations should return same result
         boolean firstResult = context.equals(equalContext1);
         boolean secondResult = context.equals(equalContext1);
         assertEquals(firstResult, secondResult, "Multiple equality checks should be consistent");
-        
+
         // Test non-equality with null
         assertFalse(context.equals(null), "Object should not equal null");
-        
+
         // Test non-equality with different type
         assertFalse(context.equals("string"), "Object should not equal different type");
-        
+
         // Test inequality with different field values
         assertFalse(context.equals(differentPrefetchEnabled), "Objects with different prefetchEnabled should not be equal");
-        assertFalse(context.equals(differentHedgedReadsEnabled), "Objects with different hedgedReadsEnabled should not be equal");
         assertFalse(context.equals(differentOffsetAndEpoch), "Objects with different offsetAndEpoch should not be equal");
         assertFalse(context.equals(differentNullOffsetAndEpoch), "Objects with null vs non-null offsetAndEpoch should not be equal");
         assertFalse(context.equals(differentRemoteStoragePrefetchEnabled), "Objects with different remoteStoragePrefetchEnabled should not be equal");
-        
+
         // Test hashCode contract
         // Equal objects must have equal hash codes
         assertEquals(context.hashCode(), equalContext1.hashCode(), "Equal objects should have equal hash codes");
         assertEquals(equalContext1.hashCode(), equalContext2.hashCode(), "Equal objects should have equal hash codes");
         assertEquals(context.hashCode(), equalContext2.hashCode(), "Equal objects should have equal hash codes");
-        
+
         // Unequal objects should have different hash codes (not guaranteed but good practice)
         assertNotEquals(context.hashCode(), differentPrefetchEnabled.hashCode(), "Different prefetchEnabled should result in different hash codes");
-        assertNotEquals(context.hashCode(), differentHedgedReadsEnabled.hashCode(), "Different hedgedReadsEnabled should result in different hash codes");
         assertNotEquals(context.hashCode(), differentOffsetAndEpoch.hashCode(), "Different offsetAndEpoch should result in different hash codes");
         assertNotEquals(context.hashCode(), differentNullOffsetAndEpoch.hashCode(), "Null vs non-null offsetAndEpoch should result in different hash codes");
         assertNotEquals(context.hashCode(), differentRemoteStoragePrefetchEnabled.hashCode(), "Different remoteStoragePrefetchEnabled should result in different hash codes");
-        
+
         // Test consistency of hashCode
         int firstHashCode = context.hashCode();
         int secondHashCode = context.hashCode();
@@ -175,15 +156,13 @@ public class RemoteReadContextTest {
         OffsetAndEpoch offsetAndEpoch = new OffsetAndEpoch(100L, 5);
         RemoteReadContext context = RemoteReadContext.builder()
                 .withBlockPrefetchEnabled(true)
-                .withHedgedReadsEnabled(false)
                 .withNextSegmentOffsetAndEpoch(offsetAndEpoch)
                 .withSegmentPrefetchEnabled(true)
                 .withMaxBytes(1000)
                 .build();
-        
+
         String toString = context.toString();
         assertTrue(toString.contains("prefetchEnabled=true"));
-        assertTrue(toString.contains("hedgedReadsEnabled=false"));
         assertTrue(toString.contains("nextSegmentOffsetAndEpoch=" + offsetAndEpoch));
         assertTrue(toString.contains("segmentPrefetchEnabled=true"));
         assertTrue(toString.contains("maxBytes=1000"));

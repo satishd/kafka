@@ -117,7 +117,6 @@ public class DumpHDFSRemoteLogSegment {
             System.out.println("Fetching segment " + segmentFile);
             RemoteReadContext readContext = RemoteReadContext.builder()
                     .withBlockPrefetchEnabled(prefetch)
-                    .withHedgedReadsEnabled(false)
                     .withNextSegmentOffsetAndEpoch(null)
                     .withSegmentPrefetchEnabled(false)
                     .build();

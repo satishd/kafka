@@ -134,7 +134,7 @@ public class PrefetchEnabledHDFSRemoteStorageManager implements RemoteStorageMan
                                                 RemoteReadContext readContext,
                                                 int startPosition,
                                                 int endPosition) throws RemoteStorageException {
-        // If readContext is null, we do not use segment prefetching or block prefetching or hedged reads etc, fallback to direct fetching
+        // If readContext is null, we do not use segment prefetching or block prefetching, fallback to direct fetching
         if (readContext == null) {
             return hdfsRemoteStorageManager.fetchLogSegment(remoteLogSegmentMetadata, startPosition, endPosition);
         }

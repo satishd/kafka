@@ -26,38 +26,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HDFSRemoteStorageManagerConfigTest {
-
-    @Test
-    public void testDefaultHedgedReadsProps() {
-        Map<String, String> props = defaultProps();
-        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
-
-        assertEquals(200L, config.getLong(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
-        assertEquals(1, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
-        assertEquals(100, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
-        assertEquals(60, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP));
-        assertTrue(config.getBoolean(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP));
-    }
-
-    @Test
-    public void testHedgedReadsProps() {
-        Map<String, String> props = defaultProps();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, "100");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, "2");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, "10");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP, "30");
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP, "false");
-        HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
-
-        assertEquals(100L, config.getLong(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP));
-        assertEquals(2, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP));
-        assertEquals(10, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP));
-        assertEquals(30, config.getInt(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP));
-        assertFalse(config.getBoolean(HDFSRemoteStorageManagerConfig.HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP));
-    }
 
     @Test
     public void testPrefetchLocalBaseDir() {

@@ -96,33 +96,6 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
         "Set to Integer.MAX_VALUE (default) to allow upto 2 GB/s (or) disable rate limiting.";
     public static final int DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC = Integer.MAX_VALUE;
 
-    public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP = "hdfs.dfs.client.hedged.read.threshold.millis";
-    public static final String HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC = "When hedged reads are enabled, " +
-        "the number of milliseconds to wait before starting a second read against a different block replica";
-    public static final int DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS = 200;
-
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP = "hdfs.dfs.client.read.threadpool.core_size";
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_DOC = "The core size of the thread pool " +
-        "dedicated for running hedged reads. Please note that a single instance of the threadpool is created per JVM/classloader " +
-        "and shared by multiple instances of HDFSClient created within the same JVM/classloader.";
-    public static final int DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE = 1;
-
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP = "hdfs.dfs.client.read.threadpool.max_size";
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_DOC = "The maximum size of the thread pool " +
-        "dedicated for running hedged reads. Please note that a single instance of the threadpool is created per JVM/classloader " +
-        "and shared by multiple instances of HDFSClient created within the same JVM/classloader.";
-    public static final int DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE = 100;
-
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP = "hdfs.dfs.client.read.threadpool.keep_alive_time";
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_DOC = "The keep-alive time (in seconds) " +
-        "for idle threads in the thread pool dedicated for running hedged reads.";
-    public static final int DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS = 60;
-
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP = "hdfs.dfs.client.read.threadpool.core-thread.timeout.allowed";
-    public static final String HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_DOC = "Whether core threads " +
-        "in the thread pool dedicated for running hedged reads are allowed to time out.";
-    public static final boolean DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED = true;
-
     public static final String HDFS_OCI_BUCKETS_PROP = "hdfs.oci.buckets";
     public static final String HDFS_OCI_BUCKETS_DOC = "Comma separated list of OCI buckets";
 
@@ -204,11 +177,6 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(HDFS_COPY_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_COPY_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_COPY_CIRCUIT_BREAKER_STATE_DOC)
             .define(HDFS_DELETE_CIRCUIT_BREAKER_STATE_PROP, STRING, DEFAULT_HDFS_DELETE_CIRCUIT_BREAKER_STATE, ConfigDef.ValidString.in(ALLOWED_CIRCUIT_BREAKER_VALUES.toArray(new String[0])), MEDIUM, HDFS_DELETE_CIRCUIT_BREAKER_STATE_DOC)
             .define(HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_PROP, INT, DEFAULT_HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC, atLeast(1), MEDIUM, HDFS_COPY_RATE_LIMIT_BYTES_PER_SEC_DOC)
-            .define(HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_PROP, LONG, DEFAULT_HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_HEDGED_READ_THRESHOLD_MILLIS_DOC)
-            .define(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE_DOC)
-            .define(HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_PROP, INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE_DOC)
-            .define(HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_PROP,  INT, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS, atLeast(1), MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_KEEP_ALIVE_TIME_SECS_DOC)
-            .define(HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_PROP, BOOLEAN, DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED, MEDIUM, HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_THREAD_TIMEOUT_ALLOWED_DOC)
             .define(HDFS_OCI_BUCKETS_PROP, LIST, "", HIGH, HDFS_OCI_BUCKETS_DOC)
             .define(PREFETCH_LOCAL_BASE_DIR_PROP, ConfigDef.Type.STRING, DEFAULT_PREFETCH_LOCAL_BASE_DIR, new ConfigDef.NonEmptyString(), ConfigDef.Importance.HIGH, PREFETCH_LOCAL_BASE_DIR_DOC)
             .define(PREFETCH_CACHE_MAX_SIZE_PROP, ConfigDef.Type.INT, DEFAULT_PREFETCH_CACHE_MAX_SIZE, atLeast(1), ConfigDef.Importance.HIGH, PREFETCH_CACHE_MAX_SIZE_DOC)

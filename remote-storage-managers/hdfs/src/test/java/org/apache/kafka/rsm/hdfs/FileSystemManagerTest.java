@@ -32,9 +32,7 @@ import com.oracle.bmc.hdfs.BmcConstants;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,8 +56,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE;
-import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
 import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
@@ -132,38 +128,10 @@ public class FileSystemManagerTest {
     }
 
     @Test
-    public void testSetHedgedReadsConfiguration() {
-        Map<String, String> props = new HashMap<>();
-        props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
-        HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
-
-        Configuration config = new Configuration();
-        FileSystemManager fileSystemManager = new FileSystemManager();
-        fileSystemManager.setHedgedReadsConfiguration(config, remoteStorageManagerConfig);
-
-        assertEquals("true", config.get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("200", config.get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
-        assertEquals("1", config.get(HdfsClientConfigKeys.ReadThreadPool.CORE_SIZE_KEY));
-        assertEquals("100", config.get(HdfsClientConfigKeys.ReadThreadPool.MAX_SIZE_KEY));
-        assertEquals("60", config.get(HdfsClientConfigKeys.ReadThreadPool.KEEP_ALIVE_TIME_KEY));
-        assertEquals("true", config.get(HdfsClientConfigKeys.ReadThreadPool.ALLOW_CORE_THREAD_TIMEOUT_KEY));
-    }
-
-
-    @Test
     public void testGetFSDefaultConfiguration() throws IOException {
         FileSystemManager fileSystemManager = rsm.fileSystemManager();
         FileSystem fs = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
         assertNotNull(fs);
-        assertNull(fs.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-    }
-
-    @Test
-    public void testGetFSHedgedReads() throws IOException {
-        FileSystemManager fileSystemManager = rsm.fileSystemManager();
-        FileSystem fs = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
-        assertNotNull(fs);
-        assertEquals("true", fs.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
     }
 
     @Test
@@ -172,86 +140,6 @@ public class FileSystemManagerTest {
         FileSystem fs1 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
         FileSystem fs2 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri));
         assertSame(fs1, fs2);
-
-        FileSystem fs3 = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
-        assertNotSame(fs1, fs3);
-    }
-
-    @Test
-    public void testGetFileSystemWithHedgedReads() throws IOException {
-        FileSystemManager fileSystemManager = rsm.fileSystemManager();
-
-        // Verify hedged reads is disabled by default
-        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-
-        // Verify the configuration of the returned FileSystem when hedged reads is enabled
-        assertEquals("true", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-
-        // Verify the configuration of returned FileSystem when hedged reads is disabled
-        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, false)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-    }
-
-    @Test
-    public void testUpdateHedgedReadsThreshold() throws IOException {
-        FileSystemManager fileSystemManager = rsm.fileSystemManager();
-
-        // Verify hedged reads is enabled in the FileSystem configuration
-        FileSystem originalFS = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
-        assertEquals("true", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("200", originalFS.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
-
-        // Without updates, the returned FileSystem should be the same as the original one
-        FileSystem fsPreUpdate = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
-        assertEquals("true", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("200", fsPreUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
-        assertSame(originalFS, fsPreUpdate);
-
-        // Update the hedged reads threshold and verify the returned FileSystem has the updated configuration
-        fileSystemManager.setHedgedReadThresholdMillis(100);
-        fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        FileSystem fsPostUpdate = fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true));
-        assertEquals("true", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("100", fsPostUpdate.getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
-        assertNotSame(originalFS, fsPostUpdate);
-
-        // Verify updates to the configuration does not affect the returned FileSystem when hedged reads is disabled
-        fileSystemManager.setHedgedReadThresholdMillis(500);
-        fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, false)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-
-        // Verify the previous update takes affect for the filesystem with hedged reads enabled
-        assertEquals("true", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.ENABLED));
-        assertEquals("500", fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)).getConf().get(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY));
-    }
-
-    @Test
-    public void testUpdateReadThreadPoolCoreSize() throws IOException {
-        FileSystemManager fileSystemManager = rsm.fileSystemManager();
-
-        // Verify the read thread pool core size before the update
-        assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE,
-                ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolSize());
-
-        // Update the read thread pool core size and verify the returned FileSystem has the updated configuration
-        int newCoreSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_CORE_SIZE + 1;
-        fileSystemManager.setReadThreadPoolCoreSize(newCoreSize);
-        fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertEquals(newCoreSize, ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolSize());
-    }
-
-    @Test
-    public void testUpdateReadThreadPoolMaxSize() throws IOException {
-        FileSystemManager fileSystemManager = rsm.fileSystemManager();
-
-        // Verify the read thread pool max size before the update
-        assertEquals(DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE,
-                ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolMaxSize());
-
-        // Update the read thread pool max size and verify the returned FileSystem has the updated configuration
-        int newMaxSize = DEFAULT_HDFS_DFS_CLIENT_READ_THREADPOOL_MAX_SIZE + 1;
-        fileSystemManager.setReadThreadPoolMaxSize(newMaxSize);
-        fileSystemManager.handleDynamicHedgedReadsConfigUpdates();
-        assertEquals(newMaxSize, ((DistributedFileSystem) fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true))).getDFSClientReaderThreadPoolMaxSize());
     }
 
     @Test
@@ -330,7 +218,7 @@ public class FileSystemManagerTest {
             // Test HDFS FileSystem creation on demand
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri)));
             assertNotNull(fileSystemManager.getFS(new FileSystemOptions(defaultFsUri, true)));
-            assertEquals(9, instanceCount.get());
+            assertEquals(8, instanceCount.get());
         }
     }
 
@@ -472,7 +360,7 @@ public class FileSystemManagerTest {
             fileSystemManager.configure(testConfigs);
             
             // Get a FileSystem with read-ahead enabled
-            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, true);
             fileSystemManager.getFS(readAheadOptions);
             
             // Get the captured Configuration
@@ -529,7 +417,7 @@ public class FileSystemManagerTest {
             fileSystemManager.configure(testConfigs);
             
             // Get a FileSystem with read-ahead enabled
-            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, true);
             FileSystem fs = fileSystemManager.getFS(readAheadOptions);
             
             // Verify that the correct FileSystem was returned
@@ -609,7 +497,7 @@ public class FileSystemManagerTest {
             fileSystemManager.configure(testConfigs);
 
             // Get a FileSystem with read-ahead enabled
-            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, false, true);
+            FileSystemOptions readAheadOptions = new FileSystemOptions(OCI_BUCKET, true);
             fileSystemManager.getFS(readAheadOptions);
 
             // 1. Test initial configuration with default values
