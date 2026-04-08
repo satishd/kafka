@@ -18,7 +18,13 @@ package org.apache.kafka.rsm.hdfs;
 
 public class FileSystemOptions {
     private final String bucket;
-    private final boolean readAheadEnabled;
+    // When prefetch feature is enabled, then the OCI connector internally uses either of one based on the config:
+    //  1. `BmcDirectFSInputStream` which reads the entire file in one request (or)
+    //  2. `BmcParallelReadAheadFSInputStream` which reads the file in chunks of blocks based on the blockSize,
+    //     blockCount and numThreads.
+    // In the regular path, the `BmcDirectRangedFSInputStream` is used to read the file.
+    // So, we want 2 FileSystem per OCI bucket.
+    private final boolean prefetchEnabled;
 
     /**
      * Creates a new FileSystemOptions with the specified bucket and default values for other options.
@@ -33,18 +39,18 @@ public class FileSystemOptions {
      * Creates a new FileSystemOptions with all options specified.
      *
      * @param bucket the bucket URI
-     * @param readAheadEnabled whether read ahead is enabled
+     * @param prefetchEnabled whether read ahead is enabled
      */
-    public FileSystemOptions(String bucket, boolean readAheadEnabled) {
+    public FileSystemOptions(String bucket, boolean prefetchEnabled) {
         this.bucket = bucket;
-        this.readAheadEnabled = readAheadEnabled;
+        this.prefetchEnabled = prefetchEnabled;
     }
 
     public String bucket() {
         return bucket;
     }
 
-    public boolean readAheadEnabled() {
-        return readAheadEnabled;
+    public boolean prefetchEnabled() {
+        return prefetchEnabled;
     }
 }

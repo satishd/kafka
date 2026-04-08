@@ -101,9 +101,8 @@ public class FileSystemManager {
     private final AtomicBoolean isReadAheadConfigChanged = new AtomicBoolean();
 
     private Configuration defaultHadoopConf;
-    private volatile Configuration readAheadHadoopConf;
+    private volatile Configuration prefetchEnabledHadoopConf;
 
-    // TODO fix the thread factory name pattern
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1,
             ThreadUtils.createThreadFactory("hdfs-rsm-scheduler", false));
 
@@ -133,12 +132,12 @@ public class FileSystemManager {
         }
         LOGGER.info("Default Hadoop Configuration: {}", confToString(defaultHadoopConf));
 
-        if (readAheadHadoopConf == null) {
+        if (prefetchEnabledHadoopConf == null) {
             Configuration hadoopConf = new Configuration(defaultHadoopConf);
-            setOCIReadAheadConfiguration(hadoopConf, conf);
+            setOCIPrefetchConfiguration(hadoopConf, conf);
             // Disable cache for oci, otherwise FileSystem get will return the default filesystem for OCI
             hadoopConf.setBoolean("fs.oci.impl.disable.cache", true);
-            readAheadHadoopConf = hadoopConf;
+            prefetchEnabledHadoopConf = hadoopConf;
         }
 
         hdfsBucket = conf.getString(HDFSRemoteStorageManagerConfig.HDFS_DEFAULT_FS_URI_PROP);
@@ -150,8 +149,8 @@ public class FileSystemManager {
             FileSystemOptions defaultOciOpts = new FileSystemOptions(ociBucket);
             getFS(defaultOciOpts);
 
-            FileSystemOptions readAheadOciOpts = new FileSystemOptions(ociBucket, true);
-            getFS(readAheadOciOpts);
+            FileSystemOptions prefetchOciOpts = new FileSystemOptions(ociBucket, true);
+            getFS(prefetchOciOpts);
         }
 
         // Schedule periodic tasks
@@ -160,30 +159,32 @@ public class FileSystemManager {
     }
 
     /**
-     * Configures the OCI-specific read ahead settings in the given Hadoop configuration.
+     * Configures the OCI-specific settings in the given Hadoop configuration to enable prefetch.
      * <p>
      * This method sets the read ahead block count, block size, and number of threads
      * in the Hadoop configuration based on the values specified in the provided
-     * HDFS remote storage manager configuration.
+     * HDFS remote storage manager configuration when read-ahead option is enabled. Otherwise, it enables the
+     * BmcDirectFSInputStream
      *
      * @param conf                           the Hadoop configuration object to be updated
-     * @param hdfsRemoteStorageManagerConfig the configuration object containing OCI-specific read ahead settings
+     * @param hdfsRemoteStorageManagerConfig the configuration object containing OCI-specific prefetch settings
      */
-    public void setOCIReadAheadConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
-        Boolean isOciReadAheadEnabled = hdfsRemoteStorageManagerConfig.getBoolean(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP);
-        Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
-        Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
-        Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
+    public void setOCIPrefetchConfiguration(Configuration conf, HDFSRemoteStorageManagerConfig hdfsRemoteStorageManagerConfig) {
         // This setting is to ensure that BmcDirectFSInputStream is enabled instead of BmcDirectRangedFSInputStream
         // for prefetch feature when OCI readAhead is disabled.
         conf.setBoolean(READ_DIRECT_RANGED_KEY, false);
+        Boolean isOciReadAheadEnabled = hdfsRemoteStorageManagerConfig.getBoolean(OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP);
         conf.setBoolean(READ_AHEAD_KEY, isOciReadAheadEnabled);
         if (isOciReadAheadEnabled) {
+            // overwrite config only when readAhead is enabled.
+            Integer readAheadBlockCount = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT_PROP);
+            Integer readAheadBlockSize = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE_PROP);
+            Integer readAheadNumThreads = hdfsRemoteStorageManagerConfig.getInt(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP);
             conf.setInt(READ_AHEAD_BLOCK_COUNT_KEY, readAheadBlockCount);
             conf.setInt(READ_AHEAD_BLOCK_SIZE_KEY, readAheadBlockSize);
             conf.setInt(NUM_READ_AHEAD_THREADS_KEY, readAheadNumThreads);
         }
-        LOGGER.info("Hadoop configuration after setting read ahead properties for OCI : {}", confToString(conf));
+        LOGGER.info("Hadoop configuration after setting prefetch properties for OCI : {}", confToString(conf));
     }
 
     private static String confToString(Configuration conf) {
@@ -232,7 +233,7 @@ public class FileSystemManager {
                         shouldHandleReadAheadBlockSizeChange(ociBucket, readAheadEnabledFs) ||
                         shouldHandleReadAheadNumThreadsChange(ociBucket, readAheadEnabledFs)) {
                         FileSystemKey fileSystemKey = new FileSystemKey(ociBucket, true);
-                        FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(ociBucket, readAheadHadoopConf));
+                        FileSystem oldFs = fileSystemByBucket.put(fileSystemKey, createFileSystem(ociBucket, prefetchEnabledHadoopConf));
                         Utils.closeQuietly(oldFs, "Closed old FileSystem for bucket: " + ociBucket + " with readAhead enabled");
                         LOGGER.info("Dynamic readAhead config updated for bucket: {}", ociBucket);
                     }
@@ -249,7 +250,7 @@ public class FileSystemManager {
         int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_COUNT;
 
         long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
-        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        long newValue = prefetchEnabledHadoopConf.getInt(key, defaultValue);
         if (currentValue != newValue) {
             LOGGER.debug("Read ahead block count for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
             return true;
@@ -262,7 +263,7 @@ public class FileSystemManager {
         int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_BLOCK_SIZE;
 
         long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
-        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        long newValue = prefetchEnabledHadoopConf.getInt(key, defaultValue);
         if (currentValue != newValue) {
             LOGGER.debug("Read ahead block size for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
             return true;
@@ -275,7 +276,7 @@ public class FileSystemManager {
         int defaultValue = DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS;
 
         long currentValue = readAheadEnabledFs.getConf().getInt(key, defaultValue);
-        long newValue = readAheadHadoopConf.getInt(key, defaultValue);
+        long newValue = prefetchEnabledHadoopConf.getInt(key, defaultValue);
         if (currentValue != newValue) {
             LOGGER.debug("Read ahead num threads for bucket: {}, changed from {} to {}", ociBucket, currentValue, newValue);
             return true;
@@ -320,7 +321,7 @@ public class FileSystemManager {
                 }
 
                 Function<String, Number> parserFunc = entry.getValue();
-                Number oldValue = parserFunc.apply(readAheadHadoopConf.get(hadoopConfKey));
+                Number oldValue = parserFunc.apply(prefetchEnabledHadoopConf.get(hadoopConfKey));
                 Number newValue = parserFunc.apply((String) configs.get(prop));
                 RSMUtils.validateConfigValueRange(prop, oldValue.longValue(), newValue.longValue());
             }
@@ -411,18 +412,18 @@ public class FileSystemManager {
             throw new IllegalArgumentException(String.format("ReadAhead configuration: %s is not allowed for updates", key));
         }
 
-        Configuration hadoopConf = new Configuration(readAheadHadoopConf);
+        Configuration hadoopConf = new Configuration(prefetchEnabledHadoopConf);
         hadoopConf.set(key, value);
-        this.readAheadHadoopConf = hadoopConf;
+        this.prefetchEnabledHadoopConf = hadoopConf;
     }
 
     public FileSystem getFS(FileSystemOptions options) {
         String bucket = options.bucket();
         // Only use read ahead for OCI buckets when explicitly enabled
-        boolean useReadAhead = !bucket.equals(hdfsBucket) && options.readAheadEnabled();
+        boolean isPrefetchEnabled = !bucket.equals(hdfsBucket) && options.prefetchEnabled();
 
-        Configuration conf = useReadAhead ? readAheadHadoopConf : defaultHadoopConf;
-        FileSystemKey key = new FileSystemKey(bucket, useReadAhead);
+        Configuration conf = isPrefetchEnabled ? prefetchEnabledHadoopConf : defaultHadoopConf;
+        FileSystemKey key = new FileSystemKey(bucket, isPrefetchEnabled);
         return fileSystemByBucket.computeIfAbsent(key, k -> createFileSystem(bucket, conf));
     }
 
@@ -549,18 +550,18 @@ public class FileSystemManager {
      */
     static class FileSystemKey {
         final String bucket;
-        final boolean readAheadEnabled;
+        final boolean prefetchEnabled;
 
-        public FileSystemKey(String bucket, boolean readAheadEnabled) {
+        public FileSystemKey(String bucket, boolean prefetchEnabled) {
             this.bucket = bucket;
-            this.readAheadEnabled = readAheadEnabled;
+            this.prefetchEnabled = prefetchEnabled;
         }
 
         @Override
         public String toString() {
             return "FileSystemKey{" +
                 "bucket='" + bucket + '\'' +
-                ", readAheadEnabled=" + readAheadEnabled +
+                ", prefetchEnabled=" + prefetchEnabled +
                 '}';
         }
 
@@ -569,12 +570,12 @@ public class FileSystemManager {
         public boolean equals(Object o) {
             if (o == null || getClass() != o.getClass()) return false;
             FileSystemKey that = (FileSystemKey) o;
-            return readAheadEnabled == that.readAheadEnabled && Objects.equals(bucket, that.bucket);
+            return prefetchEnabled == that.prefetchEnabled && Objects.equals(bucket, that.bucket);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(bucket, readAheadEnabled);
+            return Objects.hash(bucket, prefetchEnabled);
         }
     }
 }

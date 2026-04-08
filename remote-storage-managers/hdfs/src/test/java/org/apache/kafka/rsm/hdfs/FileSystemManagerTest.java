@@ -279,14 +279,14 @@ public class FileSystemManagerTest {
     }
 
     @Test
-    public void testSetOCIReadAheadConfigurationWithDefaultValues() {
+    public void testSetOCIPrefetchConfigWithDefaultValues() {
         Map<String, Object> props = new HashMap<>();
         props.put(HDFSRemoteStorageManagerConfig.HDFS_BASE_DIR_PROP, "/tmp");
         HDFSRemoteStorageManagerConfig remoteStorageManagerConfig = new HDFSRemoteStorageManagerConfig(props, false);
 
         Configuration config = new Configuration();
         FileSystemManager fileSystemManager = new FileSystemManager();
-        fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
+        fileSystemManager.setOCIPrefetchConfiguration(config, remoteStorageManagerConfig);
 
         assertEquals("false", config.get(BmcConstants.READ_AHEAD_KEY));
         assertNull(config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
@@ -307,12 +307,13 @@ public class FileSystemManagerTest {
 
         Configuration config = new Configuration();
         FileSystemManager fileSystemManager = new FileSystemManager();
-        fileSystemManager.setOCIReadAheadConfiguration(config, remoteStorageManagerConfig);
+        fileSystemManager.setOCIPrefetchConfiguration(config, remoteStorageManagerConfig);
 
         assertEquals("true", config.get(BmcConstants.READ_AHEAD_KEY));
         assertEquals("1", config.get(BmcConstants.READ_AHEAD_BLOCK_COUNT_KEY));
         assertEquals("1048576", config.get(BmcConstants.READ_AHEAD_BLOCK_SIZE_KEY));
         assertEquals("2", config.get(BmcConstants.NUM_READ_AHEAD_THREADS_KEY));
+        assertEquals("false", config.get(BmcConstants.READ_DIRECT_RANGED_KEY));
     }
 
     @ParameterizedTest

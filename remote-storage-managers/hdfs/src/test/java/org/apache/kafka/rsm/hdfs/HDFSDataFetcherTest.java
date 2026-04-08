@@ -114,7 +114,7 @@ public class HDFSDataFetcherTest {
         // Verify FileSystemOptions had the right configurations
         FileSystemOptions fileSystemOptions = fileSystemOptionsCapture.getValue();
         assertEquals("hdfs://localhost:9000", fileSystemOptions.bucket());
-        assertTrue(fileSystemOptions.readAheadEnabled());
+        assertTrue(fileSystemOptions.prefetchEnabled());
     }
 
     @Test
@@ -139,7 +139,7 @@ public class HDFSDataFetcherTest {
         // Verify FileSystemOptions had the right configurations
         FileSystemOptions fileSystemOptions = fileSystemOptionsCapture.getValue();
         assertEquals("hdfs://localhost:9000", fileSystemOptions.bucket());
-        assertTrue(fileSystemOptions.readAheadEnabled());
+        assertTrue(fileSystemOptions.prefetchEnabled());
     }
 
     @Test

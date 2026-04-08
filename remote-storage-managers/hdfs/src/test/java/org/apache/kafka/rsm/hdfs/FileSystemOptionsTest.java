@@ -31,22 +31,22 @@ public class FileSystemOptionsTest {
         FileSystemOptions options = new FileSystemOptions(TEST_BUCKET);
 
         assertEquals(TEST_BUCKET, options.bucket());
-        assertFalse(options.readAheadEnabled());
+        assertFalse(options.prefetchEnabled());
     }
 
     @Test
-    public void testConstructorWithReadAheadEnabled() {
+    public void testConstructorWithPrefetchEnabled() {
         FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, true);
 
         assertEquals(TEST_BUCKET, options.bucket());
-        assertTrue(options.readAheadEnabled());
+        assertTrue(options.prefetchEnabled());
     }
 
     @Test
-    public void testConstructorWithReadAheadDisabled() {
+    public void testConstructorWithPrefetchDisabled() {
         FileSystemOptions options = new FileSystemOptions(TEST_BUCKET, false);
 
         assertEquals(TEST_BUCKET, options.bucket());
-        assertFalse(options.readAheadEnabled());
+        assertFalse(options.prefetchEnabled());
     }
 }
