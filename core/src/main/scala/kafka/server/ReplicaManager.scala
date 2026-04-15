@@ -138,7 +138,8 @@ case class LogReadResult(info: FetchDataInfo,
   }
 
   def toFetchPartitionData(isReassignmentFetch: Boolean,
-                           isRemoteFetch: Boolean = false): FetchPartitionData = new FetchPartitionData(
+                           isRemoteFetch: Boolean = false,
+                           segmentLargestTimestamp: Long = 0L): FetchPartitionData = new FetchPartitionData(
     this.error,
     this.highWatermark,
     this.leaderLogStartOffset,
@@ -148,7 +149,8 @@ case class LogReadResult(info: FetchDataInfo,
     this.info.abortedTransactions,
     if (this.preferredReadReplica.isDefined) OptionalInt.of(this.preferredReadReplica.get) else OptionalInt.empty(),
     isReassignmentFetch,
-    isRemoteFetch)
+    isRemoteFetch,
+    segmentLargestTimestamp)
 
   override def toString: String = {
     "LogReadResult(" +
@@ -205,17 +207,17 @@ class IsrBlacklistHandler(val replicaManager: ReplicaManager) extends ZNodeChild
 
 class ExcludedClientPrefixes(clientIdPrefixes: List[String]) {
 
-  val allowAll: Boolean = {
+  private val allowAll: Boolean = {
     clientIdPrefixes != null && clientIdPrefixes.size == 1 && clientIdPrefixes.head
       .equals(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_NONE)
   }
 
-  val denyAll: Boolean = {
+  private val denyAll: Boolean = {
     clientIdPrefixes != null && clientIdPrefixes.size == 1 && clientIdPrefixes.head
       .equals(MetricConfigs.EXCLUDED_CLIENT_PREFIXES_FROM_CONSUMPTION_METRICS_ALL)
   }
 
-  def isNotInDenyList(clientId: String): Boolean = {
+  def isAllowedForConsumptionMetric(clientId: String): Boolean = {
     allowAll || !isInDenyList(clientId)
   }
 
@@ -387,10 +389,6 @@ class ReplicaManager(val config: KafkaConfig,
   @volatile private var clientIdsExcludedFromConsumptionMetric =
     new ExcludedClientPrefixes(config.consumptionMetricsClientExcludeList.asScala.toList)
 
-  def updateExcludedClientPrefixesForConsumptionMetrics(newExcludedClients: List[String]): Unit = {
-    clientIdsExcludedFromConsumptionMetric = new ExcludedClientPrefixes(newExcludedClients)
-  }
-
   private var logDirFailureHandler: LogDirFailureHandler = _
 
   private class LogDirFailureHandler(name: String, haltBrokerOnDirFailure: Boolean) extends ShutdownableThread(name) {
@@ -475,6 +473,14 @@ class ReplicaManager(val config: KafkaConfig,
   def tryCompleteElection(key: DelayedOperationKey): Unit = {
     val completed = delayedElectLeaderPurgatory.checkAndComplete(key)
     debug("Request key %s unblocked %d ElectLeader.".format(key.keyLabel, completed))
+  }
+
+  private[server] def updateExcludedClientPrefixesForConsumptionMetrics(newExcludedClients: List[String]): Unit = {
+    clientIdsExcludedFromConsumptionMetric = new ExcludedClientPrefixes(newExcludedClients)
+  }
+
+  private[server] def isAllowedForConsumptionMetric(clientId: String): Boolean = {
+    clientIdsExcludedFromConsumptionMetric.isAllowedForConsumptionMetric(clientId)
   }
 
   def startup(): Unit = {
@@ -1784,14 +1790,6 @@ class ReplicaManager(val config: KafkaConfig,
     var hasPreferredReadReplica = false
     val logReadResultMap = new mutable.HashMap[TopicIdPartition, LogReadResult]
 
-    def isConsumerAllowedForLookbackMetric() : Boolean = {
-      /**
-       * Exclude consumers which are consuming for the background operations. For instance, uatu for monitoring.
-       */
-      params.isFromConsumer && params.clientMetadata.isPresent &&
-        clientIdsExcludedFromConsumptionMetric.isNotInDenyList(params.clientMetadata.get.clientId)
-    }
-
     logReadResults.foreach { case (topicIdPartition, logReadResult) =>
       brokerTopicStats.topicStats(topicIdPartition.topicPartition.topic).totalFetchRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalFetchRequestRate.mark()
@@ -1802,10 +1800,6 @@ class ReplicaManager(val config: KafkaConfig,
       }
       if (logReadResult.divergingEpoch.nonEmpty)
         hasDivergingEpoch = true
-      if (isConsumerAllowedForLookbackMetric() && logReadResult.info.segmentLargestTimestamp > 0) {
-        val durationMs = time.milliseconds() - logReadResult.info.segmentLargestTimestamp
-        brokerTopicStats.topicStats(topicIdPartition.topic).updateFetchMessageLookbackMs(durationMs)
-      }
       if (logReadResult.preferredReadReplica.nonEmpty)
         hasPreferredReadReplica = true
       bytesReadable = bytesReadable + logReadResult.info.records.sizeInBytes
@@ -1823,7 +1817,8 @@ class ReplicaManager(val config: KafkaConfig,
       hasDivergingEpoch || hasPreferredReadReplica)) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
         val isReassignmentFetch = params.isFromFollower && isAddingReplica(tp.topicPartition, params.replicaId)
-        tp -> result.toFetchPartitionData(isReassignmentFetch)
+        tp -> result.toFetchPartitionData(isReassignmentFetch = isReassignmentFetch,
+          segmentLargestTimestamp = result.info.segmentLargestTimestamp)
       }
       responseCallback(fetchPartitionData)
     } else {

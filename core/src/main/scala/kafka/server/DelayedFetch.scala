@@ -176,7 +176,8 @@ class DelayedFetch(
       val isReassignmentFetch = params.isFromFollower &&
         replicaManager.isAddingReplica(tp.topicPartition, params.replicaId)
 
-      tp -> result.toFetchPartitionData(isReassignmentFetch)
+      tp -> result.toFetchPartitionData(isReassignmentFetch = isReassignmentFetch,
+        segmentLargestTimestamp = result.info.segmentLargestTimestamp)
     }
 
     responseCallback(fetchPartitionData)

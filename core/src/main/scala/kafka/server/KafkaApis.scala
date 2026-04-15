@@ -924,6 +924,10 @@ class KafkaApis(val requestChannel: RequestChannel,
       val reassigningPartitions = mutable.Set[TopicIdPartition]()
       val remoteFetchPartitions = mutable.Set[TopicIdPartition]()
       val nodeEndpoints = new mutable.HashMap[Int, Node]
+      // Exclude consumers which are consuming for the background operations. For instance, uatu for monitoring.
+      val isConsumerAllowedForLookbackMetric: Boolean =
+        FetchRequest.isConsumer(fetchRequest.replicaId()) && replicaManager.isAllowedForConsumptionMetric(clientId)
+
       responsePartitionData.foreach { case (tp, data) =>
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
@@ -954,6 +958,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
 
         data.divergingEpoch.ifPresent(partitionData.setDivergingEpoch(_))
+        if (isConsumerAllowedForLookbackMetric && data.segmentLargestTimestamp > 0) {
+          val durationMs = time.milliseconds() - data.segmentLargestTimestamp
+          if (durationMs > 0) {
+            brokerTopicStats.topicStats(tp.topic).updateFetchMessageLookbackMs(durationMs)
+          }
+        }
         partitions.put(tp, partitionData)
       }
       erroneous.foreach { case (tp, data) => partitions.put(tp, data) }

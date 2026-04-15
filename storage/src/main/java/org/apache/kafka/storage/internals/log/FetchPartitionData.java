@@ -36,6 +36,7 @@ public class FetchPartitionData {
     public final OptionalInt preferredReadReplica;
     public final boolean isReassignmentFetch;
     public final boolean isRemoteFetch;
+    public final long segmentLargestTimestamp;
 
     public FetchPartitionData(Errors error,
                               long highWatermark,
@@ -68,6 +69,30 @@ public class FetchPartitionData {
                               OptionalInt preferredReadReplica,
                               boolean isReassignmentFetch,
                               boolean isRemoteFetch) {
+        this(error,
+                highWatermark,
+                logStartOffset,
+                records,
+                divergingEpoch,
+                lastStableOffset,
+                abortedTransactions,
+                preferredReadReplica,
+                isReassignmentFetch,
+                isRemoteFetch,
+                -1L);
+    }
+
+    public FetchPartitionData(Errors error,
+                              long highWatermark,
+                              long logStartOffset,
+                              Records records,
+                              Optional<FetchResponseData.EpochEndOffset> divergingEpoch,
+                              OptionalLong lastStableOffset,
+                              Optional<List<FetchResponseData.AbortedTransaction>> abortedTransactions,
+                              OptionalInt preferredReadReplica,
+                              boolean isReassignmentFetch,
+                              boolean isRemoteFetch,
+                              long segmentLargestTimestamp) {
         this.error = error;
         this.highWatermark = highWatermark;
         this.logStartOffset = logStartOffset;
@@ -78,5 +103,6 @@ public class FetchPartitionData {
         this.preferredReadReplica = preferredReadReplica;
         this.isReassignmentFetch = isReassignmentFetch;
         this.isRemoteFetch = isRemoteFetch;
+        this.segmentLargestTimestamp = segmentLargestTimestamp;
     }
 }

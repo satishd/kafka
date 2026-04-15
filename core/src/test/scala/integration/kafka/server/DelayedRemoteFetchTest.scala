@@ -22,6 +22,7 @@ import org.apache.kafka.common.errors.NotLeaderOrFollowerException
 import org.apache.kafka.common.protocol.{ApiKeys, Errors}
 import org.apache.kafka.common.record.MemoryRecords
 import org.apache.kafka.common.requests.FetchRequest
+import org.apache.kafka.common.utils.MockTime
 import org.apache.kafka.common.{TopicIdPartition, Uuid}
 import org.apache.kafka.server.metrics.KafkaYammerMetrics
 import org.apache.kafka.storage.internals.log.{RemoteLogReadResult, _}
@@ -44,6 +45,7 @@ class DelayedRemoteFetchTest {
   private val logStartOffset = 0L
   private val currentLeaderEpoch = Optional.of[Integer](10)
   private val remoteFetchMaxWaitMs = 500
+  private val time = new MockTime()
 
   private val fetchStatus = FetchPartitionStatus(
     startOffsetMetadata = new LogOffsetMetadata(fetchOffset),
@@ -312,6 +314,7 @@ class DelayedRemoteFetchTest {
 
   @Test
   def testMultiplePartitions(): Unit = {
+    val currentTimeMs = time.milliseconds()
     val responses = mutable.Map[TopicIdPartition, FetchPartitionData]()
 
     def callback(responseSeq: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
@@ -324,7 +327,7 @@ class DelayedRemoteFetchTest {
     val future1: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
     val future2: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
     // Only complete one remote fetch
-    future1.complete(buildRemoteReadResult(Errors.NONE))
+    future1.complete(buildRemoteReadResult(Errors.NONE, segmentLargestTimestamp = currentTimeMs))
 
     val fetchInfo1 = new RemoteStorageFetchInfo(0, false, topicIdPartition, null, null, false)
     val fetchInfo2 = new RemoteStorageFetchInfo(0, false, topicIdPartition2, null, null, false)
@@ -374,7 +377,7 @@ class DelayedRemoteFetchTest {
     assertFalse(delayedRemoteFetch.isCompleted)
 
     // Complete future2
-    future2.complete(buildRemoteReadResult(Errors.NONE))
+    future2.complete(buildRemoteReadResult(Errors.NONE, currentTimeMs + 1))
 
     // Now it should complete
     assertTrue(delayedRemoteFetch.tryComplete())
@@ -389,15 +392,18 @@ class DelayedRemoteFetchTest {
     assertEquals(highWatermark1, responses(topicIdPartition).highWatermark)
     assertEquals(leaderLogStartOffset1, responses(topicIdPartition).logStartOffset)
     assertTrue(responses(topicIdPartition).isRemoteFetch)
+    assertEquals(currentTimeMs, responses(topicIdPartition).segmentLargestTimestamp)
 
     assertEquals(Errors.NONE, responses(topicIdPartition2).error)
     assertEquals(highWatermark2, responses(topicIdPartition2).highWatermark)
     assertEquals(leaderLogStartOffset2, responses(topicIdPartition2).logStartOffset)
     assertTrue(responses(topicIdPartition2).isRemoteFetch)
+    assertEquals(currentTimeMs + 1, responses(topicIdPartition2).segmentLargestTimestamp)
   }
 
   @Test
   def testMultiplePartitionsWithFailedResults(): Unit = {
+    val currentTimeMs = time.milliseconds()
     val responses = mutable.Map[TopicIdPartition, FetchPartitionData]()
 
     def callback(responseSeq: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
@@ -411,7 +417,7 @@ class DelayedRemoteFetchTest {
     val future2: CompletableFuture[RemoteLogReadResult] = new CompletableFuture[RemoteLogReadResult]()
 
     // Created 1 successful result and 1 failed result
-    future1.complete(buildRemoteReadResult(Errors.NONE))
+    future1.complete(buildRemoteReadResult(Errors.NONE, segmentLargestTimestamp = currentTimeMs))
     future2.complete(buildRemoteReadResult(Errors.UNKNOWN_SERVER_ERROR))
 
     val fetchInfo1 = new RemoteStorageFetchInfo(0, false, topicIdPartition, null, null, false)
@@ -464,11 +470,13 @@ class DelayedRemoteFetchTest {
     val fetchResult1 = responses(topicIdPartition)
     assertEquals(Errors.NONE, fetchResult1.error)
     assertTrue(responses(topicIdPartition).isRemoteFetch)
+    assertEquals(currentTimeMs, responses(topicIdPartition).segmentLargestTimestamp)
 
     // Second partition should have an error due to remote fetch failure
     val fetchResult2 = responses(topicIdPartition2)
     assertEquals(Errors.UNKNOWN_SERVER_ERROR, fetchResult2.error)
     assertTrue(responses(topicIdPartition2).isRemoteFetch)
+    assertEquals(0, responses(topicIdPartition2).segmentLargestTimestamp)
   }
 
   private def buildFetchParams(replicaId: Int,
@@ -502,9 +510,18 @@ class DelayedRemoteFetchTest {
       if (error != Errors.NONE) Some(error.exception) else None)
   }
 
-  private def buildRemoteReadResult(error: Errors): RemoteLogReadResult = {
+  private def buildRemoteReadResult(error: Errors,
+                                    segmentLargestTimestamp: Long = 0): RemoteLogReadResult = {
+    val fetchDataInfo = new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA,
+      MemoryRecords.EMPTY,
+      false,
+      Optional.empty(),
+      Optional.of(mock(classOf[RemoteStorageFetchInfo])),
+      segmentLargestTimestamp
+    )
     new RemoteLogReadResult(
-      Optional.of(new FetchDataInfo(LogOffsetMetadata.UNKNOWN_OFFSET_METADATA, MemoryRecords.EMPTY)),
-      if (error != Errors.NONE) Optional.of[Throwable](error.exception) else Optional.empty[Throwable]())
+      Optional.of(fetchDataInfo),
+      if (error != Errors.NONE) Optional.of[Throwable](error.exception) else Optional.empty[Throwable]()
+    )
   }
 }

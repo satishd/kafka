@@ -124,10 +124,14 @@ class DelayedRemoteFetch(remoteFetchTasks: util.Map[TopicIdPartition, Future[Voi
             info.abortedTransactions,
             if (result.preferredReadReplica.isDefined) OptionalInt.of(result.preferredReadReplica.get) else OptionalInt.empty(),
             false,
-            true)
+            true,
+            info.segmentLargestTimestamp)
         }
       } else {
-        tp -> result.toFetchPartitionData(false)
+        tp -> result.toFetchPartitionData(
+          isReassignmentFetch = false,
+          isRemoteFetch = false,
+          segmentLargestTimestamp = result.info.segmentLargestTimestamp)
       }
     }
 

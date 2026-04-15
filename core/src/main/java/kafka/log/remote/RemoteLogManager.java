@@ -2023,7 +2023,11 @@ public class RemoteLogManager implements Closeable {
             startPos = startPos + enrichedRecordBatch.skippedBytes;
             FetchDataInfo fetchDataInfo = new FetchDataInfo(
                     new LogOffsetMetadata(firstBatch.baseOffset(), remoteLogSegmentMetadata.startOffset(), startPos),
-                    MemoryRecords.readableRecords(buffer));
+                    MemoryRecords.readableRecords(buffer),
+                    false,
+                    Optional.empty(),
+                    Optional.empty(),
+                    remoteLogSegmentMetadata.maxTimestampMs());
             if (includeAbortedTxns) {
                 fetchDataInfo = addAbortedTransactions(firstBatch.baseOffset(), remoteLogSegmentMetadata, fetchDataInfo, logOptional.get());
             }
@@ -2096,7 +2100,9 @@ public class RemoteLogManager implements Closeable {
         return new FetchDataInfo(fetchInfo.fetchOffsetMetadata,
                 fetchInfo.records,
                 fetchInfo.firstEntryIncomplete,
-                Optional.of(abortedTransactions.isEmpty() ? Collections.emptyList() : new ArrayList<>(abortedTransactions)));
+                Optional.of(abortedTransactions.isEmpty() ? Collections.emptyList() : new ArrayList<>(abortedTransactions)),
+                fetchInfo.delayedRemoteStorageFetch,
+                fetchInfo.segmentLargestTimestamp);
     }
 
     /**

@@ -48,7 +48,7 @@ public class FetchDataInfo {
                          boolean firstEntryIncomplete,
                          Optional<List<FetchResponseData.AbortedTransaction>> abortedTransactions,
                          Optional<RemoteStorageFetchInfo> delayedRemoteStorageFetch) {
-        this(fetchOffsetMetadata, records, firstEntryIncomplete, abortedTransactions, delayedRemoteStorageFetch, -1L);
+        this(fetchOffsetMetadata, records, firstEntryIncomplete, abortedTransactions, delayedRemoteStorageFetch, 0L);
     }
 
     public FetchDataInfo(LogOffsetMetadata fetchOffsetMetadata,
