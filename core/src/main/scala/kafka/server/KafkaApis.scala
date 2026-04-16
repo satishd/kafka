@@ -960,8 +960,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         data.divergingEpoch.ifPresent(partitionData.setDivergingEpoch(_))
         if (isConsumerAllowedForLookbackMetric && data.segmentLargestTimestamp > 0) {
           val durationMs = time.milliseconds() - data.segmentLargestTimestamp
-          // Record fetch lookback metrics only when lookback time exceeds 1 second to reduce metric volume.
-          if (durationMs > 1000) {
+          // Record fetch lookback metrics only when lookback time exceeds 1 min to reduce metric volume.
+          if (durationMs > 60000L) {
             brokerTopicStats.topicStats(tp.topic).updateFetchMessageLookbackMs(durationMs)
           }
         }
