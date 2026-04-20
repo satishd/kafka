@@ -177,10 +177,17 @@ public class DefaultKafkaJmxCollector implements MultiCollector {
         String domain = objectName.getDomain().replace('.', '_');
         Hashtable<String, String> props = objectName.getKeyPropertyList();
 
-        String type = props.getOrDefault("type", "unknown");
-        String name = props.getOrDefault("name", "unknown");
+        StringBuilder baseNameBuilder = new StringBuilder(domain);
+        String type = props.get("type");
+        if (type != null) {
+            baseNameBuilder.append("_").append(type);
+        }
+        String name = props.get("name");
+        if (name != null) {
+            baseNameBuilder.append("_").append(name);
+        }
         String baseName = PrometheusNaming.sanitizeMetricName(
-                normalizeName(domain + "_" + type + "_" + name));
+                normalizeName(baseNameBuilder.toString()));
 
         // Build labels from ObjectName properties, excluding domain/type/name
         // since those are already encoded in the metric name.

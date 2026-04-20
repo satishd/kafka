@@ -332,17 +332,17 @@ class DefaultKafkaJmxCollectorTest {
         for (MetricSnapshot snapshot : snapshots) {
             GaugeSnapshot gauge = (GaugeSnapshot) snapshot;
             metricNames.add(gauge.getMetadata().getName());
-            if (gauge.getMetadata().getName().equals("java_lang_memory_unknown_heapmemoryusage_used")) {
+            if (gauge.getMetadata().getName().equals("java_lang_memory_heapmemoryusage_used")) {
                 assertEquals(1024.0, gauge.getDataPoints().get(0).getValue());
             }
-            if (gauge.getMetadata().getName().equals("java_lang_memory_unknown_heapmemoryusage_max")) {
+            if (gauge.getMetadata().getName().equals("java_lang_memory_heapmemoryusage_max")) {
                 assertEquals(4096.0, gauge.getDataPoints().get(0).getValue());
             }
         }
-        assertTrue(metricNames.contains("java_lang_memory_unknown_heapmemoryusage_used"),
-            "Expected metric 'java_lang_memory_unknown_heapmemoryusage_used'");
-        assertTrue(metricNames.contains("java_lang_memory_unknown_heapmemoryusage_max"),
-            "Expected metric 'java_lang_memory_unknown_heapmemoryusage_max'");
+        assertTrue(metricNames.contains("java_lang_memory_heapmemoryusage_used"),
+            "Expected metric 'java_lang_memory_heapmemoryusage_used'");
+        assertTrue(metricNames.contains("java_lang_memory_heapmemoryusage_max"),
+            "Expected metric 'java_lang_memory_heapmemoryusage_max'");
     }
 
     @Test
@@ -375,7 +375,7 @@ class DefaultKafkaJmxCollectorTest {
         // so the attr name "Info" is not present in the final metric name.
         assertEquals(1, snapshots.size());
         GaugeSnapshot gauge = (GaugeSnapshot) snapshots.get(0);
-        assertEquals("java_lang_runtime_unknown_uptime", gauge.getMetadata().getName());
+        assertEquals("java_lang_runtime_uptime", gauge.getMetadata().getName());
         assertEquals(123456.0, gauge.getDataPoints().get(0).getValue());
     }
 
@@ -421,11 +421,11 @@ class DefaultKafkaJmxCollectorTest {
             metricNames.add(((GaugeSnapshot) snapshot).getMetadata().getName());
         }
         // Note: PrometheusNaming.sanitizeMetricName strips "_total" suffix (reserved by Prometheus),
-        // so "stats_total" becomes "test_nested_unknown_stats".
-        assertTrue(metricNames.contains("test_nested_unknown_stats"),
-            "Expected metric 'test_nested_unknown_stats', got: " + metricNames);
-        assertTrue(metricNames.contains("test_nested_unknown_stats_details_count"),
-            "Expected metric 'test_nested_unknown_stats_details_count', got: " + metricNames);
+        // so "stats_total" becomes "test_nested_stats".
+        assertTrue(metricNames.contains("test_nested_stats"),
+            "Expected metric 'test_nested_stats', got: " + metricNames);
+        assertTrue(metricNames.contains("test_nested_stats_details_count"),
+            "Expected metric 'test_nested_stats_details_count', got: " + metricNames);
     }
 
     // -------- Non-numeric attributes are skipped --------
@@ -593,6 +593,76 @@ class DefaultKafkaJmxCollectorTest {
             if (snapshot instanceof GaugeSnapshot) gaugeCount++;
         }
         assertEquals(3, gaugeCount, "Expected 3 gauge metrics (Value + Count + Mean)");
+    }
+
+    // -------- Metric naming with missing type/name --------
+
+    @Test
+    void collect_mbeanWithNoNameProperty() throws Exception {
+        // MBean has type but no name — metric name should omit name, not use "unknown"
+        ObjectName bean = new ObjectName("java.lang:type=Memory");
+
+        when(mbeanServer.queryNames(null, null)).thenReturn(Collections.singleton(bean));
+
+        MBeanInfo info = new MBeanInfo("", "", new MBeanAttributeInfo[]{
+                new MBeanAttributeInfo("Value", "double", "", true, false, false)
+        }, null, null, null);
+        when(mbeanServer.getMBeanInfo(bean)).thenReturn(info);
+        when(mbeanServer.getAttribute(bean, "Value")).thenReturn(42.0);
+
+        DefaultKafkaJmxCollector collector = new DefaultKafkaJmxCollector(
+                mbeanServer, Collections.emptyList(), Collections.emptyList());
+        MetricSnapshots snapshots = collector.collect();
+
+        assertEquals(1, snapshots.size());
+        GaugeSnapshot gauge = (GaugeSnapshot) snapshots.get(0);
+        assertEquals("java_lang_memory_value", gauge.getMetadata().getName());
+    }
+
+    @Test
+    void collect_mbeanWithNoTypeProperty() throws Exception {
+        // MBean has name but no type — metric name should omit type, not use "unknown"
+        ObjectName bean = new ObjectName("custom.domain:name=MyMetric");
+
+        when(mbeanServer.queryNames(null, null)).thenReturn(Collections.singleton(bean));
+
+        MBeanInfo info = new MBeanInfo("", "", new MBeanAttributeInfo[]{
+                new MBeanAttributeInfo("Value", "double", "", true, false, false)
+        }, null, null, null);
+        when(mbeanServer.getMBeanInfo(bean)).thenReturn(info);
+        when(mbeanServer.getAttribute(bean, "Value")).thenReturn(7.0);
+
+        DefaultKafkaJmxCollector collector = new DefaultKafkaJmxCollector(
+                mbeanServer, Collections.emptyList(), Collections.emptyList());
+        MetricSnapshots snapshots = collector.collect();
+
+        assertEquals(1, snapshots.size());
+        GaugeSnapshot gauge = (GaugeSnapshot) snapshots.get(0);
+        assertEquals("custom_domain_mymetric_value", gauge.getMetadata().getName());
+    }
+
+    @Test
+    void collect_mbeanWithNoTypeOrNameProperty() throws Exception {
+        // MBean has neither type nor name — metric name should just be domain + attribute
+        ObjectName bean = new ObjectName("custom.domain:key=val");
+
+        when(mbeanServer.queryNames(null, null)).thenReturn(Collections.singleton(bean));
+
+        MBeanInfo info = new MBeanInfo("", "", new MBeanAttributeInfo[]{
+                new MBeanAttributeInfo("Value", "double", "", true, false, false)
+        }, null, null, null);
+        when(mbeanServer.getMBeanInfo(bean)).thenReturn(info);
+        when(mbeanServer.getAttribute(bean, "Value")).thenReturn(3.0);
+
+        DefaultKafkaJmxCollector collector = new DefaultKafkaJmxCollector(
+                mbeanServer, Collections.emptyList(), Collections.emptyList());
+        MetricSnapshots snapshots = collector.collect();
+
+        assertEquals(1, snapshots.size());
+        GaugeSnapshot gauge = (GaugeSnapshot) snapshots.get(0);
+        assertEquals("custom_domain_value", gauge.getMetadata().getName());
+        // "key" should appear as a label
+        assertEquals("val", gauge.getDataPoints().get(0).getLabels().get("key"));
     }
 
     // -------- Unreadable attributes --------
