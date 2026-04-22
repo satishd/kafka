@@ -296,8 +296,8 @@ subprojects {
   apply plugin: "com.github.spotbugs"
 
   // We use the shadow plugin for the jmh-benchmarks module and the `-all` jar can get pretty large, so
-  // don't publish it
-  def shouldPublish = !project.name.equals('jmh-benchmarks')
+  // don't publish it. Also don't publish metrics-exporter.
+  def shouldPublish = !['jmh-benchmarks', 'metrics-exporter'].contains(project.name)
   def shouldPublishWithShadow = (['clients'].contains(project.name))
 
   if (shouldPublish) {

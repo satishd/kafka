@@ -28,11 +28,11 @@ def main():
     https://docs.google.com/document/d/1d7H1FIBXoe7eATK2wHPS0kzfrnAMaQJzLIWbw9GomJk
 
     $ token=$(usso -ussh artifacts -print)
-    $ python3 kafka-artifact-uploader.py $token /tmp/myRepo 2.9.68-2.12-uber
+    $ python3 kafka-artifact-uploader.py $token /tmp/myRepo 3.9.15-2.12-uber
     """
     if len(sys.argv) < 4:
         print("Usage: python3 kafka-artifact-uploader.py <token> <local_repo_path> <version>. \n"
-              " (eg) python3 kafka-artifact-uploader.py $token /tmp/myRepo 2.9.68-2.12-uber")
+              " (eg) python3 kafka-artifact-uploader.py $token /tmp/myRepo 3.9.15-2.12-uber")
         sys.exit(1)
 
     token = sys.argv[1]
@@ -41,8 +41,9 @@ def main():
     # modules = os.listdir(f"{local_repo}/org/apache/kafka")
     modules = ["connect-api", "connect-json", "kafka-clients", "kafka-metadata", "kafka-raft", "kafka-server-common",
                "kafka-storage", "kafka-storage-api", "kafka-streams", "kafka_2.12",
-               # the below modules are optional to upload
-               "kafka-log4j-appender", "kafka-shell", "kafka-tools", "remote-storage-managers", "kafka-rsm-hdfs"]
+               "kafka-server", "kafka-tools-api", "kafka-transaction-coordinator", "kafka-group-coordinator-api", "kafka-group-coordinator",
+                # the below modules are optional to upload
+               "kafka-log4j-appender", "kafka-shell", "kafka-tools", "kafka-rsm-hdfs"]
     print(modules)
     for module in modules:
         base_path = f"{local_repo}/org/apache/kafka/{module}/{version}"
