@@ -536,7 +536,7 @@ public class FileSystemManager {
      * @return the remote storage provider
      */
     public RemoteStorageProvider getRemoteStorageProvider(String bucket) {
-        if (bucket.startsWith(HDFS_BUCKET_PREFIX)) {
+        if (bucket.isEmpty() || bucket.startsWith(HDFS_BUCKET_PREFIX)) {
             return RemoteStorageProvider.HDFS;
         } else if (bucket.startsWith(OCI_BUCKET_PREFIX)) {
             return RemoteStorageProvider.OCI;

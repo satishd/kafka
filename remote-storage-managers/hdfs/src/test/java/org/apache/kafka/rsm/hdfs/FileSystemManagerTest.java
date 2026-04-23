@@ -608,4 +608,18 @@ public class FileSystemManagerTest {
             assertEquals(2, instanceCount.get());
         }
     }
+
+    @Test
+    public void testGetRemoteStorageProvider() {
+        FileSystemManager fileSystemManager = rsm.fileSystemManager();
+        // Empty bucket string should resolve to HDFS
+        assertEquals(RemoteStorageProvider.HDFS, fileSystemManager.getRemoteStorageProvider(""));
+        // HDFS bucket URI should resolve to HDFS
+        assertEquals(RemoteStorageProvider.HDFS, fileSystemManager.getRemoteStorageProvider(defaultFsUri));
+        // OCI bucket URI should resolve to OCI
+        assertEquals(RemoteStorageProvider.OCI, fileSystemManager.getRemoteStorageProvider(OCI_BUCKET));
+        // Unknown scheme should throw IllegalArgumentException
+        assertThrows(IllegalArgumentException.class,
+                () -> fileSystemManager.getRemoteStorageProvider("s3://some-bucket/path"));
+    }
 }
