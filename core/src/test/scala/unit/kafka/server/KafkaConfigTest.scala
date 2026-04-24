@@ -1252,7 +1252,7 @@ class KafkaConfigTest {
         case TopicConfig.LOCAL_LOG_RETENTION_BYTES_CONFIG =>
           assertDynamic(kafkaConfigProp, 10016L, () => config.remoteLogManagerConfig.logLocalRetentionBytes)
         case TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG =>
-          assertDynamic(kafkaConfigProp, "oci", () => config.remoteLogManagerConfig.logRemoteStorageProvider)
+          // single provider exists, so cannot change it dynamically
         case TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG =>
           assertDynamic(kafkaConfigProp, true, () => config.remoteLogManagerConfig.isLogRemoteStoragePrefetchEnabled)
         case TopicConfig.MESSAGE_FORMAT_VERSION_CONFIG =>

@@ -492,12 +492,18 @@ class LogConfigTest {
     validate(MetadataVersion.IBP_3_7_IV2, jbodConfig = true)
   }
 
-  @ParameterizedTest
-  @ValueSource(strings = Array(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI))
-  def testValidRemoteStorageProvider(provider: String): Unit = {
+  @Test
+  def testValidRemoteStorageProvider(): Unit = {
     val logProps = new Properties
-    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, provider)
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI)
     LogConfig.validate(logProps)
+  }
+
+  @Test
+  def testInvalidRemoteStorageProvider(): Unit = {
+    val logProps = new Properties
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs")
+    assertThrows(classOf[ConfigException], () => LogConfig.validate(logProps))
   }
 
   @ParameterizedTest

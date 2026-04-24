@@ -593,7 +593,7 @@ public class RemoteLogManagerTest {
         assertEquals(remoteLogSegmentMetadataArg.getValue(), remoteLogSegmentMetadataArg2.getValue());
         // The old segment should only contain leader epoch [0->0, 1->100] since its offset range is [0, 149]
         verifyLogSegmentData(logSegmentDataArg.getValue(), idx, timeIdx, txnIndex, tempFile, mockProducerSnapshotIndex,
-            Arrays.asList(epochEntry0, epochEntry1), RemoteStorageProvider.HDFS);
+            Arrays.asList(epochEntry0, epochEntry1), RemoteStorageProvider.OCI);
 
         // verify remoteLogMetadataManager did add the expected RemoteLogSegmentMetadataUpdate
         ArgumentCaptor<RemoteLogSegmentMetadataUpdate> remoteLogSegmentMetadataUpdateArg = ArgumentCaptor.forClass(RemoteLogSegmentMetadataUpdate.class);

@@ -570,8 +570,8 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
   @Test
   def testCreateRemoteTopicWithStorageProvider(): Unit = {
-    // default remote storage provider is hdfs
-    assertEquals("hdfs", this.servers.head.config.remoteLogManagerConfig.logRemoteStorageProvider)
+    // default remote storage provider is oci
+    assertEquals("oci", this.servers.head.config.remoteLogManagerConfig.logRemoteStorageProvider)
 
     def assertStorageProvider(partition: TopicPartition, provider: String): Unit = {
       TestUtils.retry(10000) {
@@ -583,13 +583,13 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
 
     val tp = new TopicPartition("test", 0)
     createTopic(tp.topic, 1, 1, new Properties())
-    assertStorageProvider(partition = tp, provider = "hdfs")
+    assertStorageProvider(partition = tp, provider = "oci")
 
     val tp1 = new TopicPartition("test1", 0)
     val logProps = new Properties()
-    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs")
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "oci")
     createTopic(tp1.topic, 1, 1, logProps)
-    assertStorageProvider(partition = tp1, provider = "hdfs")
+    assertStorageProvider(partition = tp1, provider = "oci")
 
     val serverProps = new Properties()
     serverProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, "oci")
@@ -603,12 +603,12 @@ class DynamicConfigChangeTest extends KafkaServerTestHarness {
     assertStorageProvider(partition = tp2, provider = "oci")
     // test-0 topic does not overwrite the `remote.storage.provider` at topic-level.
     assertStorageProvider(partition = tp, provider = "oci")
-    assertStorageProvider(partition = tp1, provider = "hdfs")
+    assertStorageProvider(partition = tp1, provider = "oci")
 
     val tp3 = new TopicPartition("test3", 0)
-    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs")
+    logProps.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "oci")
     createTopic(tp3.topic, 1, 1, logProps)
-    assertStorageProvider(partition = tp3, provider = "hdfs")
+    assertStorageProvider(partition = tp3, provider = "oci")
   }
 
   @Test

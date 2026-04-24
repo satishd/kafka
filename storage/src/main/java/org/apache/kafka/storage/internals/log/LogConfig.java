@@ -346,8 +346,8 @@ public class LogConfig extends AbstractConfig {
                         TopicConfig.LOCAL_LOG_RETENTION_BYTES_DOC)
                 .define(TopicConfig.REMOTE_LOG_COPY_DISABLE_CONFIG, BOOLEAN, false, MEDIUM, TopicConfig.REMOTE_LOG_COPY_DISABLE_DOC)
                 .define(TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_CONFIG, BOOLEAN, false, MEDIUM, TopicConfig.REMOTE_LOG_DELETE_ON_DISABLE_DOC)
-                .define(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, STRING, TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS,
-                        ConfigDef.CaseInsensitiveValidString.in(TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI), MEDIUM, TopicConfig.REMOTE_STORAGE_PROVIDER_DOC)
+                .define(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, STRING, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI,
+                        ConfigDef.CaseInsensitiveValidString.in(TopicConfig.REMOTE_STORAGE_PROVIDER_OCI), MEDIUM, TopicConfig.REMOTE_STORAGE_PROVIDER_DOC)
                 .define(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, BOOLEAN, DEFAULT_REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, MEDIUM, TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_DOC);
 
     }

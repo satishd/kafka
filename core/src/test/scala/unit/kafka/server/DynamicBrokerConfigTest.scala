@@ -1160,15 +1160,15 @@ class DynamicBrokerConfigTest {
     val config = KafkaConfig(props)
     config.dynamicConfig.initialize(None, None)
 
-    // default should be 'hdfs'
-    assertEquals(RemoteStorageProvider.HDFS.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
+    // default should be oci
+    assertEquals(RemoteStorageProvider.OCI.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
 
     val dynamicLogConfig = new DynamicLogConfig(mock(classOf[LogManager]), mock(classOf[KafkaServer]))
     config.dynamicConfig.addBrokerReconfigurable(dynamicLogConfig)
 
     val newProps = new Properties()
     // update with invalid-value
-    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, "invalid_provider")
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, "hdfs")
     assertThrows(classOf[ConfigException], () => config.dynamicConfig.validate(newProps, perBrokerConfig = false))
 
     // update default config
@@ -1178,10 +1178,10 @@ class DynamicBrokerConfigTest {
     assertEquals(RemoteStorageProvider.OCI.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
 
     // update per broker config
-    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, RemoteStorageProvider.HDFS.toString)
+    newProps.put(RemoteLogManagerConfig.LOG_REMOTE_STORAGE_PROVIDER_PROP, RemoteStorageProvider.OCI.toString)
     config.dynamicConfig.validate(newProps, perBrokerConfig = true)
     config.dynamicConfig.updateBrokerConfig(0, newProps)
-    assertEquals(RemoteStorageProvider.HDFS.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
+    assertEquals(RemoteStorageProvider.OCI.toString, config.remoteLogManagerConfig.logRemoteStorageProvider)
   }
 
   @Test

@@ -159,8 +159,8 @@ public final class RemoteLogManagerConfig {
 
     public static final String LOG_REMOTE_STORAGE_PROVIDER_PROP = "log.remote.storage.provider";
     public static final String LOG_REMOTE_STORAGE_PROVIDER_DOC = "The remote storage provider to be used for storing remote logs. " +
-            "The supported providers are 'hdfs' and 'oci'.";
-    public static final String DEFAULT_LOG_REMOTE_STORAGE_PROVIDER = RemoteStorageProvider.HDFS.toString();
+            "The supported provider is oci.";
+    public static final String DEFAULT_LOG_REMOTE_STORAGE_PROVIDER = RemoteStorageProvider.OCI.toString();
 
     public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP = "log.remote.storage.prefetch.enable";
     public static final String LOG_REMOTE_STORAGE_PREFETCH_ENABLE_DOC = "To enable prefetching from remote storage for a topic, " +
@@ -420,7 +420,7 @@ public final class RemoteLogManagerConfig {
                 .defineInternal(LOG_REMOTE_STORAGE_PROVIDER_PROP,
                         STRING,
                         DEFAULT_LOG_REMOTE_STORAGE_PROVIDER,
-                        ConfigDef.CaseInsensitiveValidString.in(RemoteStorageProvider.HDFS.toString(), RemoteStorageProvider.OCI.toString()),
+                        ConfigDef.CaseInsensitiveValidString.in(RemoteStorageProvider.OCI.toString()),
                         MEDIUM,
                         LOG_REMOTE_STORAGE_PROVIDER_DOC)
                 .defineInternal(LOG_REMOTE_STORAGE_PREFETCH_ENABLE_PROP,

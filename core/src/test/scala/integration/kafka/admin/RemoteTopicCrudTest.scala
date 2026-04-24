@@ -512,8 +512,8 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
     topicConfig.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true")
     TestUtils.createTopicWithAdmin(admin, testTopicName, brokers, controllerServers, numPartitions, numReplicationFactor,
       topicConfig = topicConfig)
-    // default value is HDFS storage provider if unspecified
-    topicConfig.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_HDFS)
+    // default value is OCI storage provider if unspecified
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, TopicConfig.REMOTE_STORAGE_PROVIDER_OCI)
     verifyRemoteLogTopicConfigs(topicConfig)
 
     val configs = new util.HashMap[ConfigResource, util.Collection[AlterConfigOp]]()
@@ -548,6 +548,17 @@ class RemoteTopicCrudTest extends IntegrationTestHarness {
     admin.incrementalAlterConfigs(configs).all().get()
     topicConfig.put(TopicConfig.REMOTE_STORAGE_PREFETCH_ENABLE_CONFIG, "true")
     verifyRemoteLogTopicConfigs(topicConfig)
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = Array("zk", "kraft"))
+  def testCreateRemoteTopicWithInvalidStorageProvider(quorum: String): Unit = {
+    val topicConfig = new Properties()
+    topicConfig.put(TopicConfig.REMOTE_LOG_STORAGE_ENABLE_CONFIG, "true")
+    topicConfig.put(TopicConfig.REMOTE_STORAGE_PROVIDER_CONFIG, "hdfs") // not allowed
+    assertThrowsException(classOf[InvalidConfigurationException], () =>
+      TestUtils.createTopicWithAdmin(createAdminClient(), testTopicName, brokers, controllerServers, numPartitions, numReplicationFactor,
+        topicConfig = topicConfig))
   }
 
   private def assertThrowsException(exceptionType: Class[_ <: Throwable],
