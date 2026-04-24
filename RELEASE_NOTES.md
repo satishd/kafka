@@ -1,3 +1,8 @@
+# Release Kafka 3.9.20-uber build (04/24/2026)
+- DKAFC-7153: Update kafka-artifact-uploader.py to upload 3.9 jars
+- DKAFC-7004: Handle empty bucket cases in a remote storage provider
+- DKAFC-7157: Validation to prevent HDFS as a storage provider
+
 # Release Kafka 3.9.19-uber build (04/22/2026)
 - DKAFC-7002: Remove HDFS Hedged reads feature from Kafka
 - DKAFC-7003: Refactor FileSystemManager to clarify that readAhead feature unused
