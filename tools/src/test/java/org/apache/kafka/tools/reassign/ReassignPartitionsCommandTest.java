@@ -132,6 +132,18 @@ public class ReassignPartitionsCommandTest {
         executeAndVerifyReassignment();
     }
 
+    @ClusterTest
+    public void testReassignmentWithNonIncrementalBatchSizeOne() throws Exception {
+        createTopics();
+        executeAndVerifyReassignment(1, false);
+    }
+
+    @ClusterTest
+    public void testReassignmentWithIncrementalBatchSizeOne() throws Exception {
+        createTopics();
+        executeAndVerifyReassignment(1, true);
+    }
+
     @ClusterTests({
             @ClusterTest(types = {Type.ZK}, metadataVersion = IBP_2_7_IV1),
             @ClusterTest(types = {Type.KRAFT, Type.CO_KRAFT}, metadataVersion = IBP_3_3_IV0)
@@ -565,6 +577,10 @@ public class ReassignPartitionsCommandTest {
     }
 
     private void executeAndVerifyReassignment() throws InterruptedException {
+        executeAndVerifyReassignment(0, false);
+    }
+
+    private void executeAndVerifyReassignment(int reassignmentBatchSize, boolean incremental) throws InterruptedException {
         String assignment = "{\"version\":1,\"partitions\":" +
                 "[{\"topic\":\"foo\",\"partition\":0,\"replicas\":[0,1,3],\"log_dirs\":[\"any\",\"any\",\"any\"]}," +
                 "{\"topic\":\"bar\",\"partition\":0,\"replicas\":[3,2,0],\"log_dirs\":[\"any\",\"any\",\"any\"]}" +
@@ -584,7 +600,7 @@ public class ReassignPartitionsCommandTest {
                     new VerifyAssignmentResult(initialAssignment));
 
             // Execute the assignment
-            runExecuteAssignment(false, assignment, -1L, -1L);
+            runExecuteAssignment(false, assignment, -1L, -1L, reassignmentBatchSize, incremental);
             assertEquals(unthrottledBrokerConfigs, describeBrokerLevelThrottles(admin, unthrottledBrokerConfigs.keySet()));
             Map<TopicPartition, PartitionReassignmentState> finalAssignment = new HashMap<>();
             finalAssignment.put(foo0, new PartitionReassignmentState(asList(0, 1, 3), asList(0, 1, 3), true));
@@ -751,9 +767,18 @@ public class ReassignPartitionsCommandTest {
                                       String reassignmentJson,
                                       Long interBrokerThrottle,
                                       Long replicaAlterLogDirsThrottle) throws RuntimeException {
+        runExecuteAssignment(additional, reassignmentJson, interBrokerThrottle, replicaAlterLogDirsThrottle, 0, false);
+    }
+
+    private void runExecuteAssignment(Boolean additional,
+                                      String reassignmentJson,
+                                      Long interBrokerThrottle,
+                                      Long replicaAlterLogDirsThrottle,
+                                      int reassignmentBatchSize,
+                                      boolean incremental) throws RuntimeException {
         try (Admin admin = Admin.create(Collections.singletonMap(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, clusterInstance.bootstrapServers()))) {
             executeAssignment(admin, additional, reassignmentJson,
-                    interBrokerThrottle, replicaAlterLogDirsThrottle, 10000L, Time.SYSTEM);
+                    interBrokerThrottle, replicaAlterLogDirsThrottle, 10000L, reassignmentBatchSize, incremental, Time.SYSTEM);
         } catch (ExecutionException | InterruptedException | JsonProcessingException | TerseException e) {
             throw new RuntimeException(e);
         }

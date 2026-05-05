@@ -91,6 +91,7 @@ public class ReassignPartitionsCommandArgsTest {
         ReassignPartitionsCommandOptions opts = ReassignPartitionsCommand.validateAndParseArgs(args);
         assertEquals(10000L, opts.options.valueOf(opts.timeoutOpt));
         assertEquals(-1L, opts.options.valueOf(opts.interBrokerThrottleOpt));
+        assertEquals(0, opts.options.valueOf(opts.reassignmentBatchSizeOpt).intValue());
     }
 
     @Test
@@ -109,6 +110,118 @@ public class ReassignPartitionsCommandArgsTest {
             "--reassignment-json-file", "myfile.json",
             "--preserve-throttles"};
         ReassignPartitionsCommand.validateAndParseArgs(args);
+    }
+
+    @Test
+    public void shouldAllowReassignmentBatchSizeOnExecute() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--execute",
+            "--reassignment-json-file", "myfile.json",
+            "--reassignment-batch-size", "50"};
+        ReassignPartitionsCommand.validateAndParseArgs(args);
+    }
+
+    @Test
+    public void shouldNotAllowReassignmentBatchSizeOnCancel() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--cancel",
+            "--reassignment-json-file", "myfile.json",
+            "--reassignment-batch-size", "25"};
+        shouldFailWith("Option \"[reassignment-batch-size]\" can't be used with action \"[cancel]\"", args);
+    }
+
+    @Test
+    public void shouldFailOnNegativeReassignmentBatchSize() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--execute",
+            "--reassignment-json-file", "myfile.json",
+            "--reassignment-batch-size", "-1"};
+        shouldFailWith("Option reassignment-batch-size must be greater than or equal to 0", args);
+    }
+
+    @Test
+    public void shouldNotAllowReassignmentBatchSizeWithVerify() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--verify",
+            "--reassignment-json-file", "myfile.json",
+            "--reassignment-batch-size", "10"};
+        shouldFailWith("Option \"[reassignment-batch-size]\" can't be used with action \"[verify]\"", args);
+    }
+
+    @Test
+    public void shouldNotAllowReassignmentBatchSizeWithList() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--list",
+            "--reassignment-batch-size", "3"};
+        shouldFailWith("Option \"[reassignment-batch-size]\" can't be used with action \"[list]\"", args);
+    }
+
+    @Test
+    public void shouldNotAllowReassignmentBatchSizeWithGenerate() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--generate",
+            "--broker-list", "0,1",
+            "--topics-to-move-json-file", "topics.json",
+            "--reassignment-batch-size", "2"};
+        shouldFailWith("Option \"[reassignment-batch-size]\" can't be used with action \"[generate]\"", args);
+    }
+
+    @Test
+    public void shouldNotAllowIncrementalWithList() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--list",
+            "--incremental"};
+        shouldFailWith("Option \"[incremental]\" can't be used with action \"[list]\"", args);
+    }
+
+    @Test
+    public void shouldNotAllowIncrementalWithGenerate() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--generate",
+            "--broker-list", "0,1",
+            "--topics-to-move-json-file", "topics.json",
+            "--incremental"};
+        shouldFailWith("Option \"[incremental]\" can't be used with action \"[generate]\"", args);
+    }
+
+    @Test
+    public void shouldFailIncrementalWithoutPositiveBatchSize() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--execute",
+            "--reassignment-json-file", "myfile.json",
+            "--incremental"};
+        shouldFailWith("Option incremental requires reassignment-batch-size to be greater than 0", args);
+    }
+
+    @Test
+    public void shouldAllowIncrementalWithPositiveBatchSize() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--execute",
+            "--reassignment-json-file", "myfile.json",
+            "--incremental",
+            "--reassignment-batch-size", "10"};
+        ReassignPartitionsCommand.validateAndParseArgs(args);
+    }
+
+    @Test
+    public void shouldNotAllowIncrementalWithVerify() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--verify",
+            "--reassignment-json-file", "myfile.json",
+            "--incremental",
+            "--reassignment-batch-size", "5"};
+        shouldFailWith("Option \"[incremental]\" can't be used with action \"[verify]\"", args);
     }
 
     ///// Test handling missing or invalid actions

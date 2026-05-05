@@ -41,6 +41,8 @@ public class ReassignPartitionsCommandOptions extends CommandDefaultOptions {
     final OptionSpec<Long> timeoutOpt;
     final OptionSpec<?> additionalOpt;
     final OptionSpec<?> preserveThrottlesOpt;
+    final OptionSpec<Integer> reassignmentBatchSizeOpt;
+    final OptionSpec<?> incrementalReassignmentOpt;
 
     public ReassignPartitionsCommandOptions(String[] args) {
         super(args);
@@ -107,6 +109,26 @@ public class ReassignPartitionsCommandOptions extends CommandDefaultOptions {
         additionalOpt = parser.accepts("additional", "Execute this reassignment in addition to any " +
             "other ongoing ones. This option can also be used to change the throttle of an ongoing reassignment.");
         preserveThrottlesOpt = parser.accepts("preserve-throttles", "Do not modify broker or topic throttles.");
+        reassignmentBatchSizeOpt = parser.accepts("reassignment-batch-size",
+                "For --execute only: maximum partitions per AlterPartitionReassignments request. " +
+                    "With --incremental, this is the maximum number of partition reassignments that may be " +
+                    "active at once; as each finishes, the next partition is submitted in deterministic order " +
+                    "(sorted by topic name, then partition index — not the order of entries in the JSON file). " +
+                    "Without --incremental, the tool submits at most this many partitions per request and " +
+                    "waits for that batch to finish (replicas match the proposal) before submitting the next batch, " +
+                    "so at most one batch is in progress at a time. " +
+                    "The default is 0, meaning all partitions are submitted in a single request without waiting for completion " +
+                    "(legacy behavior).")
+            .withRequiredArg()
+            .describedAs("Alter batch size or max in-flight partitions")
+            .ofType(Integer.class)
+            .defaultsTo(0);
+        incrementalReassignmentOpt = parser.accepts("incremental",
+                "With --execute, submit the next partition reassignment when a slot opens because " +
+                    "a prior reassignment completed, so that at most reassignment-batch-size reassignments are in progress at once. " +
+                    "The queue order is deterministic (sorted by topic name, then partition index), not the order of entries in the JSON file. " +
+                    "Requires --reassignment-batch-size > 0. Without this flag, non-incremental batch mode still waits for each batch " +
+                    "to fully complete before the next AlterPartitionReassignments request.");
 
         options = parser.parse(args);
     }

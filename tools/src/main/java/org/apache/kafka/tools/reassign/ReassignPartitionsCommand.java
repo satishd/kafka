@@ -53,10 +53,12 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 
 import java.io.IOException;
 import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -116,6 +118,11 @@ public class ReassignPartitionsCommand {
         "create a new partition assignment in addition to the existing one. The --additional " +
         "flag can also be used to change the throttle by resubmitting the current reassignment.";
 
+    private static final long INCREMENTAL_REASSIGNMENT_POLL_INTERVAL_MS = 500L;
+
+    /** Poll interval while waiting for a non-incremental execute batch to finish (replicas match target). */
+    private static final long BATCH_REASSIGNMENT_POLL_INTERVAL_MS = 500L;
+
     private static final String YOU_MUST_RUN_VERIFY_PERIODICALLY_MESSAGE = "Warning: You must run " +
         "--verify periodically, until the reassignment completes, to ensure the throttle " +
         "is removed.";
@@ -166,6 +173,8 @@ public class ReassignPartitionsCommand {
                 opts.options.valueOf(opts.interBrokerThrottleOpt),
                 opts.options.valueOf(opts.replicaAlterLogDirsThrottleOpt),
                 opts.options.valueOf(opts.timeoutOpt),
+                opts.options.valueOf(opts.reassignmentBatchSizeOpt),
+                opts.options.has(opts.incrementalReassignmentOpt),
                 Time.SYSTEM);
         } else if (opts.options.has(opts.cancelOpt)) {
             cancelAssignment(adminClient,
@@ -669,7 +678,7 @@ public class ReassignPartitionsCommand {
         List<BrokerMetadata> results = adminClient.describeCluster().nodes().get().stream()
             .filter(node -> brokerSet.contains(node.id()))
             .map(node -> (enableRackAwareness && node.rack() != null)
-                ? new BrokerMetadata(node.id(), Optional.of(node.rack()), Optional.of(node.pod()))
+                ? new BrokerMetadata(node.id(), Optional.of(node.rack()), Optional.ofNullable(node.pod()))
                 : new BrokerMetadata(node.id(), Optional.empty(), Optional.empty())
             ).collect(Collectors.toList());
 
@@ -718,6 +727,10 @@ public class ReassignPartitionsCommand {
      *                                    negative number to skip using a throttle.
      * @param timeoutMs                   The maximum time in ms to wait for log directory
      *                                    replica assignment to begin.
+     * @param reassignmentBatchSize       Maximum partitions per {@code alterPartitionReassignments} request,
+     *                                    or with {@code incremental} the max in-flight reassignments.
+     * @param incremental                 When true and {@code reassignmentBatchSize} &gt; 0, submit the next
+     *                                    partition whenever a slot opens after a reassignment completes.
      * @param time                        The Time object to use.
      */
     public static void executeAssignment(Admin adminClient,
@@ -726,6 +739,8 @@ public class ReassignPartitionsCommand {
                                   Long interBrokerThrottle,
                                   Long logDirThrottle,
                                   Long timeoutMs,
+                                  int reassignmentBatchSize,
+                                  boolean incremental,
                                   Time time
     ) throws ExecutionException, InterruptedException, JsonProcessingException, TerseException {
         Entry<Map<TopicPartition, List<Integer>>, Map<TopicPartitionReplica, String>> t0 = parseExecuteAssignmentArgs(reassignmentJson);
@@ -750,7 +765,8 @@ public class ReassignPartitionsCommand {
             System.out.println(YOU_MUST_RUN_VERIFY_PERIODICALLY_MESSAGE);
 
             if (interBrokerThrottle >= 0) {
-                Map<String, Map<Integer, PartitionMove>> moveMap = calculateProposedMoveMap(currentReassignments, proposedParts, currentParts);
+                Map<String, Map<Integer, PartitionMove>> moveMap =
+                    calculateProposedMoveMap(currentReassignments, proposedParts, currentParts);
                 modifyReassignmentThrottle(adminClient, moveMap, interBrokerThrottle);
             }
 
@@ -760,8 +776,8 @@ public class ReassignPartitionsCommand {
             }
         }
 
-        // Execute the partition reassignments.
-        Map<TopicPartition, Throwable> errors = alterPartitionReassignments(adminClient, proposedParts);
+        Map<TopicPartition, Throwable> errors =
+            submitProposedPartitionReassignmentsForExecute(adminClient, proposedParts, reassignmentBatchSize, incremental, time);
         if (!errors.isEmpty()) {
             throw new TerseException(
                 String.format("Error reassigning partition(s):%n%s",
@@ -779,6 +795,49 @@ public class ReassignPartitionsCommand {
         if (!proposedReplicas.isEmpty()) {
             executeMoves(adminClient, proposedReplicas, timeoutMs, time);
         }
+    }
+
+    private static Map<TopicPartition, Throwable> submitProposedPartitionReassignmentsForExecute(
+            Admin adminClient,
+            Map<TopicPartition, List<Integer>> proposedParts,
+            int reassignmentBatchSize,
+            boolean incremental,
+            Time time
+    ) throws ExecutionException, InterruptedException, TerseException {
+        if (incremental) {
+            return executePartitionReassignmentsIncrementally(adminClient, proposedParts, reassignmentBatchSize, time);
+        }
+        Map<TopicPartition, Throwable> errors = new HashMap<>();
+        List<Map<TopicPartition, List<Integer>>> batches =
+            partitionProposedReassignmentsIntoBatches(proposedParts, reassignmentBatchSize);
+        if (batches.size() > 1) {
+            System.out.printf("Submitting partition reassignments in %d batches of up to %d partitions each.%n",
+                batches.size(), reassignmentBatchSize);
+        }
+        for (int batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
+            Map<TopicPartition, List<Integer>> batch = batches.get(batchIndex);
+            if (batches.size() > 1) {
+                System.out.printf("Starting reassignment batch %d of %d (%d partition%s)...%n",
+                    batchIndex + 1,
+                    batches.size(),
+                    batch.size(),
+                    batch.size() == 1 ? "" : "s");
+            }
+            errors.putAll(alterPartitionReassignments(adminClient, batch));
+            if (!errors.isEmpty()) {
+                break;
+            }
+            if (batchIndex < batches.size() - 1) {
+                if (batches.size() > 1) {
+                    System.out.printf(
+                        "Waiting for reassignment batch %d of %d to complete before starting the next batch.%n",
+                        batchIndex + 1,
+                        batches.size());
+                }
+                waitUntilBatchPartitionReassignmentsComplete(adminClient, batch, time);
+            }
+        }
+        return errors;
     }
 
     /**
@@ -901,6 +960,175 @@ public class ReassignPartitionsCommand {
         return String.format("Current partition replica assignment%n%n%s%n%nSave this to use as the %s",
             formatAsReassignmentJson(partitionsToBeReassigned, Collections.emptyMap()),
             "--reassignment-json-file option during rollback");
+    }
+
+    /**
+     * Splits proposed reassignments into batches of at most {@code batchSize} partitions, ordered by
+     * {@link #compareTopicPartitions} (topic name, then partition index). If {@code batchSize} is less than 1, returns a
+     * singleton list with the full map (legacy single-request behavior).
+     */
+    static List<Map<TopicPartition, List<Integer>>> partitionProposedReassignmentsIntoBatches(
+            Map<TopicPartition, List<Integer>> proposedParts,
+            int batchSize) {
+        if (batchSize <= 0) {
+            return Collections.singletonList(new LinkedHashMap<>(proposedParts));
+        }
+        List<TopicPartition> ordered = proposedParts.keySet().stream()
+            .sorted(ReassignPartitionsCommand::compareTopicPartitions)
+            .collect(Collectors.toList());
+        List<Map<TopicPartition, List<Integer>>> batches = new ArrayList<>();
+        for (int i = 0; i < ordered.size(); i += batchSize) {
+            int end = Math.min(i + batchSize, ordered.size());
+            Map<TopicPartition, List<Integer>> batch = new LinkedHashMap<>();
+            for (int j = i; j < end; j++) {
+                TopicPartition tp = ordered.get(j);
+                batch.put(tp, proposedParts.get(tp));
+            }
+            batches.add(batch);
+        }
+        return batches;
+    }
+
+    /**
+     * Submits partition reassignments so that at most {@code batchSize} may be actively reassigning at a time.
+     * When a reassignment completes (replica set matches target), the next partition from the plan is submitted.
+     * Submission order is {@link #compareTopicPartitions} (same as non-incremental batching).
+     * Returns when every partition has been successfully submitted to the controller.
+     */
+    static Map<TopicPartition, Throwable> executePartitionReassignmentsIncrementally(
+            Admin adminClient,
+            Map<TopicPartition, List<Integer>> proposedParts,
+            int batchSize,
+            Time time) throws ExecutionException, InterruptedException, TerseException {
+        if (batchSize <= 0) {
+            throw new TerseException("Incremental partition reassignment requires reassignment-batch-size > 0");
+        }
+        Map<TopicPartition, Throwable> errors = new HashMap<>();
+        List<TopicPartition> ordered = proposedParts.keySet().stream()
+            .sorted(ReassignPartitionsCommand::compareTopicPartitions)
+            .collect(Collectors.toList());
+        Deque<TopicPartition> pending = new ArrayDeque<>(ordered);
+        Map<TopicPartition, List<Integer>> inFlight = new LinkedHashMap<>();
+
+        System.out.printf(
+            "Incremental mode: keeping up to %d partition reassignments in flight until all have been submitted.%n",
+            batchSize);
+
+        while (!pending.isEmpty()) {
+            removeCompletedInFlightPartitionReassignments(adminClient, inFlight);
+
+            if (inFlight.size() < batchSize && !pending.isEmpty()) {
+                int room = batchSize - inFlight.size();
+                Map<TopicPartition, List<Integer>> nextBatch = new LinkedHashMap<>();
+                for (int i = 0; i < room && !pending.isEmpty(); i++) {
+                    TopicPartition tp = pending.pollFirst();
+                    nextBatch.put(tp, proposedParts.get(tp));
+                }
+                errors.putAll(alterPartitionReassignments(adminClient, nextBatch));
+                if (!errors.isEmpty()) {
+                    return errors;
+                }
+                inFlight.putAll(nextBatch);
+            }
+
+            if (!pending.isEmpty()) {
+                time.sleep(INCREMENTAL_REASSIGNMENT_POLL_INTERVAL_MS);
+            }
+        }
+
+        return errors;
+    }
+
+    /**
+     * Checks if a partition reassignment is complete based on its state.
+     * A reassignment is considered complete when it is no longer actively reassigning
+     * and the current replica set equals the target.
+     *
+     * @param tp    The topic partition being checked.
+     * @param state The current reassignment state for the partition.
+     * @return      true if the reassignment is complete, false if still in progress.
+     * @throws TerseException if the state is null or if the reassignment finished
+     *                        with replicas not matching the target.
+     */
+    private static boolean isPartitionReassignmentComplete(
+            TopicPartition tp,
+            PartitionReassignmentState state
+    ) throws TerseException {
+        if (state == null) {
+            throw new TerseException(String.format(
+                "Could not determine reassignment state for partition %s; refusing to wait indefinitely.",
+                tp));
+        }
+        if (state.done && !state.currentReplicas.equals(state.targetReplicas)) {
+            String cur = state.currentReplicas.stream().map(String::valueOf).collect(Collectors.joining(","));
+            String tgt = state.targetReplicas.stream().map(String::valueOf).collect(Collectors.joining(","));
+            throw new TerseException(String.format(
+                "Partition %s is no longer actively reassigning, but the replica set is %s instead of the expected %s.",
+                tp, cur, tgt));
+        }
+        return state.done && state.currentReplicas.equals(state.targetReplicas);
+    }
+
+    /**
+     * Blocks until every partition in {@code batch} has finished reassignment (not actively reassigning and
+     * current replica set equals the proposed target). Used after each non-incremental execute batch so the next
+     * {@code alterPartitionReassignments} is not sent while partitions from this batch are still in progress.
+     */
+    private static void waitUntilBatchPartitionReassignmentsComplete(
+            Admin adminClient,
+            Map<TopicPartition, List<Integer>> batch,
+            Time time
+    ) throws ExecutionException, InterruptedException, TerseException {
+        if (batch.isEmpty()) {
+            return;
+        }
+        List<Entry<TopicPartition, List<Integer>>> entries = batch.entrySet().stream()
+            .map(e -> new SimpleImmutableEntry<>(e.getKey(), e.getValue()))
+            .collect(Collectors.toList());
+
+        while (true) {
+            Map<TopicPartition, PartitionReassignmentState> states =
+                findPartitionReassignmentStates(adminClient, entries).getKey();
+            boolean allComplete = true;
+            for (TopicPartition tp : batch.keySet()) {
+                if (!isPartitionReassignmentComplete(tp, states.get(tp))) {
+                    allComplete = false;
+                }
+            }
+            if (allComplete) {
+                return;
+            }
+            time.sleep(BATCH_REASSIGNMENT_POLL_INTERVAL_MS);
+        }
+    }
+
+    /**
+     * Removes completed reassignments from {@code inFlight}. A partition is complete when it is no longer
+     * actively reassigning and the current replica set equals the target.
+     */
+    private static void removeCompletedInFlightPartitionReassignments(
+            Admin adminClient,
+            Map<TopicPartition, List<Integer>> inFlight
+    ) throws ExecutionException, InterruptedException, TerseException {
+        if (inFlight.isEmpty()) {
+            return;
+        }
+        List<Entry<TopicPartition, List<Integer>>> entries = inFlight.entrySet().stream()
+            .map(e -> new SimpleImmutableEntry<>(e.getKey(), e.getValue()))
+            .collect(Collectors.toList());
+        Map<TopicPartition, PartitionReassignmentState> states =
+            findPartitionReassignmentStates(adminClient, entries).getKey();
+
+        Set<TopicPartition> toRemove = new HashSet<>();
+        for (TopicPartition tp : inFlight.keySet()) {
+            if (isPartitionReassignmentComplete(tp, states.get(tp))) {
+                toRemove.add(tp);
+            }
+        }
+        for (TopicPartition tp : toRemove) {
+            inFlight.remove(tp);
+            System.out.printf("Partition %s finished reassignment; submitting next from queue if any.%n", tp);
+        }
     }
 
     /**
@@ -1234,8 +1462,9 @@ public class ReassignPartitionsCommand {
         Set<TopicPartition> targetPartsSet = targetParts.stream().map(t -> t.getKey()).collect(Collectors.toSet());
         Set<TopicPartition> curReassigningParts = new HashSet<>();
         adminClient.listPartitionReassignments(targetPartsSet).reassignments().get().forEach((part, reassignment) -> {
-            if (!reassignment.addingReplicas().isEmpty() || !reassignment.removingReplicas().isEmpty())
+            if (!reassignment.addingReplicas().isEmpty() || !reassignment.removingReplicas().isEmpty()) {
                 curReassigningParts.add(part);
+            }
         });
         if (!curReassigningParts.isEmpty()) {
             Map<TopicPartition, Throwable> errors = cancelPartitionReassignments(adminClient, curReassigningParts);
@@ -1407,7 +1636,20 @@ public class ReassignPartitionsCommand {
         if (!opts.options.has(opts.bootstrapServerOpt))
             CommandLineUtils.printUsageAndExit(opts.parser, "Please specify --bootstrap-server");
 
-        // Make sure that we have all the required arguments for our action.
+        Map<OptionSpec<?>, List<OptionSpec<?>>> requiredArgs = buildRequiredArgsMap(opts);
+
+        CommandLineUtils.checkRequiredArgs(opts.parser, opts.options, requiredArgs.get(action).toArray(new OptionSpec[0]));
+
+        Map<OptionSpec<?>, List<OptionSpec<?>>> permittedArgs = buildPermittedArgsMap(opts);
+
+        rejectDisallowedOptions(opts, action, requiredArgs, permittedArgs);
+
+        validateReassignmentBatchCliOptions(opts);
+
+        return opts;
+    }
+
+    private static Map<OptionSpec<?>, List<OptionSpec<?>>> buildRequiredArgsMap(ReassignPartitionsCommandOptions opts) {
         Map<OptionSpec<?>, List<OptionSpec<?>>> requiredArgs = new HashMap<>();
 
         requiredArgs.put(opts.verifyOpt, Collections.singletonList(
@@ -1424,9 +1666,10 @@ public class ReassignPartitionsCommand {
             opts.reassignmentJsonFileOpt
         ));
         requiredArgs.put(opts.listOpt, Collections.emptyList());
+        return requiredArgs;
+    }
 
-        CommandLineUtils.checkRequiredArgs(opts.parser, opts.options, requiredArgs.get(action).toArray(new OptionSpec[0]));
-
+    private static Map<OptionSpec<?>, List<OptionSpec<?>>> buildPermittedArgsMap(ReassignPartitionsCommandOptions opts) {
         Map<OptionSpec<?>, List<OptionSpec<?>>> permittedArgs = new HashMap<>();
 
         permittedArgs.put(opts.verifyOpt, Arrays.asList(
@@ -1446,7 +1689,9 @@ public class ReassignPartitionsCommand {
             opts.commandConfigOpt,
             opts.interBrokerThrottleOpt,
             opts.replicaAlterLogDirsThrottleOpt,
-            opts.timeoutOpt
+            opts.timeoutOpt,
+            opts.reassignmentBatchSizeOpt,
+            opts.incrementalReassignmentOpt
         ));
         permittedArgs.put(opts.cancelOpt, Arrays.asList(
             opts.bootstrapServerOpt,
@@ -1458,7 +1703,13 @@ public class ReassignPartitionsCommand {
             opts.bootstrapServerOpt,
             opts.commandConfigOpt
         ));
+        return permittedArgs;
+    }
 
+    private static void rejectDisallowedOptions(ReassignPartitionsCommandOptions opts,
+                                                OptionSpec<?> action,
+                                                Map<OptionSpec<?>, List<OptionSpec<?>>> requiredArgs,
+                                                Map<OptionSpec<?>, List<OptionSpec<?>>> permittedArgs) {
         opts.options.specs().forEach(opt -> {
             if (!opt.equals(action) &&
                 !requiredArgs.getOrDefault(action, Collections.emptyList()).contains(opt) &&
@@ -1467,8 +1718,18 @@ public class ReassignPartitionsCommand {
                     String.format("Option \"%s\" can't be used with action \"%s\"", opt, action));
             }
         });
+    }
 
-        return opts;
+    private static void validateReassignmentBatchCliOptions(ReassignPartitionsCommandOptions opts) {
+        int reassignmentBatchSize = opts.options.valueOf(opts.reassignmentBatchSizeOpt);
+        if (reassignmentBatchSize < 0) {
+            CommandLineUtils.printUsageAndExit(opts.parser,
+                "Option reassignment-batch-size must be greater than or equal to 0");
+        }
+        if (opts.options.has(opts.incrementalReassignmentOpt) && reassignmentBatchSize <= 0) {
+            CommandLineUtils.printUsageAndExit(opts.parser,
+                "Option incremental requires reassignment-batch-size to be greater than 0");
+        }
     }
 
     static Set<TopicPartitionReplica> alterReplicaLogDirs(Admin adminClient,

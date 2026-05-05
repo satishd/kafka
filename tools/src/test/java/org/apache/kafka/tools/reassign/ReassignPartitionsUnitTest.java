@@ -17,36 +17,54 @@
 package org.apache.kafka.tools.reassign;
 
 import org.apache.kafka.admin.BrokerMetadata;
+import org.apache.kafka.clients.admin.AlterPartitionReassignmentsOptions;
+import org.apache.kafka.clients.admin.AlterPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.DescribeTopicsOptions;
+import org.apache.kafka.clients.admin.DescribeTopicsResult;
+import org.apache.kafka.clients.admin.ListPartitionReassignmentsOptions;
+import org.apache.kafka.clients.admin.ListPartitionReassignmentsResult;
 import org.apache.kafka.clients.admin.MockAdminClient;
+import org.apache.kafka.clients.admin.NewPartitionReassignment;
 import org.apache.kafka.clients.admin.PartitionReassignment;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Node;
+import org.apache.kafka.common.TopicCollection;
+import org.apache.kafka.common.TopicCollection.TopicNameCollection;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.TopicPartitionInfo;
 import org.apache.kafka.common.TopicPartitionReplica;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.InvalidReplicationFactorException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.internals.KafkaFutureImpl;
 import org.apache.kafka.common.utils.Exit;
+import org.apache.kafka.common.utils.MockTime;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.server.common.AdminCommandFailedException;
 import org.apache.kafka.server.common.AdminOperationException;
 import org.apache.kafka.server.config.QuotaConfigs;
+import org.apache.kafka.tools.TerseException;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
+import java.lang.reflect.Constructor;
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -65,6 +83,7 @@ import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.compareT
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.curReassignmentsToString;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.currentPartitionReplicaAssignmentToString;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.executeAssignment;
+import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.executePartitionReassignmentsIncrementally;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.findLogDirMoveStates;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.findPartitionReassignmentStates;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.generateAssignment;
@@ -76,6 +95,7 @@ import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.modifyLo
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.modifyTopicThrottles;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.parseExecuteAssignmentArgs;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.parseGenerateAssignmentArgs;
+import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.partitionProposedReassignmentsIntoBatches;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.partitionReassignmentStatesToString;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.replicaMoveStatesToString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -87,6 +107,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Timeout(60)
 public class ReassignPartitionsUnitTest {
+    /** Must match {@code BATCH_REASSIGNMENT_POLL_INTERVAL_MS} in {@link ReassignPartitionsCommand}. */
+    private static final long PARTITION_REASSIGNMENT_WAIT_POLL_MS = 500L;
+
     @BeforeAll
     public static void setUp() {
         Exit.setExitProcedure((statusCode, message) -> {
@@ -97,6 +120,26 @@ public class ReassignPartitionsUnitTest {
     @AfterAll
     public static void tearDown() {
         Exit.resetExitProcedure();
+    }
+
+    /** Recorded alter batches sort keys with {@link ReassignPartitionsCommand#compareTopicPartitions} (admin maps are unordered). */
+    private static List<TopicPartition> sortedTopicPartitionsForRecording(Collection<TopicPartition> keys) {
+        List<TopicPartition> list = new ArrayList<>(keys);
+        list.sort(ReassignPartitionsCommand::compareTopicPartitions);
+        return list;
+    }
+
+    /** {@link AlterPartitionReassignmentsResult} has a package-private constructor; tests outside {@code clients.admin} use reflection. */
+    private static AlterPartitionReassignmentsResult newAlterPartitionReassignmentsResult(
+            Map<TopicPartition, KafkaFuture<Void>> futures) {
+        try {
+            Constructor<AlterPartitionReassignmentsResult> ctor =
+                AlterPartitionReassignmentsResult.class.getDeclaredConstructor(Map.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(futures);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -606,7 +649,7 @@ public class ReassignPartitionsUnitTest {
                     "{\"version\":1,\"partitions\":" +
                         "[{\"topic\":\"foo\",\"partition\":0,\"replicas\":[0,1],\"log_dirs\":[\"any\",\"any\"]}," +
                         "{\"topic\":\"quux\",\"partition\":0,\"replicas\":[2,3,4],\"log_dirs\":[\"any\",\"any\",\"any\"]}" +
-                        "]}", -1L, -1L, 10000L, Time.SYSTEM), "Expected reassignment with non-existent topic to fail").getCause().getMessage());
+                        "]}", -1L, -1L, 10000L, 0, false, Time.SYSTEM), "Expected reassignment with non-existent topic to fail").getCause().getMessage());
         }
     }
 
@@ -619,7 +662,7 @@ public class ReassignPartitionsUnitTest {
                     "{\"version\":1,\"partitions\":" +
                         "[{\"topic\":\"foo\",\"partition\":0,\"replicas\":[0,1],\"log_dirs\":[\"any\",\"any\"]}," +
                         "{\"topic\":\"foo\",\"partition\":1,\"replicas\":[2,3,4],\"log_dirs\":[\"any\",\"any\",\"any\"]}" +
-                        "]}", -1L, -1L, 10000L, Time.SYSTEM), "Expected reassignment with non-existent broker id to fail").getMessage());
+                        "]}", -1L, -1L, 10000L, 0, false, Time.SYSTEM), "Expected reassignment with non-existent broker id to fail").getMessage());
         }
     }
 
@@ -758,11 +801,508 @@ public class ReassignPartitionsUnitTest {
     }
 
     @Test
+    public void testPartitionProposedReassignmentsIntoBatches() {
+        Map<TopicPartition, List<Integer>> proposed = new LinkedHashMap<>();
+        proposed.put(new TopicPartition("b", 1), asList(0, 1));
+        proposed.put(new TopicPartition("a", 0), asList(0, 1));
+        proposed.put(new TopicPartition("a", 1), asList(1, 0));
+
+        assertEquals(1, partitionProposedReassignmentsIntoBatches(proposed, 0).size());
+        assertEquals(proposed, partitionProposedReassignmentsIntoBatches(proposed, 0).get(0));
+
+        List<Map<TopicPartition, List<Integer>>> batches = partitionProposedReassignmentsIntoBatches(proposed, 2);
+        assertEquals(2, batches.size());
+        assertEquals(2, batches.get(0).size());
+        assertEquals(1, batches.get(1).size());
+        // compareTopicPartitions: a-0, a-1, then b-1
+        assertTrue(batches.get(0).containsKey(new TopicPartition("a", 0)));
+        assertTrue(batches.get(0).containsKey(new TopicPartition("a", 1)));
+        assertTrue(batches.get(1).containsKey(new TopicPartition("b", 1)));
+    }
+
+    /**
+     * Batching must follow {@link ReassignPartitionsCommand#compareTopicPartitions}, not insertion order
+     * (operators may list partitions in any order in the JSON file).
+     */
+    @Test
+    public void testPartitionProposedReassignmentsIntoBatchesSortsKeysNotInsertionOrder() {
+        Map<TopicPartition, List<Integer>> proposed = new LinkedHashMap<>();
+        proposed.put(new TopicPartition("z", 0), asList(0));
+        proposed.put(new TopicPartition("b", 1), asList(0, 1));
+        proposed.put(new TopicPartition("a", 0), asList(0, 1));
+
+        List<Map<TopicPartition, List<Integer>>> batches = partitionProposedReassignmentsIntoBatches(proposed, 2);
+        assertEquals(2, batches.size());
+        assertEquals(2, batches.get(0).size());
+        assertEquals(1, batches.get(1).size());
+        assertTrue(batches.get(0).containsKey(new TopicPartition("a", 0)));
+        assertTrue(batches.get(0).containsKey(new TopicPartition("b", 1)));
+        assertTrue(batches.get(1).containsKey(new TopicPartition("z", 0)));
+    }
+
+    @Test
+    public void testParseExecuteAssignmentArgsReadsReplicaAssignmentsFromJson() throws Exception {
+        String json = "{\"version\":1,\"partitions\":[" +
+            "{\"topic\":\"bar\",\"partition\":0,\"replicas\":[2,3,0]}," +
+            "{\"topic\":\"foo\",\"partition\":0,\"replicas\":[0,1,2]}" +
+            "]}";
+        Map<TopicPartition, List<Integer>> map = parseExecuteAssignmentArgs(json).getKey();
+        assertEquals(2, map.size());
+        assertEquals(asList(2, 3, 0), map.get(new TopicPartition("bar", 0)));
+        assertEquals(asList(0, 1, 2), map.get(new TopicPartition("foo", 0)));
+    }
+
+    @Test
+    public void testExecutePartitionReassignmentsIncrementallyRequiresPositiveBatchSize() {
+        try (MockAdminClient adminClient = new MockAdminClient.Builder().numBrokers(1).build()) {
+            assertEquals("Incremental partition reassignment requires reassignment-batch-size > 0",
+                assertThrows(TerseException.class,
+                    () -> executePartitionReassignmentsIncrementally(
+                        adminClient,
+                        Collections.singletonMap(new TopicPartition("t", 0), asList(0)),
+                        0,
+                        Time.SYSTEM)).getMessage());
+        }
+    }
+
+    @Test
+    public void testExecutePartitionReassignmentsIncrementallySinglePartition() throws Exception {
+        try (MockAdminClient adminClient = new MockAdminClient.Builder().numBrokers(4).build()) {
+            addTopics(adminClient);
+            Map<TopicPartition, List<Integer>> proposed = new LinkedHashMap<>();
+            proposed.put(new TopicPartition("foo", 0), asList(0, 1, 2));
+            assertTrue(executePartitionReassignmentsIncrementally(adminClient, proposed, 3, Time.SYSTEM).isEmpty());
+        }
+    }
+
+    /**
+     * Non-incremental execute with batch size 2: two {@code alterPartitionReassignments} calls (first batch size 2,
+     * second size 1). The second alter runs only after {@code waitUntilBatchPartitionReassignmentsComplete} has polled
+     * at least once with batch 1 still active, then sees it complete (mocked {@code listPartitionReassignments} and
+     * {@code describeTopics}). Proposal {@code [3,1,2]} vs initial {@code [0,1,2]} simulates a real move for batch 1.
+     * <p>
+     * Assertions: exactly two alter RPC batches; {@link MockTime} at each alter shows the second alter at least one
+     * poll interval ({@link #PARTITION_REASSIGNMENT_WAIT_POLL_MS} ms) after the first (the wait loop sleeps while batch 1
+     * is incomplete). Only three {@code listPartitionReassignments} calls occur (execute preamble plus two wait polls).
+     */
+    @Test
+    public void testExecuteNonIncrementalBatchWaitsForBatchBeforeNextAlter() throws Exception {
+        MockTime mockTime = new MockTime();
+        try (FixedBatchNonIncrementalRecordingMockAdminClient adminClient = new FixedBatchNonIncrementalRecordingMockAdminClient(mockTime)) {
+            List<Node> brokers = adminClient.brokers();
+            String topic = FixedBatchNonIncrementalRecordingMockAdminClient.TOPIC;
+            adminClient.addTopic(false, topic, asList(
+                new TopicPartitionInfo(0, brokers.get(0),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(1, brokers.get(1),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(2, brokers.get(2),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)))
+            ), Collections.emptyMap());
+
+            String json = "{\"version\":1,\"partitions\":[" +
+                "{\"topic\":\"" + topic + "\",\"partition\":0,\"replicas\":[3,1,2]}," +
+                "{\"topic\":\"" + topic + "\",\"partition\":1,\"replicas\":[3,1,2]}," +
+                "{\"topic\":\"" + topic + "\",\"partition\":2,\"replicas\":[3,1,2]}" +
+                "]}";
+
+            executeAssignment(adminClient, false, json, -1L, -1L, 10000L, 2, false, mockTime);
+
+            assertEquals(3, adminClient.listPartitionReassignmentsInvocations());
+            assertEquals(2, adminClient.recordedAlterBatches().size(), "expect two AlterPartitionReassignments calls");
+            assertEquals(2, adminClient.recordedAlterTimestampsMs().size());
+            List<Long> alterTimes = adminClient.recordedAlterTimestampsMs();
+            assertTrue(alterTimes.get(1) - alterTimes.get(0) >= PARTITION_REASSIGNMENT_WAIT_POLL_MS,
+                () -> String.format(
+                    "second alter should run only after waitUntilBatchPartitionReassignmentsComplete slept at least %d ms (first alter at %d ms, second at %d ms)",
+                    PARTITION_REASSIGNMENT_WAIT_POLL_MS, alterTimes.get(0), alterTimes.get(1)));
+            assertEquals(asList(
+                    asList(new TopicPartition(topic, 0), new TopicPartition(topic, 1)),
+                    Collections.singletonList(new TopicPartition(topic, 2))),
+                adminClient.recordedAlterBatches());
+        }
+    }
+
+    /**
+     * After the first non-incremental batch completes, the second {@code alterPartitionReassignments} fails; the tool
+     * surfaces a {@link TerseException} and does not start a third batch.
+     */
+    @Test
+    public void testExecuteNonIncrementalSecondBatchAlterFails() throws Exception {
+        MockTime mockTime = new MockTime();
+        try (SecondBatchAlterFailsNonIncrementalMockAdminClient adminClient = new SecondBatchAlterFailsNonIncrementalMockAdminClient()) {
+            List<Node> brokers = adminClient.brokers();
+            String topic = SecondBatchAlterFailsNonIncrementalMockAdminClient.TOPIC;
+            adminClient.addTopic(false, topic, asList(
+                new TopicPartitionInfo(0, brokers.get(0),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(1, brokers.get(1),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(2, brokers.get(2),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)))
+            ), Collections.emptyMap());
+
+            String json = "{\"version\":1,\"partitions\":[" +
+                "{\"topic\":\"" + topic + "\",\"partition\":0,\"replicas\":[3,1,2]}," +
+                "{\"topic\":\"" + topic + "\",\"partition\":1,\"replicas\":[3,1,2]}," +
+                "{\"topic\":\"" + topic + "\",\"partition\":2,\"replicas\":[3,1,2]}" +
+                "]}";
+
+            TerseException ex = assertThrows(TerseException.class,
+                () -> executeAssignment(adminClient, false, json, -1L, -1L, 10000L, 2, false, mockTime));
+            assertTrue(ex.getMessage().contains("injected second-batch failure"),
+                () -> "unexpected message: " + ex.getMessage());
+            assertEquals(1, adminClient.recordedAlterBatches().size());
+            assertEquals(
+                Collections.singletonList(asList(new TopicPartition(topic, 0), new TopicPartition(topic, 1))),
+                adminClient.recordedAlterBatches());
+            assertEquals(3, adminClient.listPartitionReassignmentsInvocations());
+        }
+    }
+
+    /**
+     * N=3 partitions, batch window K=2: first {@code alterPartitionReassignments} targets {@code inc-0} and {@code inc-1}
+     * with replicas {@code [3,1,2]} (initial {@code [0,1,2]}); the second alter targets {@code inc-2} only after the
+     * first two leave the active reassignment set from {@code listPartitionReassignments}. Pending deque order follows
+     * {@link ReassignPartitionsCommand#compareTopicPartitions}, not map insertion order; recorded alter keys use that order.
+     * <p>
+     * After the mock clears the first batch from the active set, {@code describeTopics} is overridden so partitions 0
+     * and 1 appear at {@code [3,1,2]} while partition 2 still reads {@code [0,1,2]}, matching a partial replica move.
+     */
+    @Test
+    public void testExecutePartitionReassignmentsIncrementallySlidingWindowAlterOrder() throws Exception {
+        try (WindowedRecordingMockAdminClient adminClient = new WindowedRecordingMockAdminClient()) {
+            List<Node> brokers = adminClient.brokers();
+            String topic = WindowedRecordingMockAdminClient.TOPIC;
+            adminClient.addTopic(false, topic, asList(
+                new TopicPartitionInfo(0, brokers.get(0),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(1, brokers.get(1),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2))),
+                new TopicPartitionInfo(2, brokers.get(2),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)),
+                    asList(brokers.get(0), brokers.get(1), brokers.get(2)))
+            ), Collections.emptyMap());
+
+            Map<TopicPartition, List<Integer>> proposed = new LinkedHashMap<>();
+            proposed.put(new TopicPartition(topic, 2), asList(3, 1, 2));
+            proposed.put(new TopicPartition(topic, 0), asList(3, 1, 2));
+            proposed.put(new TopicPartition(topic, 1), asList(3, 1, 2));
+
+            assertTrue(executePartitionReassignmentsIncrementally(adminClient, proposed, 2, new MockTime()).isEmpty());
+
+            assertEquals(2, adminClient.listPartitionReassignmentsInvocations());
+            assertEquals(asList(
+                    asList(new TopicPartition(topic, 0), new TopicPartition(topic, 1)),
+                    Collections.singletonList(new TopicPartition(topic, 2))),
+                adminClient.recordedAlterBatches());
+        }
+    }
+
+    @Test
     public void testPropagateInvalidJsonError() {
         try (MockAdminClient adminClient = new MockAdminClient.Builder().numBrokers(4).build()) {
             addTopics(adminClient);
             assertStartsWith("Unexpected character",
-                assertThrows(AdminOperationException.class, () -> executeAssignment(adminClient, false, "{invalid_json", -1L, -1L, 10000L, Time.SYSTEM)).getMessage());
+                assertThrows(AdminOperationException.class, () -> executeAssignment(adminClient, false, "{invalid_json", -1L, -1L, 10000L, 0, false, Time.SYSTEM)).getMessage());
+        }
+    }
+
+    /**
+     * For {@link ReassignPartitionsUnitTest#testExecuteNonIncrementalBatchWaitsForBatchBeforeNextAlter}: records alter
+     * batches; steers {@code listPartitionReassignments} so the first wait poll sees the first two partitions of topic
+     * {@code batch_wait_test} as active, the next sees none; {@code describeTopics} then reports {@code [3,1,2]} for
+     * those partitions (partition 2 unchanged in metadata) so {@code waitUntilBatchPartitionReassignmentsComplete}
+     * matches a real replica move for batch 1.
+     */
+    private static final class FixedBatchNonIncrementalRecordingMockAdminClient extends MockAdminClient {
+        /** Topic used only for {@link ReassignPartitionsUnitTest#testExecuteNonIncrementalBatchWaitsForBatchBeforeNextAlter}. */
+        public static final String TOPIC = "batch_wait_test";
+        private static final List<Node> BROKERS_4 = createBrokers(4);
+        private static final Set<TopicPartition> BATCH_WAIT_FIRST_PARTITIONS = Collections.unmodifiableSet(new HashSet<>(asList(
+            new TopicPartition(TOPIC, 0),
+            new TopicPartition(TOPIC, 1))));
+
+        private final List<List<TopicPartition>> recordedAlterBatches = new ArrayList<>();
+        private final List<Long> recordedAlterTimestampsMs = new ArrayList<>();
+        private final MockTime mockTime;
+        private int listPartitionReassignmentsInvocations;
+
+        FixedBatchNonIncrementalRecordingMockAdminClient(MockTime mockTime) {
+            super(BROKERS_4, BROKERS_4.get(0));
+            this.mockTime = mockTime;
+        }
+
+        private static List<Node> createBrokers(int n) {
+            List<Node> brokers = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                brokers.add(new Node(i, "localhost", 1000 + i));
+            }
+            return brokers;
+        }
+
+        /** Partitions 0 and 1 at target {@code [3,1,2]}; partition 2 still on initial brokers. */
+        private TopicDescription partialFixReplicaDescription() {
+            List<Node> br = brokers();
+            Node n0 = br.get(0);
+            Node n1 = br.get(1);
+            Node n2 = br.get(2);
+            Node n3 = br.get(3);
+            List<TopicPartitionInfo> partitions = asList(
+                new TopicPartitionInfo(0, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(1, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(2, n2, asList(n0, n1, n2), asList(n0, n1, n2)));
+            return new TopicDescription(TOPIC, false, partitions);
+        }
+
+        int listPartitionReassignmentsInvocations() {
+            return listPartitionReassignmentsInvocations;
+        }
+
+        List<List<TopicPartition>> recordedAlterBatches() {
+            return recordedAlterBatches;
+        }
+
+        List<Long> recordedAlterTimestampsMs() {
+            return Collections.unmodifiableList(new ArrayList<>(recordedAlterTimestampsMs));
+        }
+
+        @Override
+        public synchronized AlterPartitionReassignmentsResult alterPartitionReassignments(
+            Map<TopicPartition, Optional<NewPartitionReassignment>> newReassignments,
+            AlterPartitionReassignmentsOptions options) {
+            recordedAlterTimestampsMs.add(mockTime.milliseconds());
+            recordedAlterBatches.add(sortedTopicPartitionsForRecording(newReassignments.keySet()));
+            return super.alterPartitionReassignments(newReassignments, options);
+        }
+
+        @Override
+        public synchronized DescribeTopicsResult describeTopics(TopicCollection topics, DescribeTopicsOptions options) {
+            if (!(topics instanceof TopicNameCollection)) {
+                return super.describeTopics(topics, options);
+            }
+            Collection<String> topicNames = ((TopicNameCollection) topics).topicNames();
+            if (!topicNames.contains(TOPIC) || listPartitionReassignmentsInvocations < 3) {
+                return super.describeTopics(topics, options);
+            }
+            DescribeTopicsResult sup = super.describeTopics(topics, options);
+            Map<String, KafkaFuture<TopicDescription>> futures = new HashMap<>(sup.topicNameValues());
+            KafkaFutureImpl<TopicDescription> future = new KafkaFutureImpl<>();
+            future.complete(partialFixReplicaDescription());
+            futures.put(TOPIC, future);
+            return new DescribeTopicsResult(null, futures) { };
+        }
+
+        @Override
+        public synchronized ListPartitionReassignmentsResult listPartitionReassignments(
+            Optional<Set<TopicPartition>> partitions,
+            ListPartitionReassignmentsOptions options) {
+            listPartitionReassignmentsInvocations++;
+            if (listPartitionReassignmentsInvocations == 2) {
+                return super.listPartitionReassignments(Optional.of(BATCH_WAIT_FIRST_PARTITIONS), options);
+            }
+            if (listPartitionReassignmentsInvocations == 3) {
+                return super.listPartitionReassignments(Optional.of(Collections.emptySet()), options);
+            }
+            return super.listPartitionReassignments(partitions, options);
+        }
+    }
+
+    /**
+     * Same steering as {@link FixedBatchNonIncrementalRecordingMockAdminClient} for the first batch wait, but the second
+     * {@code alterPartitionReassignments} completes exceptionally (see {@link ReassignPartitionsUnitTest#testExecuteNonIncrementalSecondBatchAlterFails}).
+     */
+    private static final class SecondBatchAlterFailsNonIncrementalMockAdminClient extends MockAdminClient {
+        public static final String TOPIC = "fail_nb";
+        private static final List<Node> BROKERS_4 = createBrokers(4);
+        private static final Set<TopicPartition> FIRST_BATCH_PARTITIONS = Collections.unmodifiableSet(new HashSet<>(asList(
+            new TopicPartition(TOPIC, 0),
+            new TopicPartition(TOPIC, 1))));
+
+        private final List<List<TopicPartition>> recordedAlterBatches = new ArrayList<>();
+        private int listPartitionReassignmentsInvocations;
+        private int alterPartitionReassignmentsCallCount;
+
+        SecondBatchAlterFailsNonIncrementalMockAdminClient() {
+            super(BROKERS_4, BROKERS_4.get(0));
+        }
+
+        private static List<Node> createBrokers(int n) {
+            List<Node> brokers = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                brokers.add(new Node(i, "localhost", 1000 + i));
+            }
+            return brokers;
+        }
+
+        private TopicDescription partialFixReplicaDescription() {
+            List<Node> br = brokers();
+            Node n0 = br.get(0);
+            Node n1 = br.get(1);
+            Node n2 = br.get(2);
+            Node n3 = br.get(3);
+            List<TopicPartitionInfo> partitions = asList(
+                new TopicPartitionInfo(0, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(1, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(2, n2, asList(n0, n1, n2), asList(n0, n1, n2)));
+            return new TopicDescription(TOPIC, false, partitions);
+        }
+
+        int listPartitionReassignmentsInvocations() {
+            return listPartitionReassignmentsInvocations;
+        }
+
+        List<List<TopicPartition>> recordedAlterBatches() {
+            return recordedAlterBatches;
+        }
+
+        @Override
+        public synchronized AlterPartitionReassignmentsResult alterPartitionReassignments(
+            Map<TopicPartition, Optional<NewPartitionReassignment>> newReassignments,
+            AlterPartitionReassignmentsOptions options) {
+            alterPartitionReassignmentsCallCount++;
+            if (alterPartitionReassignmentsCallCount == 1) {
+                recordedAlterBatches.add(sortedTopicPartitionsForRecording(newReassignments.keySet()));
+                return super.alterPartitionReassignments(newReassignments, options);
+            }
+            Map<TopicPartition, KafkaFuture<Void>> futures = new HashMap<>();
+            for (TopicPartition tp : newReassignments.keySet()) {
+                KafkaFutureImpl<Void> fut = new KafkaFutureImpl<>();
+                fut.completeExceptionally(new InvalidReplicationFactorException("injected second-batch failure"));
+                futures.put(tp, fut);
+            }
+            return newAlterPartitionReassignmentsResult(futures);
+        }
+
+        @Override
+        public synchronized DescribeTopicsResult describeTopics(TopicCollection topics, DescribeTopicsOptions options) {
+            if (!(topics instanceof TopicNameCollection)) {
+                return super.describeTopics(topics, options);
+            }
+            Collection<String> topicNames = ((TopicNameCollection) topics).topicNames();
+            if (!topicNames.contains(TOPIC) || listPartitionReassignmentsInvocations < 3) {
+                return super.describeTopics(topics, options);
+            }
+            DescribeTopicsResult sup = super.describeTopics(topics, options);
+            Map<String, KafkaFuture<TopicDescription>> futures = new HashMap<>(sup.topicNameValues());
+            KafkaFutureImpl<TopicDescription> future = new KafkaFutureImpl<>();
+            future.complete(partialFixReplicaDescription());
+            futures.put(TOPIC, future);
+            return new DescribeTopicsResult(null, futures) { };
+        }
+
+        @Override
+        public synchronized ListPartitionReassignmentsResult listPartitionReassignments(
+            Optional<Set<TopicPartition>> partitions,
+            ListPartitionReassignmentsOptions options) {
+            listPartitionReassignmentsInvocations++;
+            if (listPartitionReassignmentsInvocations == 2) {
+                return super.listPartitionReassignments(Optional.of(FIRST_BATCH_PARTITIONS), options);
+            }
+            if (listPartitionReassignmentsInvocations == 3) {
+                return super.listPartitionReassignments(Optional.of(Collections.emptySet()), options);
+            }
+            return super.listPartitionReassignments(partitions, options);
+        }
+    }
+
+    /**
+     * Records each {@code alterPartitionReassignments} batch (topic-partition keys sorted with
+     * {@link ReassignPartitionsCommand#compareTopicPartitions} for stable assertions).
+     * The second {@code listPartitionReassignments} response uses an empty partition filter so the mock returns no
+     * active reassignments for the first batch; {@link ReassignPartitionsCommand#removeCompletedInFlightPartitionReassignments}
+     * then drops them and the sliding window submits the remaining partition.
+     */
+    private static final class WindowedRecordingMockAdminClient extends MockAdminClient {
+        /** Topic used only for {@link ReassignPartitionsUnitTest#testExecutePartitionReassignmentsIncrementallySlidingWindowAlterOrder}. */
+        public static final String TOPIC = "inc";
+        private static final List<Node> BROKERS_4 = createBrokers(4);
+        private static final Set<TopicPartition> INC_FIRST_BATCH = Collections.unmodifiableSet(new HashSet<>(asList(
+            new TopicPartition(TOPIC, 0),
+            new TopicPartition(TOPIC, 1))));
+
+        private final List<List<TopicPartition>> recordedAlterBatches = new ArrayList<>();
+        private int listPartitionReassignmentsInvocations;
+
+        WindowedRecordingMockAdminClient() {
+            super(BROKERS_4, BROKERS_4.get(0));
+        }
+
+        private static List<Node> createBrokers(int n) {
+            List<Node> brokers = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                brokers.add(new Node(i, "localhost", 1000 + i));
+            }
+            return brokers;
+        }
+
+        /** Partitions 0 and 1 at target {@code [3,1,2]}; partition 2 still on initial brokers. */
+        private TopicDescription partialIncReplicaTopicDescription() {
+            List<Node> br = brokers();
+            Node n0 = br.get(0);
+            Node n1 = br.get(1);
+            Node n2 = br.get(2);
+            Node n3 = br.get(3);
+            List<TopicPartitionInfo> partitions = asList(
+                new TopicPartitionInfo(0, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(1, n3, asList(n3, n1, n2), asList(n3, n1, n2)),
+                new TopicPartitionInfo(2, n2, asList(n0, n1, n2), asList(n0, n1, n2)));
+            return new TopicDescription(TOPIC, false, partitions);
+        }
+
+        int listPartitionReassignmentsInvocations() {
+            return listPartitionReassignmentsInvocations;
+        }
+
+        List<List<TopicPartition>> recordedAlterBatches() {
+            return recordedAlterBatches;
+        }
+
+        @Override
+        public synchronized AlterPartitionReassignmentsResult alterPartitionReassignments(
+            Map<TopicPartition, Optional<NewPartitionReassignment>> newReassignments,
+            AlterPartitionReassignmentsOptions options) {
+            recordedAlterBatches.add(sortedTopicPartitionsForRecording(newReassignments.keySet()));
+            return super.alterPartitionReassignments(newReassignments, options);
+        }
+
+        @Override
+        public synchronized DescribeTopicsResult describeTopics(TopicCollection topics, DescribeTopicsOptions options) {
+            if (!(topics instanceof TopicNameCollection)) {
+                return super.describeTopics(topics, options);
+            }
+            Collection<String> topicNames = ((TopicNameCollection) topics).topicNames();
+            if (!topicNames.contains(TOPIC) || listPartitionReassignmentsInvocations < 2) {
+                return super.describeTopics(topics, options);
+            }
+            DescribeTopicsResult sup = super.describeTopics(topics, options);
+            Map<String, KafkaFuture<TopicDescription>> futures = new HashMap<>(sup.topicNameValues());
+            KafkaFutureImpl<TopicDescription> future = new KafkaFutureImpl<>();
+            future.complete(partialIncReplicaTopicDescription());
+            futures.put(TOPIC, future);
+            return new DescribeTopicsResult(null, futures) { };
+        }
+
+        @Override
+        public synchronized ListPartitionReassignmentsResult listPartitionReassignments(
+            Optional<Set<TopicPartition>> partitions,
+            ListPartitionReassignmentsOptions options) {
+            listPartitionReassignmentsInvocations++;
+            if (listPartitionReassignmentsInvocations == 1) {
+                return super.listPartitionReassignments(Optional.of(INC_FIRST_BATCH), options);
+            }
+            if (listPartitionReassignmentsInvocations == 2) {
+                return super.listPartitionReassignments(Optional.of(Collections.emptySet()), options);
+            }
+            return super.listPartitionReassignments(partitions, options);
         }
     }
 }
