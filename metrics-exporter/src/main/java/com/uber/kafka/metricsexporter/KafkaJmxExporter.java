@@ -38,13 +38,17 @@ import javax.management.remote.JMXServiceURL;
 import io.prometheus.jmx.BuildInfoMetrics;
 import io.prometheus.jmx.JmxCollector;
 import io.prometheus.metrics.exporter.httpserver.HTTPServer;
+import io.prometheus.metrics.model.registry.PrometheusRegistry;
 
 /**
  * Kafka JMX to Prometheus Exporter
  *
- * Combines two collection strategies:
+ * Combines two collection strategies, served on separate HTTP endpoints to keep
+ * scrape volume manageable for downstream collectors:
  * 1. JmxCollector (from jmx_prometheus_httpserver 1.0.1) — handles YAML-configured metrics
- * 2. DefaultKafkaJmxCollector — auto-discovers all remaining MBeans not covered by the YAML whitelist
+ *    (served on the primary port, default 7071).
+ * 2. DefaultKafkaJmxCollector — auto-discovers all remaining MBeans not covered by the YAML
+ *    whitelist (served on the fallback port, default 7072).
  *
  * Uses the same jmx_prometheus_httpserver library as the vanilla exporter, ensuring
  * identical metric names.
@@ -52,6 +56,7 @@ import io.prometheus.metrics.exporter.httpserver.HTTPServer;
 public class KafkaJmxExporter {
 
     static final int DEFAULT_HTTP_PORT = 7071;
+    static final int DEFAULT_FALLBACK_HTTP_PORT = 7072;
 
     public static void main(String[] args) throws Exception {
         Namespace parsedArgs = parseArgs(args);
@@ -62,26 +67,31 @@ public class KafkaJmxExporter {
 
         String yamlConfigPath = parsedArgs.getString("config");
         int httpPort = parsedArgs.getInt("http_port");
+        int fallbackHttpPort = parsedArgs.getInt("fallback_http_port");
 
         System.out.println("Kafka JMX to Prometheus Exporter");
         System.out.println("========================================");
-        System.out.println("YAML config: " + yamlConfigPath);
-        System.out.println("HTTP Port:   " + httpPort);
+        System.out.println("YAML config:        " + yamlConfigPath);
+        System.out.println("HTTP Port (config): " + httpPort);
+        System.out.println("HTTP Port (fallback): " + fallbackHttpPort);
 
-        startHybridMode(yamlConfigPath, httpPort);
+        startHybridMode(yamlConfigPath, httpPort, fallbackHttpPort);
 
         System.out.println();
         System.out.println("Exporter started successfully!");
-        System.out.println("Metrics endpoint: http://localhost:" + httpPort + "/metrics");
+        System.out.println("Config metrics endpoint:   http://localhost:" + httpPort + "/metrics");
+        System.out.println("Fallback metrics endpoint: http://localhost:" + fallbackHttpPort + "/metrics");
         System.out.println("Press Ctrl+C to stop");
 
         Thread.currentThread().join();
     }
 
     /**
-     * Hybrid mode: YAML rules (via JmxCollector) + generic fallback for unmatched MBeans.
+     * Hybrid mode: YAML rules (via JmxCollector) on the primary port, and a generic
+     * fallback for unmatched MBeans on a separate port. Each port is backed by its own
+     * PrometheusRegistry so the two collector outputs are fully isolated.
      */
-    private static void startHybridMode(String yamlConfigPath, int httpPort) throws Exception {
+    private static void startHybridMode(String yamlConfigPath, int httpPort, int fallbackHttpPort) throws Exception {
         // Read YAML as-is — sed has already replaced the JMX_PORT placeholder before launch
         String yamlContent = new String(Files.readAllBytes(new File(yamlConfigPath).toPath()), StandardCharsets.UTF_8);
 
@@ -94,19 +104,25 @@ public class KafkaJmxExporter {
         // We create a separate connection for DefaultKafkaJmxCollector.
         MBeanServerConnection mbeanServer = connectToJmx(jmxUrl);
 
-        // Register collectors — same as vanilla exporter, plus our fallback
-        new BuildInfoMetrics().register();
-        new JmxCollector(yamlContent).register();
-        System.out.println("Registered JmxCollector with YAML config: " + yamlConfigPath);
+        // Config-based metrics → primary registry → primary port
+        PrometheusRegistry configRegistry = new PrometheusRegistry();
+        new BuildInfoMetrics().register(configRegistry);
+        new JmxCollector(yamlContent).register(configRegistry);
+        System.out.println("Registered JmxCollector with YAML config: " + yamlConfigPath
+                + " (port " + httpPort + ")");
 
+        // Catch-all fallback metrics → fallback registry → fallback port
+        PrometheusRegistry fallbackRegistry = new PrometheusRegistry();
         List<ObjectName> whitelist = DefaultKafkaJmxCollector.parseWhitelistFromYaml(yamlConfigPath);
         List<ObjectName> blacklist = DefaultKafkaJmxCollector.parseBlacklistFromYaml(yamlConfigPath);
-        new DefaultKafkaJmxCollector(mbeanServer, whitelist, blacklist).register();
+        new DefaultKafkaJmxCollector(mbeanServer, whitelist, blacklist).register(fallbackRegistry);
         System.out.println("Registered DefaultKafkaJmxCollector (" + whitelist.size()
-                + " whitelist, " + blacklist.size() + " blacklist patterns, collecting unmatched MBeans)");
+                + " whitelist, " + blacklist.size() + " blacklist patterns, collecting unmatched MBeans)"
+                + " (port " + fallbackHttpPort + ")");
 
-        // Start HTTP server (uses PrometheusRegistry.defaultRegistry automatically)
-        HTTPServer.builder().port(httpPort).buildAndStart();
+        // One HTTP server per registry/port
+        HTTPServer.builder().port(httpPort).registry(configRegistry).buildAndStart();
+        HTTPServer.builder().port(fallbackHttpPort).registry(fallbackRegistry).buildAndStart();
     }
 
     private static MBeanServerConnection connectToJmx(String jmxUrl) throws Exception {
@@ -130,10 +146,12 @@ public class KafkaJmxExporter {
         ArgumentParser parser = ArgumentParsers
                 .newArgumentParser("kafka-jmx-exporter")
                 .defaultHelp(true)
-                .description("Exports Kafka JMX metrics to Prometheus. "
+                .description("Exports Kafka JMX metrics to Prometheus on two HTTP endpoints. "
                         + "Metrics matching the YAML rules are exported with precise names "
-                        + "(preserving existing dashboard/alert compatibility), and all remaining "
-                        + "MBeans are exported automatically with generic labels. "
+                        + "(preserving existing dashboard/alert compatibility) on the primary port, "
+                        + "and all remaining MBeans are exported automatically with generic labels "
+                        + "on the fallback port. Splitting them keeps individual scrape responses "
+                        + "small enough to avoid collector timeouts. "
                         + "The JMX connection URL is derived from the YAML config's jmxUrl field.");
 
         parser.addArgument("--config", "-c")
@@ -145,7 +163,14 @@ public class KafkaJmxExporter {
         parser.addArgument("--http-port", "-p")
                 .type(Integer.class)
                 .setDefault(DEFAULT_HTTP_PORT)
-                .help("HTTP port to serve Prometheus metrics on. Default: " + DEFAULT_HTTP_PORT);
+                .help("HTTP port to serve YAML/config-based Prometheus metrics on. "
+                        + "Default: " + DEFAULT_HTTP_PORT);
+
+        parser.addArgument("--fallback-http-port", "-f")
+                .type(Integer.class)
+                .setDefault(DEFAULT_FALLBACK_HTTP_PORT)
+                .help("HTTP port to serve catch-all (DefaultKafkaJmxCollector) Prometheus metrics on. "
+                        + "Default: " + DEFAULT_FALLBACK_HTTP_PORT);
 
         return parser;
     }
