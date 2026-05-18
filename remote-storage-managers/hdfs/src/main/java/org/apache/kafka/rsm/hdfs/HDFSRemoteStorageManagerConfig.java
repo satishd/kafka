@@ -29,6 +29,7 @@ import static io.github.resilience4j.circuitbreaker.CircuitBreaker.State.FORCED_
 import static org.apache.kafka.common.config.ConfigDef.Importance.HIGH;
 import static org.apache.kafka.common.config.ConfigDef.Importance.MEDIUM;
 import static org.apache.kafka.common.config.ConfigDef.Range.atLeast;
+import static org.apache.kafka.common.config.ConfigDef.Range.between;
 import static org.apache.kafka.common.config.ConfigDef.Type.BOOLEAN;
 import static org.apache.kafka.common.config.ConfigDef.Type.INT;
 import static org.apache.kafka.common.config.ConfigDef.Type.LIST;
@@ -161,6 +162,14 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
         "The default value is 1 second.";
     public static final int DEFAULT_PREFETCH_QUOTA_WINDOW_SIZE = 1;
 
+    public static final String PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP = "prefetch.current.segment.threshold.percent";
+    public static final String PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_DOC = "The maximum threshold, expressed as " +
+        "a percentage of the remote log segment size, below which the current segment is prefetched. At or above this " +
+        "threshold, the next segment is prefetched instead. Set this value to -1 to always prefetch the next segment.";
+    public static final int MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT = -1;
+    public static final int MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT = 70;
+    public static final int DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT = MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
+
     private static final ConfigDef CONFIG;
 
     static {
@@ -190,7 +199,9 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
             .define(OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_PROP, INT, DEFAULT_OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS, atLeast(1), MEDIUM, OCI_PREFETCH_CLIENT_READ_AHEAD_NUM_THREADS_DOC)
             .define(PREFETCH_MAX_BYTES_PER_SECOND_PROP, LONG, DEFAULT_PREFETCH_MAX_BYTES_PER_SECOND, atLeast(1), MEDIUM, PREFETCH_MAX_BYTES_PER_SECOND_DOC)
             .define(PREFETCH_QUOTA_WINDOW_NUM_PROP, INT, DEFAULT_PREFETCH_QUOTA_WINDOW_NUM, atLeast(1), MEDIUM, PREFETCH_QUOTA_WINDOW_NUM_DOC)
-            .define(PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP, INT, DEFAULT_PREFETCH_QUOTA_WINDOW_SIZE, atLeast(1), MEDIUM, PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_DOC);
+            .define(PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_PROP, INT, DEFAULT_PREFETCH_QUOTA_WINDOW_SIZE, atLeast(1), MEDIUM, PREFETCH_QUOTA_WINDOW_SIZE_SECONDS_DOC)
+            .define(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, INT, DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT,
+                    between(MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT, MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT), MEDIUM, PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_DOC);
     }
 
     public HDFSRemoteStorageManagerConfig(Map<?, ?> props, boolean doLog) {

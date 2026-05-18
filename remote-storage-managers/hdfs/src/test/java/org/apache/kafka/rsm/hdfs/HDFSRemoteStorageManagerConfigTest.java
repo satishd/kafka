@@ -20,7 +20,9 @@ import org.apache.kafka.common.config.ConfigException;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,6 +51,27 @@ public class HDFSRemoteStorageManagerConfigTest {
         Map<String, String> props = defaultProps();
         HDFSRemoteStorageManagerConfig config = new HDFSRemoteStorageManagerConfig(props, false);
         assertFalse(config.getBoolean(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP));
+        assertEquals(HDFSRemoteStorageManagerConfig.DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT,
+            config.getInt(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
+    }
+
+    @Test
+    public void testPrefetchCurrentSegmentThresholdPercent() {
+        // valid configs
+        List<Integer> validValues = Arrays.asList(-1, 0, 70);
+        Map<String, String> props = defaultProps();
+        HDFSRemoteStorageManagerConfig config;
+        for (int expectedValue : validValues) {
+            props.put(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, String.valueOf(expectedValue));
+            config = new HDFSRemoteStorageManagerConfig(props, false);
+            assertEquals(expectedValue, config.getInt(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
+        }
+
+        props.put(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, "-2");
+        assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(props, false));
+
+        props.put(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, "71");
+        assertThrows(ConfigException.class, () -> new HDFSRemoteStorageManagerConfig(props, false));
     }
 
     private static Map<String, String> defaultProps() {

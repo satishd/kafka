@@ -18,6 +18,7 @@ package org.apache.kafka.rsm.hdfs.prefetch;
 
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.server.common.OffsetAndEpoch;
 import org.apache.kafka.server.log.remote.storage.RemoteLogMetadataManager;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
@@ -38,9 +39,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -140,6 +144,73 @@ public class RemoteDataPrefetcherImplTest {
 
         // Verify that the segment manager was asked to download the next segment
         verify(mockSegmentManager).downloadSegment(nextMetadata);
+    }
+
+    @Test
+    public void testSignalSegmentReadBeforeCurrentSegmentThresholdPrefetchesCurrentSegment() throws RemoteStorageException {
+        // segment-size = 1024; threshold = 70%; threshold-size = Math.ceil(1024 * 0.7) = 717
+        // If the current position is less than the threshold, then the current segment should be prefetched.
+        configureCurrentSegmentThresholdPercent(70);
+        int currentPosition = 716;
+        when(mockEvaluator.shouldPrefetch(metadata, currentPosition)).thenReturn(true);
+
+        prefetcher.signalSegmentRead(metadata, currentPosition, nextSegmentOffsetAndEpoch);
+
+        verify(mockSegmentManager).downloadSegment(metadata);
+        verify(mockRlmm, never()).remoteLogSegmentMetadata(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    public void testSignalSegmentReadAtCurrentSegmentThresholdPrefetchesNextSegment() throws RemoteStorageException {
+        // segment-size = 1024; threshold = 70%; threshold-size = Math.ceil(1024 * 0.7) = 717
+        // If the current position is greater than or equal to threshold, then the next segment should be prefetched.
+        configureCurrentSegmentThresholdPercent(70);
+        int currentPosition = 717;
+        when(mockEvaluator.shouldPrefetch(metadata, currentPosition)).thenReturn(true);
+        when(mockRlmm.remoteLogSegmentMetadata(
+                eq(metadata.remoteLogSegmentId().topicIdPartition()),
+                eq(nextSegmentOffsetAndEpoch.leaderEpoch()),
+                eq(nextSegmentOffsetAndEpoch.offset())))
+            .thenReturn(Optional.of(nextMetadata));
+
+        prefetcher.signalSegmentRead(metadata, currentPosition, nextSegmentOffsetAndEpoch);
+
+        verify(mockSegmentManager).downloadSegment(nextMetadata);
+        verify(mockSegmentManager, never()).downloadSegment(metadata);
+    }
+
+    @Test
+    public void testSignalSegmentReadWithCurrentSegmentPrefetchDisabledPrefetchesNextSegment() throws RemoteStorageException {
+        configureCurrentSegmentThresholdPercent(-1);
+        int currentPosition = 0;
+        when(mockEvaluator.shouldPrefetch(metadata, currentPosition)).thenReturn(true);
+        when(mockRlmm.remoteLogSegmentMetadata(
+                eq(metadata.remoteLogSegmentId().topicIdPartition()),
+                eq(nextSegmentOffsetAndEpoch.leaderEpoch()),
+                eq(nextSegmentOffsetAndEpoch.offset())))
+            .thenReturn(Optional.of(nextMetadata));
+
+        prefetcher.signalSegmentRead(metadata, currentPosition, nextSegmentOffsetAndEpoch);
+
+        verify(mockSegmentManager).downloadSegment(nextMetadata);
+        verify(mockSegmentManager, never()).downloadSegment(metadata);
+    }
+
+    @Test
+    public void testSignalSegmentReadWithZeroCurrentSegmentThresholdPrefetchesNextSegment() throws RemoteStorageException {
+        configureCurrentSegmentThresholdPercent(0);
+        int currentPosition = 0;
+        when(mockEvaluator.shouldPrefetch(metadata, currentPosition)).thenReturn(true);
+        when(mockRlmm.remoteLogSegmentMetadata(
+                eq(metadata.remoteLogSegmentId().topicIdPartition()),
+                eq(nextSegmentOffsetAndEpoch.leaderEpoch()),
+                eq(nextSegmentOffsetAndEpoch.offset())))
+            .thenReturn(Optional.of(nextMetadata));
+
+        prefetcher.signalSegmentRead(metadata, currentPosition, nextSegmentOffsetAndEpoch);
+
+        verify(mockSegmentManager).downloadSegment(nextMetadata);
+        verify(mockSegmentManager, never()).downloadSegment(metadata);
     }
 
     @Test
@@ -282,11 +353,29 @@ public class RemoteDataPrefetcherImplTest {
     }
 
     @Test
+    public void testValidateReconfiguration() {
+        Map<String, ?> validConfigs = Collections.singletonMap(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, 70);
+        assertDoesNotThrow(() -> prefetcher.validateReconfiguration(validConfigs));
+        verify(mockSegmentManager).validateReconfiguration(validConfigs);
+
+        Map<String, ?> invalidConfigs = Collections.singletonMap(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, 71);
+        assertThrows(ConfigException.class, () -> prefetcher.validateReconfiguration(invalidConfigs));
+        verify(mockSegmentManager, never()).validateReconfiguration(invalidConfigs);
+    }
+
+    @Test
     public void testCleanup() {
         // Call the method under test
         prefetcher.cleanup();
 
         // Verify that the segment manager's cleanup method was called
         verify(mockSegmentManager).cleanup();
+    }
+
+    private void configureCurrentSegmentThresholdPercent(int currentSegmentThresholdPercent) {
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(REMOTE_LOG_METADATA_MANAGER_SUPPLIER, mockRlmmSupplier);
+        configs.put(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, currentSegmentThresholdPercent);
+        prefetcher.configure(configs);
     }
 }

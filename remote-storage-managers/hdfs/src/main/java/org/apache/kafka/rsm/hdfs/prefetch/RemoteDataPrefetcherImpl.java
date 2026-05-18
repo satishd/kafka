@@ -31,11 +31,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
+import static org.apache.kafka.rsm.hdfs.HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP;
 import static org.apache.kafka.server.log.remote.storage.RemoteStorageManagerConfig.REMOTE_LOG_METADATA_MANAGER_SUPPLIER;
 
 public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
@@ -45,6 +50,7 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
     private final PrefetchSegmentManager prefetchSegmentManager;
 
     private Supplier<RemoteLogMetadataManager> rlmmSupplier;
+    private volatile int currentSegmentPrefetchThresholdPercent = DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
 
     public RemoteDataPrefetcherImpl(PrefetchEvaluator prefetchEvaluator,
                                     FileSystemManager fileSystemManager,
@@ -62,20 +68,33 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
     @SuppressWarnings("unchecked")
     public void configure(Map<String, ?> configs) {
         this.rlmmSupplier = (Supplier<RemoteLogMetadataManager>) configs.get(REMOTE_LOG_METADATA_MANAGER_SUPPLIER);
+        this.currentSegmentPrefetchThresholdPercent = parseCurrentSegmentPrefetchThresholdPercent(
+            configs.get(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
         this.prefetchSegmentManager.configure(configs);
     }
 
     @Override
     public Set<String> reconfigurableConfigs()  {
-        return prefetchSegmentManager.reconfigurableConfigs();
+        Set<String> configs = new HashSet<>(prefetchSegmentManager.reconfigurableConfigs());
+        configs.add(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP);
+        return configs;
     }
 
     @Override
     public void validateReconfiguration(Map<String, ?> configs) throws ConfigException {
+        if (configs.containsKey(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP)) {
+            parseCurrentSegmentPrefetchThresholdPercent(configs.get(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
+        }
         prefetchSegmentManager.validateReconfiguration(configs);
     }
 
     public void reconfigure(Map<String, ?> configs) {
+        if (configs.containsKey(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP)) {
+            this.currentSegmentPrefetchThresholdPercent = parseCurrentSegmentPrefetchThresholdPercent(
+                configs.get(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
+            LOGGER.info("Reconfigured {} to {}", PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP,
+                this.currentSegmentPrefetchThresholdPercent);
+        }
         prefetchSegmentManager.reconfigure(configs);
     }
 
@@ -87,15 +106,49 @@ public class RemoteDataPrefetcherImpl implements RemoteDataPrefetcher {
         if (prefetchEvaluator.shouldPrefetch(remoteLogSegmentMetadata, currentPosition)) {
             try {
                 // Prefetch the data for the given remoteLogSegmentMetadata
-                Optional<RemoteLogSegmentMetadata> segmentToFetch = nextSegmentToPrefetch(remoteLogSegmentMetadata, nextSegmentOffsetAndEpoch);
-                LOGGER.debug("Next segment to prefetch for segmentId: {} is {}", remoteLogSegmentMetadata.remoteLogSegmentId(), segmentToFetch);
-                segmentToFetch.ifPresent(prefetchSegmentManager::downloadSegment);
+                if (isPositionBeforeCurrentSegmentThreshold(remoteLogSegmentMetadata, currentPosition)) {
+                    LOGGER.debug("Prefetching current segmentId: {}", remoteLogSegmentMetadata.remoteLogSegmentId());
+                    prefetchSegmentManager.downloadSegment(remoteLogSegmentMetadata);
+                } else {
+                    Optional<RemoteLogSegmentMetadata> segmentToFetch = nextSegmentToPrefetch(remoteLogSegmentMetadata, nextSegmentOffsetAndEpoch);
+                    LOGGER.debug("Next segment to prefetch for segmentId: {} is {}", remoteLogSegmentMetadata.remoteLogSegmentId(), segmentToFetch);
+                    segmentToFetch.ifPresent(prefetchSegmentManager::downloadSegment);
+                }
             } catch (RemoteStorageException e) {
                 LOGGER.warn("Failed to fetch next segment metadata for segmentId: {}", remoteLogSegmentMetadata.remoteLogSegmentId(), e);
             }
         } else {
             LOGGER.debug("Skipping prefetch for segmentId: {}", remoteLogSegmentMetadata.remoteLogSegmentId());
         }
+    }
+
+    private static int parseCurrentSegmentPrefetchThresholdPercent(Object value) {
+        if (value == null) {
+            return DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT;
+        }
+        int threshold;
+        try {
+            threshold = value instanceof Number ? ((Number) value).intValue() : Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            throw new ConfigException(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, value,
+                String.format("Value must be between %d and %d", MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT, MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT));
+        }
+        if (threshold < MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT || threshold > MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT) {
+            throw new ConfigException(PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP, value,
+                    String.format("Value must be between %d and %d", MIN_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT, MAX_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT));
+        }
+        return threshold;
+    }
+
+    private boolean isPositionBeforeCurrentSegmentThreshold(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
+                                                            int currentPosition) {
+        if (currentSegmentPrefetchThresholdPercent == -1) {
+            return false;
+        }
+        double currentSegmentPrefetchThresholdRatio = currentSegmentPrefetchThresholdPercent / 100.0;
+        long maxCurrentSegmentPosition = (long) Math.ceil(
+            remoteLogSegmentMetadata.segmentSizeInBytes() * currentSegmentPrefetchThresholdRatio);
+        return currentPosition < maxCurrentSegmentPosition;
     }
 
     private Optional<RemoteLogSegmentMetadata> nextSegmentToPrefetch(RemoteLogSegmentMetadata remoteLogSegmentMetadata,
