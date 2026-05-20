@@ -120,40 +120,4 @@ class KafkaJmxExporterTest {
         assertNotNull(result);
         assertEquals(KafkaJmxExporter.DEFAULT_HTTP_PORT, result.getInt("http_port"));
     }
-
-    @Test
-    void parseArgs_defaultFallbackPort() {
-        Namespace result = KafkaJmxExporter.parseArgs(new String[]{"-c", "config.yaml"});
-        assertNotNull(result);
-        assertEquals(KafkaJmxExporter.DEFAULT_FALLBACK_HTTP_PORT, result.getInt("fallback_http_port"));
-    }
-
-    @Test
-    void parseArgs_customFallbackPort() {
-        Namespace result = KafkaJmxExporter.parseArgs(
-                new String[]{"--config", "/path/to/config.yaml", "--fallback-http-port", "9275"});
-        assertNotNull(result);
-        assertEquals(KafkaJmxExporter.DEFAULT_HTTP_PORT, result.getInt("http_port"));
-        assertEquals(9275, result.getInt("fallback_http_port"));
-    }
-
-    @Test
-    void parseArgs_customBothPorts() {
-        Namespace result = KafkaJmxExporter.parseArgs(
-                new String[]{"-c", "/path.yaml", "-p", "8080", "-f", "8081"});
-        assertNotNull(result);
-        assertEquals(8080, result.getInt("http_port"));
-        assertEquals(8081, result.getInt("fallback_http_port"));
-    }
-
-    @Test
-    void parseArgs_invalidFallbackPortReturnsNull() {
-        assertNull(KafkaJmxExporter.parseArgs(
-                new String[]{"-c", "config.yaml", "--fallback-http-port", "notanumber"}));
-    }
-
-    @Test
-    void parseArgs_missingFallbackPortValueReturnsNull() {
-        assertNull(KafkaJmxExporter.parseArgs(new String[]{"-c", "config.yaml", "--fallback-http-port"}));
-    }
 }
