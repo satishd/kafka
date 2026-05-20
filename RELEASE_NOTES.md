@@ -1,3 +1,11 @@
+# Release Kafka 3.9.21-uber build (05/13/2026)
+- Serve JMX exporter config and fallback metrics on one port (#109)
+- DKAFC-6838: Prefetch the current segment to reduce spiky OCI GET calls (#108)
+- upgrade streaming_tools version to latest 2.0.1~15176.gbpb0f7f0, fix port issue (#104)
+- KAFKA-19858 Set default min.insync.replicas=2 for __remote_log_metadata (#103)
+- Split JMX exporter metrics across two HTTP ports (#101)
+- kafka-reassign-partitions batching and incremental (sliding-window) execute (#100)
+
 # Release Kafka 3.9.20-uber build (04/24/2026)
 - DKAFC-7153: Update kafka-artifact-uploader.py to upload 3.9 jars
 - DKAFC-7004: Handle empty bucket cases in a remote storage provider
