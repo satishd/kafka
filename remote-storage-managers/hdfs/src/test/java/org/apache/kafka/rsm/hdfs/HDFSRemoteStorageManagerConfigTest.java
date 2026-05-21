@@ -53,6 +53,8 @@ public class HDFSRemoteStorageManagerConfigTest {
         assertFalse(config.getBoolean(HDFSRemoteStorageManagerConfig.OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP));
         assertEquals(HDFSRemoteStorageManagerConfig.DEFAULT_PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT,
             config.getInt(HDFSRemoteStorageManagerConfig.PREFETCH_CURRENT_SEGMENT_THRESHOLD_PERCENT_PROP));
+        assertEquals(HDFSRemoteStorageManagerConfig.DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY,
+            config.getInt(HDFSRemoteStorageManagerConfig.PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP));
     }
 
     @Test

@@ -127,7 +127,7 @@ public class HDFSRemoteStorageManagerConfig extends AbstractConfig {
     public static final String PREFETCH_THREAD_POOL_QUEUE_CAPACITY_PROP = "prefetch.thread.pool.queue.capacity";
     public static final String PREFETCH_THREAD_POOL_QUEUE_CAPACITY_DOC = "The capacity of the queue used by the thread pool for prefetching segments. " +
         "This controls how many prefetch requests can be queued up before new requests are rejected.";
-    public static final int DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY = 1000;
+    public static final int DEFAULT_PREFETCH_THREAD_POOL_QUEUE_CAPACITY = 20;
 
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_PROP = "oci.prefetch.client.read.ahead.enable";
     public static final String OCI_PREFETCH_CLIENT_READ_AHEAD_ENABLE_DOC = "Enable read ahead by the prefetch client for OCI";
