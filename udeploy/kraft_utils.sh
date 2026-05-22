@@ -326,6 +326,7 @@ wait_for_controller_ready() {
         # Check replication status using kafka-metadata-quorum.sh
         local REPLICATION_OUTPUT=$(unset JMX_PORT; unset KAFKA_JMX_OPTS; unset KAFKA_HEAP_OPTS; ${APP_HOME}/bin/kafka-metadata-quorum.sh \
             --bootstrap-controller "${BOOTSTRAP_CONTROLLER}" \
+            --command-config /etc/kafka/upki.properties \
             describe --replication 2>/dev/null)
 
         if [ $? -eq 0 ]; then
