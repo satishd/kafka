@@ -1,3 +1,10 @@
+# Release Kafka 3.9.22-uber build (05/26/2026)
+- Upgrade streaming_tools version to latest 2.0.1~15196.gbpc45c34 (concurrent replacement fixes) (#116)
+- KAFKA-19590 Add prefix to TopicBasedRemoteLogMetadataManagerConfig to… (#119)
+- Pass SSL command-config in wait_for_controller_ready (#115)
+- [MINOR] Ignore LLM tool cache and settings directories in .gitignore (#112)
+- DKAFC-7217: Update prefetch config defaults in HDFS RSM config (#113)
+
 # Release Kafka 3.9.21-uber build (05/13/2026)
 - Serve JMX exporter config and fallback metrics on one port (#109)
 - DKAFC-6838: Prefetch the current segment to reduce spiky OCI GET calls (#108)
