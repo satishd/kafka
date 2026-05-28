@@ -324,7 +324,7 @@ wait_for_controller_ready() {
         fi
 
         # Check replication status using kafka-metadata-quorum.sh
-        local REPLICATION_OUTPUT=$(unset JMX_PORT; unset KAFKA_JMX_OPTS; unset KAFKA_HEAP_OPTS; ${APP_HOME}/bin/kafka-metadata-quorum.sh \
+        local REPLICATION_OUTPUT=$(unset JMX_PORT; unset KAFKA_JMX_OPTS; KAFKA_HEAP_OPTS="-Xmx512m" ${APP_HOME}/bin/kafka-metadata-quorum.sh \
             --bootstrap-controller "${BOOTSTRAP_CONTROLLER}" \
             --command-config /etc/kafka/upki.properties \
             describe --replication 2>/dev/null)
@@ -423,7 +423,7 @@ add_controller_to_quorum() {
 
     # Add controller using kafka-metadata-quorum.sh
     local ADD_OUTPUT
-    ADD_OUTPUT=$(unset JMX_PORT; unset KAFKA_JMX_OPTS; unset KAFKA_HEAP_OPTS; ${APP_HOME}/bin/kafka-metadata-quorum.sh \
+    ADD_OUTPUT=$(unset JMX_PORT; unset KAFKA_JMX_OPTS; KAFKA_HEAP_OPTS="-Xmx512m" ${APP_HOME}/bin/kafka-metadata-quorum.sh \
         --bootstrap-controller "${BOOTSTRAP_CONTROLLER}" \
         --command-config "${MODIFIED_CONFIG}" \
         add-controller 2>&1)
