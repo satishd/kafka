@@ -417,9 +417,11 @@ add_controller_to_quorum() {
     # TODO: https://t3.uberinternal.com/browse/DKAFC-6972
     # This is a temporary workaround from https://github.com/uber-code/data-kafka/pull/27/
     # The principal.builder.class causes issues with add-controller command
+    # upki.properties is appended to supply SSL settings for connecting to bootstrap controller.
     local MODIFIED_CONFIG="/tmp/server.properties.$$"
     cp /etc/kafka/server.properties "${MODIFIED_CONFIG}"
     sed -i '/^principal.builder.class/d' "${MODIFIED_CONFIG}"
+    cat /etc/kafka/upki.properties >> "${MODIFIED_CONFIG}"
 
     # Add controller using kafka-metadata-quorum.sh
     local ADD_OUTPUT
