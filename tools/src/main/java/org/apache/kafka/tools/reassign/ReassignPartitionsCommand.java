@@ -176,6 +176,9 @@ public class ReassignPartitionsCommand {
                 opts.options.valueOf(opts.reassignmentBatchSizeOpt),
                 opts.options.has(opts.incrementalReassignmentOpt),
                 Time.SYSTEM);
+        } else if (opts.options.has(opts.cancelAllOpt)) {
+            cancelAllOngoingAssignments(adminClient,
+                opts.options.has(opts.preserveThrottlesOpt));
         } else if (opts.options.has(opts.cancelOpt)) {
             cancelAssignment(adminClient,
                 Utils.readFileAsString(opts.options.valueOf(opts.reassignmentJsonFileOpt)),
@@ -1500,6 +1503,55 @@ public class ReassignPartitionsCommand {
         return new SimpleImmutableEntry<>(curReassigningParts, curMovingParts.keySet());
     }
 
+    /**
+     * The entry point for the {@code --cancel-all} action.
+     *
+     * @param adminClient           The AdminClient to use.
+     * @param preserveThrottles     True if we should avoid changing topic or broker throttles.
+     *
+     * @return                      The topic-partitions that were in-flight and cancelled (possibly empty).
+     */
+    static Set<TopicPartition> cancelAllOngoingAssignments(
+        Admin adminClient,
+        Boolean preserveThrottles
+    ) throws ExecutionException, InterruptedException, TerseException {
+        Map<TopicPartition, PartitionReassignment> reassignments =
+            adminClient.listPartitionReassignments().reassignments().get();
+        Set<TopicPartition> curReassigningParts = new HashSet<>();
+        List<Entry<TopicPartition, List<Integer>>> targetParts = new ArrayList<>();
+        for (Entry<TopicPartition, PartitionReassignment> e : reassignments.entrySet()) {
+            PartitionReassignment reassignment = e.getValue();
+            if (!reassignment.addingReplicas().isEmpty() || !reassignment.removingReplicas().isEmpty()) {
+                TopicPartition tp = e.getKey();
+                curReassigningParts.add(tp);
+                targetParts.add(new SimpleImmutableEntry<>(tp, reassignment.replicas()));
+            }
+        }
+        if (!curReassigningParts.isEmpty()) {
+            Map<TopicPartition, Throwable> errors = cancelPartitionReassignments(adminClient, curReassigningParts);
+            if (!errors.isEmpty()) {
+                throw new TerseException(String.format(
+                    "Error cancelling partition reassignment%s for:%n%s",
+                    errors.size() == 1 ? "" : "s",
+                    errors.keySet().stream()
+                        .sorted(ReassignPartitionsCommand::compareTopicPartitions)
+                        .map(part -> part + ": " + errors.get(part).getMessage()).collect(Collectors.joining(System.lineSeparator())))
+                );
+            }
+            System.out.printf("Successfully cancelled partition reassignment%s for: %s%n",
+                curReassigningParts.size() == 1 ? "" : "s",
+                curReassigningParts.stream().sorted(ReassignPartitionsCommand::compareTopicPartitions).map(Object::toString).collect(Collectors.joining(","))
+            );
+        } else {
+            System.out.println("No ongoing inter-broker partition reassignments in the cluster.");
+        }
+        System.out.println("Ongoing intra-broker replica log directory moves were not changed; use --cancel with --reassignment-json-file when log_dirs are in use.");
+        if (!preserveThrottles && !targetParts.isEmpty()) {
+            clearAllThrottles(adminClient, targetParts);
+        }
+        return curReassigningParts;
+    }
+
     public static String formatAsReassignmentJson(Map<TopicPartition, List<Integer>> partitionsToBeReassigned,
                                                    Map<TopicPartitionReplica, String> replicaLogDirAssignment) throws JsonProcessingException {
         List<Map<String, Object>> partitions = new ArrayList<>();
@@ -1620,7 +1672,7 @@ public class ReassignPartitionsCommand {
 
         // Determine which action we should perform.
         List<OptionSpec<?>> validActions = Arrays.asList(opts.generateOpt, opts.executeOpt, opts.verifyOpt,
-            opts.cancelOpt, opts.listOpt);
+            opts.cancelOpt, opts.cancelAllOpt, opts.listOpt);
 
         List<OptionSpec<?>> allActions = validActions.stream()
             .filter(a -> opts.options.has(a))
@@ -1665,6 +1717,7 @@ public class ReassignPartitionsCommand {
         requiredArgs.put(opts.cancelOpt, Collections.singletonList(
             opts.reassignmentJsonFileOpt
         ));
+        requiredArgs.put(opts.cancelAllOpt, Collections.emptyList());
         requiredArgs.put(opts.listOpt, Collections.emptyList());
         return requiredArgs;
     }
@@ -1698,6 +1751,11 @@ public class ReassignPartitionsCommand {
             opts.commandConfigOpt,
             opts.preserveThrottlesOpt,
             opts.timeoutOpt
+        ));
+        permittedArgs.put(opts.cancelAllOpt, Arrays.asList(
+            opts.bootstrapServerOpt,
+            opts.commandConfigOpt,
+            opts.preserveThrottlesOpt
         ));
         permittedArgs.put(opts.listOpt, Arrays.asList(
             opts.bootstrapServerOpt,

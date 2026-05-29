@@ -27,6 +27,7 @@ public class ReassignPartitionsCommandOptions extends CommandDefaultOptions {
     final OptionSpec<?> generateOpt;
     final OptionSpec<?> executeOpt;
     final OptionSpec<?> cancelOpt;
+    final OptionSpec<?> cancelAllOpt;
     final OptionSpec<?> listOpt;
 
     // Arguments
@@ -53,6 +54,9 @@ public class ReassignPartitionsCommandOptions extends CommandDefaultOptions {
             " Note that this only generates a candidate assignment, it does not execute it.");
         executeOpt = parser.accepts("execute", "Kick off the reassignment as specified by the --reassignment-json-file option.");
         cancelOpt = parser.accepts("cancel", "Cancel an active reassignment.");
+        cancelAllOpt = parser.accepts("cancel-all",
+            "Cancel every ongoing inter-broker partition reassignment in the cluster (no JSON file). "
+                + "Does not cancel intra-broker log directory moves; use --cancel with --reassignment-json-file when log_dirs are in use.");
         listOpt = parser.accepts("list", "List all active partition reassignments.");
 
         // Arguments

@@ -77,6 +77,7 @@ import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.calculat
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.calculateMovingBrokers;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.calculateProposedMoveMap;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.calculateReassigningBrokers;
+import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.cancelAllOngoingAssignments;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.cancelPartitionReassignments;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.compareTopicPartitionReplicas;
 import static org.apache.kafka.tools.reassign.ReassignPartitionsCommand.compareTopicPartitions;
@@ -246,6 +247,28 @@ public class ReassignPartitionsUnitTest {
 
             assertEquals(expStates, actual.getKey());
             assertFalse(actual.getValue());
+        }
+    }
+
+    @Test
+    public void testCancelAllOngoingAssignments() throws Exception {
+        try (MockAdminClient adminClient = new MockAdminClient.Builder().numBrokers(4).build()) {
+            addTopics(adminClient);
+            Map<TopicPartition, List<Integer>> reassignments = new HashMap<>();
+            reassignments.put(new TopicPartition("foo", 0), asList(0, 1, 3));
+            assertTrue(alterPartitionReassignments(adminClient, reassignments).isEmpty());
+
+            Map<TopicPartition, PartitionReassignment> listed =
+                adminClient.listPartitionReassignments().reassignments().get();
+            PartitionReassignment inFlight = listed.get(new TopicPartition("foo", 0));
+            assertTrue(!inFlight.addingReplicas().isEmpty() || !inFlight.removingReplicas().isEmpty());
+
+            Set<TopicPartition> cancelled = cancelAllOngoingAssignments(adminClient, true);
+            assertEquals(Collections.singleton(new TopicPartition("foo", 0)), cancelled);
+
+            for (PartitionReassignment r : adminClient.listPartitionReassignments().reassignments().get().values()) {
+                assertTrue(r.addingReplicas().isEmpty() && r.removingReplicas().isEmpty());
+            }
         }
     }
 

@@ -402,4 +402,30 @@ public class ReassignPartitionsCommandArgsTest {
             "--preserve-throttles"};
         shouldFailWith("Missing required argument \"[reassignment-json-file]\"", args);
     }
+
+    @Test
+    public void shouldAllowCancelAllWithoutReassignmentJsonFile() {
+        ReassignPartitionsCommand.validateAndParseArgs(new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--cancel-all"
+        });
+    }
+
+    @Test
+    public void shouldNotAllowCancelTogetherWithCancelAll() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--cancel",
+            "--cancel-all"};
+        shouldFailWith("Command must include exactly one action:", args);
+    }
+
+    @Test
+    public void shouldNotAllowReassignmentJsonFileWithCancelAllAction() {
+        String[] args = new String[] {
+            "--bootstrap-server", "localhost:1234",
+            "--cancel-all",
+            "--reassignment-json-file", "myfile.json"};
+        shouldFailWith("Option \"[reassignment-json-file]\" can't be used with action \"", args);
+    }
 }
