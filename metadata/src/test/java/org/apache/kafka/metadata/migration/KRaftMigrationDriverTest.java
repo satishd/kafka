@@ -286,7 +286,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(1));
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta with this node (3000) as the leader
@@ -306,7 +306,7 @@ public class KRaftMigrationDriverTest {
                 .setResourceName("1")
                 .setName("foo")
                 .setValue("bar"));
-            provenance = new MetadataProvenance(120, 1, 2);
+            provenance = new MetadataProvenance(120, 1, 2, true);
             image = delta.apply(provenance);
             enqueueMetadataChangeEventWithFuture(driver, delta, image, provenance).get(1, TimeUnit.MINUTES);
 
@@ -320,7 +320,7 @@ public class KRaftMigrationDriverTest {
                 .setBrokerEpoch(0)
                 .setFenced(BrokerRegistrationFencingChange.NONE.value())
                 .setInControlledShutdown(BrokerRegistrationInControlledShutdownChange.IN_CONTROLLED_SHUTDOWN.value()));
-            provenance = new MetadataProvenance(130, 1, 3);
+            provenance = new MetadataProvenance(130, 1, 3, true);
             image = delta.apply(provenance);
             enqueueMetadataChangeEventWithFuture(driver, delta, image, provenance).get(1, TimeUnit.MINUTES);
 
@@ -370,7 +370,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(1));
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Notify the driver that it is the leader
@@ -428,7 +428,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(1));
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
             // Before leadership claiming, the getOrCreateMigrationRecoveryState should be able to get correct state
             assertTrue(createZnodeAttempts.await(1, TimeUnit.MINUTES));
@@ -503,7 +503,7 @@ public class KRaftMigrationDriverTest {
                 setupDeltaWithControllerRegistrations(delta, Collections.emptyList(), Arrays.asList(4, 5));
             }
             delta.replay(zkBrokerRecord(1));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta with this node (3000) as the leader
@@ -521,7 +521,7 @@ public class KRaftMigrationDriverTest {
             // Update so that all controller nodes are zkMigrationReady. Now we should be able to move to the next state.
             delta = new MetadataDelta(image);
             setupDeltaWithControllerRegistrations(delta, Collections.emptyList(), Arrays.asList(4, 5, 6));
-            image = delta.apply(new MetadataProvenance(200, 1, 2));
+            image = delta.apply(new MetadataProvenance(200, 1, 2, true));
             driver.onMetadataUpdate(delta, image, new LogDeltaManifest.Builder().
                     provenance(image.provenance()).
                     leaderAndEpoch(newLeader).
@@ -558,7 +558,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
             delta.replay(ZkMigrationState.MIGRATION.toRecord().message());
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             driver.onControllerChange(new LeaderAndEpoch(OptionalInt.of(3000), 1));
@@ -638,7 +638,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(3));
             delta.replay(zkBrokerRecord(4));
             delta.replay(zkBrokerRecord(5));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta with this node (3000) as the leader
@@ -651,7 +651,7 @@ public class KRaftMigrationDriverTest {
                 "Waiting for KRaftMigrationDriver to enter DUAL_WRITE state");
 
             // Modify topics in a KRaft snapshot -- delete foo, modify bar, add baz, add new foo, add bam, delete bam
-            provenance = new MetadataProvenance(200, 1, 1);
+            provenance = new MetadataProvenance(200, 1, 1, true);
             delta = new MetadataDelta(image);
             RecordTestUtils.replayAll(delta, DELTA1_RECORDS);
             image = delta.apply(provenance);
@@ -693,7 +693,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(3));
             delta.replay(zkBrokerRecord(4));
             delta.replay(zkBrokerRecord(5));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta with this node (3000) as the leader
@@ -706,7 +706,7 @@ public class KRaftMigrationDriverTest {
                     "Waiting for KRaftMigrationDriver to enter DUAL_WRITE state");
 
             // Modify topics in a KRaft snapshot -- delete foo, modify bar, add baz, add new foo, add bam, delete bam
-            provenance = new MetadataProvenance(200, 1, 1);
+            provenance = new MetadataProvenance(200, 1, 1, true);
             delta = new MetadataDelta(image);
             RecordTestUtils.replayAll(delta, DELTA1_RECORDS);
             image = delta.apply(provenance);
@@ -748,7 +748,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(3));
             delta.replay(zkBrokerRecord(4));
             delta.replay(zkBrokerRecord(5));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta with this node (3000) as the leader
@@ -765,7 +765,7 @@ public class KRaftMigrationDriverTest {
             driver.transitionTo(MigrationDriverState.ZK_MIGRATION);
             driver.transitionTo(MigrationDriverState.SYNC_KRAFT_TO_ZK);
 
-            provenance = new MetadataProvenance(200, 1, 1);
+            provenance = new MetadataProvenance(200, 1, 1, true);
             delta = new MetadataDelta(image);
             RecordTestUtils.replayAll(delta, DELTA1_RECORDS);
             image = delta.apply(provenance);
@@ -803,7 +803,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(3));
             delta.replay(zkBrokerRecord(4));
             delta.replay(zkBrokerRecord(5));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             // Publish a delta making a different node the leader
@@ -816,7 +816,7 @@ public class KRaftMigrationDriverTest {
                 ZkMigrationLeadershipState.EMPTY.withKRaftMetadataOffsetAndEpoch(100, 1));
 
             // Modify topics in a KRaft -- delete foo, modify bar, add baz, add new foo, add bam, delete bam
-            provenance = new MetadataProvenance(200, 1, 1);
+            provenance = new MetadataProvenance(200, 1, 1, true);
             delta = new MetadataDelta(image);
             RecordTestUtils.replayAll(delta, DELTA1_RECORDS);
             image = delta.apply(provenance);
@@ -867,7 +867,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(1));
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             driver.onControllerChange(new LeaderAndEpoch(OptionalInt.of(3000), 1));
@@ -953,7 +953,7 @@ public class KRaftMigrationDriverTest {
             delta.replay(zkBrokerRecord(1));
             delta.replay(zkBrokerRecord(2));
             delta.replay(zkBrokerRecord(3));
-            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1);
+            MetadataProvenance provenance = new MetadataProvenance(100, 1, 1, true);
             image = delta.apply(provenance);
 
             driver.onControllerChange(new LeaderAndEpoch(OptionalInt.of(3000), 1));

@@ -107,7 +107,7 @@ class ZkMigrationIntegrationTest {
     }
 
     def verify(verifier: MetadataImage => Unit): Unit = {
-      val image = metadataDelta.apply(new MetadataProvenance(offset, 0, 0))
+      val image = metadataDelta.apply(new MetadataProvenance(offset, 0, 0, true))
       verifier.apply(image)
     }
   }

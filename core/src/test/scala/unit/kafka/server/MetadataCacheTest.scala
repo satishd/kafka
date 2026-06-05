@@ -66,7 +66,7 @@ object MetadataCacheTest {
         // contains no brokers, but which contains the previous partitions.
         val image = c.currentImage()
         val partialImage = new MetadataImage(
-          new MetadataProvenance(100L, 10, 1000L),
+          new MetadataProvenance(100L, 10, 1000L, true),
           image.features(),
           ClusterImage.EMPTY,
           image.topics(),
@@ -131,7 +131,7 @@ object MetadataCacheTest {
           toRecords(topic).foreach(delta.replay)
         }
         records.foreach(delta.replay)
-        c.setImage(delta.apply(new MetadataProvenance(100L, 10, 1000L)))
+        c.setImage(delta.apply(new MetadataProvenance(100L, 10, 1000L, true)))
       }
       case _ => throw new RuntimeException("Unsupported cache type")
     }

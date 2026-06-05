@@ -68,7 +68,8 @@ final class BrokerServerMetricsTest {
       brokerMetrics.updateLastAppliedImageProvenance(new MetadataProvenance(
         expectedValue,
         brokerMetrics.lastAppliedImageProvenance.get().lastContainedEpoch(),
-        brokerMetrics.lastAppliedTimestamp()))
+        brokerMetrics.lastAppliedTimestamp(),
+        true))
       assertEquals(expectedValue, offsetMetric.metricValue.asInstanceOf[Long])
     }
   }
@@ -91,7 +92,8 @@ final class BrokerServerMetricsTest {
       brokerMetrics.updateLastAppliedImageProvenance(new MetadataProvenance(
         brokerMetrics.lastAppliedOffset(),
         brokerMetrics.lastAppliedImageProvenance.get().lastContainedEpoch(),
-        timestamp))
+        timestamp,
+        true))
       assertEquals(timestamp, timestampMetric.metricValue.asInstanceOf[Long])
       assertEquals(time.milliseconds - timestamp, lagMetric.metricValue.asInstanceOf[Long])
     }

@@ -187,7 +187,7 @@ class ZkMigrationFailoverTest extends Logging {
       delta1.replay(ZkMigrationState.MIGRATION.toRecord.message)
       delta1.replay(new TopicRecord().setTopicId(Uuid.randomUuid()).setName("topic-to-sync"))
 
-      val provenance1 = new MetadataProvenance(210, 11, 1)
+      val provenance1 = new MetadataProvenance(210, 11, 1, true)
       image1 = delta1.apply(provenance1)
 
       val manifest1 = LogDeltaManifest.newBuilder()
@@ -222,7 +222,7 @@ class ZkMigrationFailoverTest extends Logging {
       // Node 3000 still thinks that its the leader, do a delta update
       val delta2 = new MetadataDelta(image1)
       delta2.replay(new TopicRecord().setTopicId(Uuid.randomUuid()).setName("another-topic-to-sync"))
-      val provenance2 = new MetadataProvenance(211, 11, 1)
+      val provenance2 = new MetadataProvenance(211, 11, 1, true)
       val image2 = delta2.apply(provenance2)
       val manifest2 = LogDeltaManifest.newBuilder()
         .provenance(provenance2)
@@ -241,7 +241,7 @@ class ZkMigrationFailoverTest extends Logging {
       // Now unblock 3001 from claiming ZK. This will let it move to BECOME_CONTROLLER
       val delta3 = new MetadataDelta(image1)
       delta3.replay(new TopicRecord().setTopicId(Uuid.randomUuid()).setName("another-topic-to-sync"))
-      val provenance3 = new MetadataProvenance(211, 11, 1)
+      val provenance3 = new MetadataProvenance(211, 11, 1, true)
       val image3 = delta3.apply(provenance3)
       val manifest3 = LogDeltaManifest.newBuilder()
         .provenance(provenance3)
@@ -348,7 +348,7 @@ class ZkMigrationFailoverTest extends Logging {
         .setFeatureLevel(MetadataVersion.latestProduction().featureLevel))
       delta.replay(ZkMigrationState.MIGRATION.toRecord.message)
 
-      val provenance = new MetadataProvenance(210, 11, 1)
+      val provenance = new MetadataProvenance(210, 11, 1, true)
       image = delta.apply(provenance)
 
       val manifest = LogDeltaManifest.newBuilder()
@@ -374,7 +374,7 @@ class ZkMigrationFailoverTest extends Logging {
       for (i <- 1 to 1000) {
         val delta = new MetadataDelta(image)
         delta.replay(new TopicRecord().setTopicId(Uuid.randomUuid()).setName(s"topic-$i"))
-        val provenance = new MetadataProvenance(210 + i, 11, 1)
+        val provenance = new MetadataProvenance(210 + i, 11, 1, true)
         image = delta.apply(provenance)
         val manifest = LogDeltaManifest.newBuilder()
           .provenance(provenance)
