@@ -24,7 +24,6 @@ import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
 
 import java.io.File;
-import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,11 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import javax.management.MBeanServerConnection;
 import javax.management.ObjectName;
-import javax.management.remote.JMXConnector;
-import javax.management.remote.JMXConnectorFactory;
-import javax.management.remote.JMXServiceURL;
 
 import io.prometheus.jmx.BuildInfoMetrics;
 import io.prometheus.jmx.JmxCollector;
@@ -103,11 +98,8 @@ public class KafkaJmxExporter {
         String jmxUrl = extractJmxConnectionUrl(yamlContent);
 
         System.out.println("JMX URL:     " + (jmxUrl != null ? jmxUrl : "(local MBeanServer)"));
+        System.out.println("JMX connection opened lazily per scrape (matches vanilla jmx_exporter behaviour).");
         System.out.println();
-
-        // JmxCollector manages its own JMX connection from the YAML's jmxUrl.
-        // We create a separate connection for DefaultKafkaJmxCollector.
-        MBeanServerConnection mbeanServer = connectToJmx(jmxUrl);
 
         // Config-based metrics → primary registry → /metrics
         PrometheusRegistry configRegistry = new PrometheusRegistry();
@@ -120,7 +112,7 @@ public class KafkaJmxExporter {
         PrometheusRegistry fallbackRegistry = new PrometheusRegistry();
         List<ObjectName> whitelist = DefaultKafkaJmxCollector.parseWhitelistFromYaml(yamlConfigPath);
         List<ObjectName> blacklist = DefaultKafkaJmxCollector.parseBlacklistFromYaml(yamlConfigPath);
-        new DefaultKafkaJmxCollector(mbeanServer, whitelist, blacklist).register(fallbackRegistry);
+        new DefaultKafkaJmxCollector(jmxUrl, whitelist, blacklist).register(fallbackRegistry);
         System.out.println("Registered DefaultKafkaJmxCollector (" + whitelist.size()
                 + " whitelist, " + blacklist.size() + " blacklist patterns, collecting unmatched MBeans)"
                 + " (path " + FALLBACK_METRICS_PATH + ")");
@@ -142,18 +134,6 @@ public class KafkaJmxExporter {
             t.setDaemon(true);
             return t;
         };
-    }
-
-    private static MBeanServerConnection connectToJmx(String jmxUrl) throws Exception {
-        if (jmxUrl != null) {
-            System.out.println("Connecting to JMX at " + jmxUrl);
-            JMXServiceURL serviceUrl = new JMXServiceURL(jmxUrl);
-            JMXConnector connector = JMXConnectorFactory.connect(serviceUrl, null);
-            return connector.getMBeanServerConnection();
-        } else {
-            System.out.println("Using local MBeanServer (in-process)");
-            return ManagementFactory.getPlatformMBeanServer();
-        }
     }
 
     static String extractJmxConnectionUrl(String yamlContent) {

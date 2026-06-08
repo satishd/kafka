@@ -19,6 +19,7 @@ package com.uber.kafka.metricsexporter;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -36,6 +37,9 @@ import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import javax.management.openmbean.CompositeData;
+import javax.management.remote.JMXConnector;
+import javax.management.remote.JMXConnectorFactory;
+import javax.management.remote.JMXServiceURL;
 
 import io.prometheus.metrics.model.registry.MultiCollector;
 import io.prometheus.metrics.model.registry.PrometheusRegistry;
@@ -53,14 +57,42 @@ import io.prometheus.metrics.model.snapshots.PrometheusNaming;
  * This ensures no metric overlap: a MBean is handled by exactly one system.
  * Only simple numeric attributes are exported; CompositeData, TabularData, and
  * Boolean are skipped. Label naming follows the YAML config (lowercase) for consistency.
+ *
+ * Connection model: when constructed with a JMX URL, opens a fresh JMXConnector per
+ * scrape (matches vanilla io.prometheus.jmx.JmxScraper). This lets the exporter start
+ * before Kafka is up and recover automatically across broker restarts. When constructed
+ * with an explicit MBeanServerConnection (test usage), that connection is reused as-is.
  */
 public class DefaultKafkaJmxCollector implements MultiCollector {
 
-    private final MBeanServerConnection mbeanServer;
+    private final String jmxUrl;
+    private final MBeanServerConnection injectedMbeanServer;
     private final List<ObjectName> whitelistPatterns;
     private final List<ObjectName> blacklistPatterns;
 
     /**
+     * Production constructor: opens a fresh JMX connection on every scrape. An empty
+     * or null jmxUrl falls back to the in-process platform MBean server, matching
+     * vanilla JmxScraper semantics.
+     *
+     * @param jmxUrl             JMX service URL (e.g. "service:jmx:rmi:///jndi/rmi://..."),
+     *                           or null/empty for the in-process MBean server
+     * @param whitelistPatterns  ObjectName patterns to skip (already handled by JmxCollector)
+     * @param blacklistPatterns  ObjectName patterns to exclude from fallback collection
+     */
+    public DefaultKafkaJmxCollector(String jmxUrl,
+                                    List<ObjectName> whitelistPatterns,
+                                    List<ObjectName> blacklistPatterns) {
+        this.jmxUrl = jmxUrl;
+        this.injectedMbeanServer = null;
+        this.whitelistPatterns = whitelistPatterns != null ? whitelistPatterns : Collections.emptyList();
+        this.blacklistPatterns = blacklistPatterns != null ? blacklistPatterns : Collections.emptyList();
+    }
+
+    /**
+     * Test constructor: reuses the supplied MBeanServerConnection on every scrape. Used
+     * by unit tests to inject a mocked MBeanServerConnection.
+     *
      * @param mbeanServer        JMX connection to query MBeans from
      * @param whitelistPatterns  ObjectName patterns to skip (already handled by JmxCollector)
      * @param blacklistPatterns  ObjectName patterns to exclude from fallback collection
@@ -68,7 +100,8 @@ public class DefaultKafkaJmxCollector implements MultiCollector {
     public DefaultKafkaJmxCollector(MBeanServerConnection mbeanServer,
                                     List<ObjectName> whitelistPatterns,
                                     List<ObjectName> blacklistPatterns) {
-        this.mbeanServer = mbeanServer;
+        this.jmxUrl = null;
+        this.injectedMbeanServer = mbeanServer;
         this.whitelistPatterns = whitelistPatterns != null ? whitelistPatterns : Collections.emptyList();
         this.blacklistPatterns = blacklistPatterns != null ? blacklistPatterns : Collections.emptyList();
     }
@@ -145,6 +178,23 @@ public class DefaultKafkaJmxCollector implements MultiCollector {
 
     @Override
     public MetricSnapshots collect() {
+        // Test-injected connection: reuse it directly, no connect/close per scrape.
+        if (injectedMbeanServer != null) {
+            return collectFrom(injectedMbeanServer);
+        }
+        // Production: open fresh per scrape, mirroring vanilla JmxScraper.doScrape().
+        if (jmxUrl == null || jmxUrl.isEmpty()) {
+            return collectFrom(ManagementFactory.getPlatformMBeanServer());
+        }
+        try (JMXConnector connector = JMXConnectorFactory.connect(new JMXServiceURL(jmxUrl), null)) {
+            return collectFrom(connector.getMBeanServerConnection());
+        } catch (Exception e) {
+            System.err.println("DefaultKafkaJmxCollector connect error: " + e.getMessage());
+            return new MetricSnapshots(Collections.emptyList());
+        }
+    }
+
+    private MetricSnapshots collectFrom(MBeanServerConnection mbeanServer) {
         Map<String, GaugeSnapshot.Builder> gauges = new LinkedHashMap<>();
 
         try {
@@ -155,7 +205,7 @@ public class DefaultKafkaJmxCollector implements MultiCollector {
                     continue;
                 }
                 try {
-                    collectMBean(objectName, gauges);
+                    collectMBean(mbeanServer, objectName, gauges);
                 } catch (Exception e) {
                     // Skip failed MBeans silently
                 }
@@ -170,7 +220,8 @@ public class DefaultKafkaJmxCollector implements MultiCollector {
         return new MetricSnapshots(snapshots);
     }
 
-    private void collectMBean(ObjectName objectName,
+    private void collectMBean(MBeanServerConnection mbeanServer,
+                              ObjectName objectName,
                               Map<String, GaugeSnapshot.Builder> gauges) throws Exception {
         MBeanInfo info = mbeanServer.getMBeanInfo(objectName);
 
