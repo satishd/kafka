@@ -325,6 +325,7 @@ import static org.apache.kafka.common.protocol.ApiKeys.PRODUCE;
 import static org.apache.kafka.common.protocol.ApiKeys.SASL_AUTHENTICATE;
 import static org.apache.kafka.common.protocol.ApiKeys.STOP_REPLICA;
 import static org.apache.kafka.common.protocol.ApiKeys.SYNC_GROUP;
+import static org.apache.kafka.common.protocol.ApiKeys.UNREGISTER_BROKER;
 import static org.apache.kafka.common.protocol.ApiKeys.UPDATE_METADATA;
 import static org.apache.kafka.common.protocol.ApiKeys.WRITE_TXN_MARKERS;
 import static org.apache.kafka.common.requests.FetchMetadata.INVALID_SESSION_ID;
@@ -351,6 +352,8 @@ public class RequestResponseTest {
         toSkip.put(DESCRIBE_LOG_DIRS, Arrays.asList((short) 0, (short) 1, (short) 2));
         // ElectLeaders v0 does not have a top level error field, when accessing it, it defaults to NONE
         toSkip.put(ELECT_LEADERS, singletonList((short) 0));
+        // UnregisterBroker v0 contains the error message in the response
+        toSkip.put(UNREGISTER_BROKER, singletonList((short) 0));
 
         for (ApiKeys apikey : ApiKeys.values()) {
             for (short version : apikey.allVersions()) {
@@ -915,6 +918,23 @@ public class RequestResponseTest {
             assertEquals(response.data().errorCode(), Errors.INVALID_REQUEST.code());
             assertTrue(response.data().apiKeys().isEmpty());
         }
+    }
+
+    @Test
+    public void testUnregisterBrokerResponseWithUnknownServerError() {
+        UnregisterBrokerRequest request = new UnregisterBrokerRequest.Builder(
+            new UnregisterBrokerRequestData()
+        ).build((short) 0);
+        String customerErrorMessage = "customer error message";
+        
+        UnregisterBrokerResponse response = request.getErrorResponse(
+            0, 
+            new RuntimeException(customerErrorMessage)
+        );
+
+        assertEquals(0, response.throttleTimeMs());
+        assertEquals(Errors.UNKNOWN_SERVER_ERROR.code(), response.data().errorCode());
+        assertEquals(customerErrorMessage, response.data().errorMessage());
     }
 
     private ApiVersionsResponse defaultApiVersionsResponse() {
