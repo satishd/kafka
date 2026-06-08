@@ -41,7 +41,8 @@ import org.apache.kafka.server.authorizer._
 import org.apache.kafka.server.config.{KRaftConfigs, QuotaConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ZkConfigs}
 import org.apache.kafka.server.log.remote.storage.{RemoteLogManagerConfig, RemoteStorageManager, RemoteStorageProvider}
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
-import org.apache.kafka.server.util.KafkaScheduler
+import org.apache.kafka.common.utils.Time
+import org.apache.kafka.server.util.{IsrExpansionRateLimiter, KafkaScheduler, RateLimiter}
 import org.apache.kafka.storage.internals.log.{CleanerConfig, LogConfig, ProducerStateManagerConfig}
 import org.apache.kafka.test.MockMetricsReporter
 import org.junit.jupiter.api.Assertions._
@@ -601,6 +602,9 @@ class DynamicBrokerConfigTest {
 
     val authorizer = new TestAuthorizer
     when(kafkaServer.authorizer).thenReturn(Some(authorizer))
+    val replicaManager = mock(classOf[ReplicaManager])
+    when(replicaManager.isrExpansionRateLimiter).thenReturn(mock(classOf[IsrExpansionRateLimiter]))
+    when(kafkaServer.replicaManager).thenReturn(replicaManager)
 
     kafkaServer.config.dynamicConfig.addReconfigurables(kafkaServer)
     props.put("super.users", "User:admin")
@@ -1931,6 +1935,60 @@ class DynamicBrokerConfigTest {
     assertThrows(classOf[ConfigException],
       () => config.dynamicConfig.validate(props, perBrokerConfig = false),
       s"Should throw ConfigException for invalid input: $input")
+  }
+
+  @Test
+  def testIsrRateLimiterNotReconfiguredWhenRateUnchangedAfterRegistration(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "0.3")
+    val config = KafkaConfig.fromProps(props)
+    config.dynamicConfig.initialize(None, None)
+
+    var reconfigureCalled = false
+    val trackingReconfigurable = new BrokerReconfigurable {
+      override def reconfigurableConfigs: Set[String] = DynamicIsrExpansionRateLimitConfig.ReconfigurableConfigs
+      override def validateReconfiguration(newConfig: KafkaConfig): Unit = {}
+      override def reconfigure(oldConfig: KafkaConfig, newConfig: KafkaConfig): Unit = {
+        reconfigureCalled = true
+      }
+    }
+    config.dynamicConfig.addBrokerReconfigurable(trackingReconfigurable)
+
+    val otherProps = new Properties()
+    otherProps.put(ServerConfigs.BACKGROUND_THREADS_CONFIG, "5")
+    config.dynamicConfig.updateDefaultConfig(otherProps)
+
+    assertFalse(reconfigureCalled)
+  }
+
+  @Test
+  def testIsrExpansionRateLimiterInitializedWithConfiguredRateAndBrokerList(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_CONFIG, "0.5")
+    props.put(QuotaConfigs.ISR_EXPANSION_RATE_LIMIT_BROKER_LIST_CONFIG, "1:2")
+    val config = KafkaConfig.fromProps(props)
+
+    config.dynamicConfig.initialize(None, None)
+
+    val limiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, Time.SYSTEM))
+    limiter.updateBrokerIds(config.isrExpansionRateLimitBrokerList.toString)
+
+    assertTrue(limiter.tryAcquire(99))
+    assertFalse(limiter.tryAcquire(1))
+    assertFalse(limiter.tryAcquire(2))
+  }
+
+  @Test
+  def testIsrExpansionRateLimiterStartupWithDefaultEmptyBrokerList(): Unit = {
+    val props = TestUtils.createBrokerConfig(0, TestUtils.MockZkConnect, port = 9092)
+    val config = KafkaConfig.fromProps(props)
+    config.dynamicConfig.initialize(None, None)
+
+    val limiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, Time.SYSTEM))
+    limiter.updateBrokerIds(config.isrExpansionRateLimitBrokerList.toString)
+
+    assertTrue(limiter.tryAcquire(1))
+    assertTrue(limiter.tryAcquire(42))
   }
 }
 

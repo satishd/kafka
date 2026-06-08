@@ -187,7 +187,7 @@ class KafkaServer(
 
   override def brokerState: BrokerState = _brokerState
 
-  val isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
+  @volatile var isrExpansionRateLimiter: IsrExpansionRateLimiter = _
 
   def clusterId: String = _clusterId
 
@@ -268,6 +268,9 @@ class KafkaServer(
         // initialize dynamic broker configs from ZooKeeper. Any updates made after this will be
         // applied after ZkConfigManager starts.
         config.dynamicConfig.initialize(Some(zkClient), clientMetricsReceiverPluginOpt = None)
+
+        isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
+        isrExpansionRateLimiter.updateBrokerIds(config.isrExpansionRateLimitBrokerList.toString)
 
         /* start scheduler */
         kafkaScheduler = new KafkaScheduler(config.backgroundThreads)

@@ -42,6 +42,10 @@ public class IsrExpansionRateLimiter {
 
     public void updateBrokerIds(String brokerIds) {
         log.info("IsrExpansionRateLimiter broker ids updated to {}", brokerIds);
+        if (brokerIds == null || brokerIds.trim().isEmpty()) {
+            brokerIdsToRateLimit = Collections.emptySet();
+            return;
+        }
         Set<Integer> ids = Arrays.stream(brokerIds.trim().split(":"))
                 .map(Integer::parseInt)
                 .collect(Collectors.toSet());

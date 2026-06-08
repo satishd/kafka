@@ -25,6 +25,7 @@ import java.util.HashSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -53,6 +54,27 @@ public class IsrExpansionRateLimiterTest {
     public void testUpdateBrokerIdsWithSingleId() {
         isrExpansionRateLimiter.updateBrokerIds("5");
         assertEquals(Collections.singleton(5), isrExpansionRateLimiter.getBrokerIdsToRateLimit());
+    }
+
+    @Test
+    public void testUpdateBrokerIdsWithEmptyStringClearsBrokerIds() {
+        isrExpansionRateLimiter.updateBrokerIds("1:2:3");
+        isrExpansionRateLimiter.updateBrokerIds("");
+        assertEquals(Collections.emptySet(), isrExpansionRateLimiter.getBrokerIdsToRateLimit());
+    }
+
+    @Test
+    public void testUpdateBrokerIdsWithNullClearsBrokerIds() {
+        isrExpansionRateLimiter.updateBrokerIds("1:2:3");
+        isrExpansionRateLimiter.updateBrokerIds(null);
+        assertEquals(Collections.emptySet(), isrExpansionRateLimiter.getBrokerIdsToRateLimit());
+    }
+
+    @Test
+    public void testUpdateBrokerIdsWithInvalidInputThrows() {
+        assertThrows(NumberFormatException.class, () -> isrExpansionRateLimiter.updateBrokerIds(":1"));
+        assertThrows(NumberFormatException.class, () -> isrExpansionRateLimiter.updateBrokerIds("100::101"));
+        assertThrows(NumberFormatException.class, () -> isrExpansionRateLimiter.updateBrokerIds("abc"));
     }
 
     @Test

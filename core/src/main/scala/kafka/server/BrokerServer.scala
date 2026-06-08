@@ -142,7 +142,7 @@ class BrokerServer(
 
   val brokerFeatures: BrokerFeatures = BrokerFeatures.createDefault(config.unstableFeatureVersionsEnabled)
 
-  val isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
+  @volatile var isrExpansionRateLimiter: IsrExpansionRateLimiter = _
 
   def kafkaYammerMetrics: KafkaYammerMetrics = KafkaYammerMetrics.INSTANCE
 
@@ -181,6 +181,9 @@ class BrokerServer(
 
       val clientMetricsReceiverPlugin = new ClientMetricsReceiverPlugin()
       config.dynamicConfig.initialize(zkClientOpt = None, Some(clientMetricsReceiverPlugin))
+
+      isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
+      isrExpansionRateLimiter.updateBrokerIds(config.isrExpansionRateLimitBrokerList.toString)
 
       /* start scheduler */
       kafkaScheduler = new KafkaScheduler(config.backgroundThreads)
