@@ -155,9 +155,9 @@ class LogSegmentTest {
     val seg = createSegment(40)
     val ms = records(50, "hello", "there")
     seg.append(51, RecordBatch.NO_TIMESTAMP, -1L, ms)
-    // read before first offset
+    // read before first offset - returns base offset of the first batch (50), not the requested offset (48)
     var read = seg.read(48, maxSize, maxPosition, minOneMessage)
-    assertEquals(new LogOffsetMetadata(48, 40, 0), read.fetchOffsetMetadata)
+    assertEquals(new LogOffsetMetadata(50, 40, 0), read.fetchOffsetMetadata)
     assertTrue(read.records.records().iterator().asScala.isEmpty)
     // read at first offset
     read = seg.read(50, maxSize, maxPosition, minOneMessage)
