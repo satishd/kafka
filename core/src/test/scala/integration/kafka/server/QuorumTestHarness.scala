@@ -43,6 +43,9 @@ import org.apache.zookeeper.client.ZKClientConfig
 import org.apache.zookeeper.{WatchedEvent, Watcher, ZooKeeper}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterAll, AfterEach, BeforeAll, BeforeEach, Tag, TestInfo}
+import org.junit.jupiter.params.provider.Arguments
+
+import java.util.{Locale, stream}
 
 import java.nio.file.{Files, Paths}
 import scala.collection.Seq
@@ -479,5 +482,12 @@ object QuorumTestHarness {
   @AfterAll
   def tearDownClass(): Unit = {
     TestUtils.verifyNoUnexpectedThreads("@AfterAll")
+  }
+
+  def getTestQuorumAndGroupProtocolParametersKraftOnly(): stream.Stream[Arguments] = {
+    stream.Stream.of(
+      Arguments.of("kraft", GroupProtocol.CLASSIC.name.toLowerCase(Locale.ROOT)),
+      Arguments.of("kraft", GroupProtocol.CONSUMER.name.toLowerCase(Locale.ROOT))
+    )
   }
 }

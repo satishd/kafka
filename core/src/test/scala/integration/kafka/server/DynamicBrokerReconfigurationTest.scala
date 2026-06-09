@@ -63,7 +63,7 @@ import org.apache.kafka.common.serialization.{StringDeserializer, StringSerializ
 import org.apache.kafka.coordinator.transaction.TransactionLogConfigs
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.security.{PasswordEncoder, PasswordEncoderConfigs}
-import org.apache.kafka.server.config.{ConfigType, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZkConfigs}
+import org.apache.kafka.server.config.{ConfigType, KRaftConfigs, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZkConfigs}
 import org.apache.kafka.server.metrics.{KafkaYammerMetrics, MetricConfigs}
 import org.apache.kafka.server.record.BrokerCompressionType
 import org.apache.kafka.server.util.ShutdownableThread
@@ -72,7 +72,7 @@ import org.apache.kafka.test.{TestSslUtils, TestUtils => JTestUtils}
 import org.junit.jupiter.api.Assertions._
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Disabled, Test, TestInfo}
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.ValueSource
+import org.junit.jupiter.params.provider.{MethodSource, ValueSource}
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.annotation.nowarn
@@ -85,6 +85,7 @@ object DynamicBrokerReconfigurationTest {
   val Plain = "PLAIN"
   val SecureInternal = "INTERNAL"
   val SecureExternal = "EXTERNAL"
+
 }
 
 class DynamicBrokerReconfigurationTest extends QuorumTestHarness with SaslSetup {
@@ -168,6 +169,33 @@ class DynamicBrokerReconfigurationTest extends QuorumTestHarness with SaslSetup 
       topicConfig = servers.head.groupCoordinator.groupMetadataTopicConfigs)
 
     TestMetricsReporter.testReporters.clear()
+  }
+
+  def defaultStaticConfig(brokerId: Int): Properties = {
+    val props = TestUtils.createBrokerConfig(brokerId, null)
+    props.put(SocketServerConfigs.ADVERTISED_LISTENERS_CONFIG, s"$SecureInternal://localhost:0, $SecureExternal://localhost:0")
+    props ++= securityProps(sslProperties1, TRUSTSTORE_PROPS)
+    // Ensure that we can support multiple listeners per security protocol and multiple security protocols
+    props.put(SocketServerConfigs.LISTENERS_CONFIG, s"$SecureInternal://localhost:0, $SecureExternal://localhost:0")
+    props.put(SocketServerConfigs.LISTENER_SECURITY_PROTOCOL_MAP_CONFIG, s"PLAINTEXT:PLAINTEXT, $SecureInternal:SSL, $SecureExternal:SASL_SSL, CONTROLLER:$controllerListenerSecurityProtocol")
+    props.put(ReplicationConfigs.INTER_BROKER_LISTENER_NAME_CONFIG, SecureInternal)
+    props.put(BrokerSecurityConfigs.SSL_CLIENT_AUTH_CONFIG, "requested")
+    props.put(BrokerSecurityConfigs.SASL_MECHANISM_INTER_BROKER_PROTOCOL_CONFIG, "PLAIN")
+    props.put(BrokerSecurityConfigs.SASL_ENABLED_MECHANISMS_CONFIG, kafkaServerSaslMechanisms.mkString(","))
+    props.put(ServerLogConfigs.LOG_SEGMENT_BYTES_CONFIG, "1048576") // low value to test log rolling on config update
+    props.put(ReplicationConfigs.NUM_REPLICA_FETCHERS_CONFIG, "2") // greater than one to test reducing threads
+    props.put(ServerLogConfigs.LOG_RETENTION_TIME_MILLIS_CONFIG, 1680000000.toString)
+    props.put(ServerLogConfigs.LOG_RETENTION_TIME_HOURS_CONFIG, 168.toString)
+
+    props ++= sslProperties1
+    props ++= securityProps(sslProperties1, KEYSTORE_PROPS, listenerPrefix(SecureInternal))
+
+    // Set invalid top-level properties to ensure that listener config is used
+    // Don't set any dynamic configs here since they get overridden in tests
+    props ++= invalidSslProperties
+    props ++= securityProps(invalidSslProperties, KEYSTORE_PROPS)
+    props ++= securityProps(sslProperties1, KEYSTORE_PROPS, listenerPrefix(SecureExternal))
+    props
   }
 
   @AfterEach
@@ -1393,6 +1421,38 @@ class DynamicBrokerReconfigurationTest extends QuorumTestHarness with SaslSetup 
   private def fetchBrokerConfigsFromZooKeeper(server: KafkaBroker): Properties = {
     val props = adminZkClient.fetchEntityConfig(ConfigType.BROKER, server.config.brokerId.toString)
     server.config.dynamicConfig.fromPersistentProps(props, perBrokerConfig = true)
+  }
+
+  @ParameterizedTest(name = TestInfoUtils.TestWithParameterizedQuorumAndGroupProtocolNames)
+  @MethodSource(Array("getTestQuorumAndGroupProtocolParametersKraftOnly"))
+  def testServersCanStartWithInvalidStaticConfigsAndValidDynamicConfigs(quorum: String, groupProtocol: String): Unit = {
+    // modify snapshot interval config to explicitly take snapshot on a broker with valid dynamic configs
+    val props = defaultStaticConfig(numServers)
+    props.put(KRaftConfigs.METADATA_SNAPSHOT_MAX_INTERVAL_MS_CONFIG, "10000")
+
+    val kafkaConfig = KafkaConfig.fromProps(props)
+    val newBroker = createBroker(kafkaConfig).asInstanceOf[BrokerServer]
+    servers += newBroker
+
+    alterSslKeystoreUsingConfigCommand(sslProperties1, listenerPrefix(SecureExternal))
+
+    TestUtils.ensureConsistentKRaftMetadata(servers, controllerServer)
+
+    TestUtils.waitUntilTrue(
+      () => newBroker.raftManager.replicatedLog.latestSnapshotId().isPresent,
+      "metadata snapshot not present on broker",
+      30000L
+    )
+
+    // shutdown broker and attempt to restart it after invalidating its static configurations
+    newBroker.shutdown()
+    newBroker.awaitShutdown()
+
+    val invalidStaticConfigs = defaultStaticConfig(newBroker.config.brokerId)
+    invalidStaticConfigs.putAll(securityProps(invalidSslConfigs, KEYSTORE_PROPS, listenerPrefix(SecureExternal)))
+    newBroker.config.updateCurrentConfig(KafkaConfig.fromProps(invalidStaticConfigs))
+
+    newBroker.startup()
   }
 
   private def awaitInitialPositions(consumer: Consumer[_, _]): Unit = {

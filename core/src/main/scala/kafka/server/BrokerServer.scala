@@ -181,6 +181,8 @@ class BrokerServer(
 
       val clientMetricsReceiverPlugin = new ClientMetricsReceiverPlugin()
       config.dynamicConfig.initialize(zkClientOpt = None, Some(clientMetricsReceiverPlugin))
+      quotaManagers = QuotaFactory.instantiate(config, metrics, time, s"broker-${config.nodeId}-")
+      DynamicBrokerConfig.readDynamicBrokerConfigsFromSnapshot(raftManager, config, quotaManagers)
 
       isrExpansionRateLimiter = new IsrExpansionRateLimiter(new RateLimiter(config.isrExpansionRateLimit, time))
       isrExpansionRateLimiter.updateBrokerIds(config.isrExpansionRateLimitBrokerList.toString)
@@ -191,8 +193,6 @@ class BrokerServer(
 
       /* register broker metrics */
       brokerTopicStats = new BrokerTopicStats(config.remoteLogManagerConfig.isRemoteStorageSystemEnabled())
-
-      quotaManagers = QuotaFactory.instantiate(config, metrics, time, s"broker-${config.nodeId}-")
 
       logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 

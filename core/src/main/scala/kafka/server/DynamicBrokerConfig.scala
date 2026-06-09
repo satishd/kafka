@@ -24,26 +24,31 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import kafka.cluster.EndPoint
 import kafka.log.{LogCleaner, LogManager}
 import kafka.network.{DataPlaneAcceptor, SocketServer}
+import kafka.raft.KafkaRaftManager
 import kafka.server.DynamicBrokerConfig._
 import kafka.utils.{CoreUtils, Logging}
 import kafka.utils.Implicits._
 import kafka.zk.{AdminZkClient, KafkaZkClient}
 import org.apache.kafka.common.Reconfigurable
 import org.apache.kafka.common.config.internals.BrokerSecurityConfigs
-import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, SaslConfigs, SslConfigs, TopicConfig}
-import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
+import org.apache.kafka.common.config.{AbstractConfig, ConfigDef, ConfigException, ConfigResource, SaslConfigs, SslConfigs, TopicConfig}
 import org.apache.kafka.common.config.types.Password
+import org.apache.kafka.common.metadata.{ConfigRecord, MetadataRecordType}
+import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
 import org.apache.kafka.common.network.{ListenerName, ListenerReconfigurable}
 import org.apache.kafka.common.security.authenticator.LoginManager
-import org.apache.kafka.common.utils.{ConfigUtils, Utils}
+import org.apache.kafka.common.utils.{BufferSupplier, ConfigUtils, Utils}
 import org.apache.kafka.coordinator.transaction.TransactionLogConfigs
 import org.apache.kafka.network.SocketServerConfigs
+import org.apache.kafka.raft.KafkaRaftClient
 import org.apache.kafka.security.PasswordEncoder
 import org.apache.kafka.server.ProcessRole
+import org.apache.kafka.server.common.ApiMessageAndVersion
 import org.apache.kafka.server.config.{ConfigType, QuotaConfigs, ReplicaStartOffsetStrategy, ReplicationConfigs, ServerConfigs, ServerLogConfigs, ServerTopicConfigSynonyms, ZooKeeperInternals}
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{ClientMetricsReceiverPlugin, MetricConfigs}
 import org.apache.kafka.server.telemetry.ClientTelemetry
+import org.apache.kafka.snapshot.RecordsSnapshotReader
 import org.apache.kafka.storage.internals.log.{LogConfig, ProducerStateManagerConfig}
 
 import scala.annotation.nowarn
@@ -209,6 +214,52 @@ object DynamicBrokerConfig {
       }
     }
     props
+  }
+
+  private[server] def readDynamicBrokerConfigsFromSnapshot(
+    raftManager: KafkaRaftManager[ApiMessageAndVersion],
+    config: KafkaConfig,
+    quotaManagers: QuotaFactory.QuotaManagers
+  ): Unit = {
+    def putOrRemoveIfNull(props: Properties, key: String, value: String): Unit = {
+      if (value == null) {
+        props.remove(key)
+      } else {
+        props.put(key, value)
+      }
+    }
+    raftManager.replicatedLog.latestSnapshotId().ifPresent(latestSnapshotId => {
+      raftManager.replicatedLog.readSnapshot(latestSnapshotId).ifPresent(rawSnapshotReader => {
+        val reader = RecordsSnapshotReader.of(
+          rawSnapshotReader,
+          raftManager.recordSerde,
+          BufferSupplier.create(),
+          KafkaRaftClient.MAX_BATCH_SIZE_BYTES,
+          true
+        )
+        val dynamicPerBrokerConfigs = new Properties()
+        val dynamicDefaultConfigs = new Properties()
+        while (reader.hasNext) {
+          val batch = reader.next()
+          batch.forEach(record => {
+            if (record.message().apiKey() == MetadataRecordType.CONFIG_RECORD.id) {
+              val configRecord = record.message().asInstanceOf[ConfigRecord]
+              if (DynamicBrokerConfig.AllDynamicConfigs.contains(configRecord.name()) &&
+                configRecord.resourceType() == ConfigResource.Type.BROKER.id()) {
+                if (configRecord.resourceName().isEmpty) {
+                  putOrRemoveIfNull(dynamicDefaultConfigs, configRecord.name(), configRecord.value())
+                } else if (configRecord.resourceName() == config.brokerId.toString) {
+                  putOrRemoveIfNull(dynamicPerBrokerConfigs, configRecord.name(), configRecord.value())
+                }
+              }
+            }
+          })
+        }
+        val configHandler = new BrokerConfigHandler(config, quotaManagers)
+        configHandler.processConfigChanges(ZooKeeperInternals.DEFAULT_STRING, dynamicDefaultConfigs)
+        configHandler.processConfigChanges(config.brokerId.toString, dynamicPerBrokerConfigs)
+      })
+    })
   }
 }
 
