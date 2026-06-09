@@ -340,8 +340,10 @@ public class ClusterControlManager {
         long nowNs = time.nanoseconds();
         for (BrokerRegistration registration : brokerRegistrations.values()) {
             heartbeatManager.register(registration.id(), registration.fenced());
-            heartbeatManager.tracker().updateContactTime(
-                new BrokerIdAndEpoch(registration.id(), registration.epoch()), nowNs);
+            if (!registration.fenced()) {
+                heartbeatManager.tracker().updateContactTime(
+                    new BrokerIdAndEpoch(registration.id(), registration.epoch()), nowNs);
+            }
         }
     }
 
@@ -395,8 +397,8 @@ public class ClusterControlManager {
             prevIncarnationId = existing.incarnationId();
             if (heartbeatManager.hasValidSession(brokerId, existing.epoch())) {
                 if (!request.incarnationId().equals(prevIncarnationId)) {
-                    throw new DuplicateBrokerRegistrationException("Another broker is " +
-                        "registered with that broker id.");
+                    throw new DuplicateBrokerRegistrationException("Another broker is registered with that broker id. If the broker " +
+                            "was recently restarted this should self-resolve once the heartbeat manager expires the broker's session.");
                 }
             }
         }
