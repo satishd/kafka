@@ -654,6 +654,15 @@ public final class RaftClientTestContext {
         );
     }
 
+    void assertUnknownLeaderAndNoVotedCandidate(int epoch) {
+        Set<Integer> voters = kraftVersion.isReconfigSupported() ?
+                Collections.emptySet() : startingVoters.voterIds();
+        assertEquals(
+            ElectionState.withUnknownLeader(epoch, voters),
+            quorumStateStore.readElectionState().get()
+        );
+    }
+
     void assertResignedLeader(int epoch, int leaderId) {
         assertTrue(client.quorum().isResigned());
         assertEquals(
