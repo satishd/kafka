@@ -16,6 +16,11 @@
  */
 package org.apache.kafka.raft;
 
+import org.apache.kafka.common.message.AddRaftVoterResponseData;
+import org.apache.kafka.common.message.RemoveRaftVoterResponseData;
+import org.apache.kafka.common.protocol.Errors;
+
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -27,9 +32,35 @@ import java.util.Random;
 import static org.apache.kafka.raft.KafkaRaftClient.RETRY_BACKOFF_BASE_MS;
 import static org.apache.kafka.raft.RaftUtil.binaryExponentialElectionBackoffMs;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class RaftUtilTest {
+
+    @Test
+    public void testAddVoterResponse() {
+        for (Errors error : Errors.values()) {
+            AddRaftVoterResponseData addRaftVoterResponseData = RaftUtil.addVoterResponse(error, null);
+            assertEquals(error.code(), addRaftVoterResponseData.errorCode());
+            if (Errors.NONE.equals(error))
+                assertNull(addRaftVoterResponseData.errorMessage());
+            else
+                assertEquals(error.message(), addRaftVoterResponseData.errorMessage());
+        }
+    }
+
+    @Test
+    public void testRemoveVoterResponse() {
+        for (Errors error : Errors.values()) {
+            RemoveRaftVoterResponseData removeRaftVoterResponseData = RaftUtil.removeVoterResponse(error, null);
+            assertEquals(error.code(), removeRaftVoterResponseData.errorCode());
+            if (Errors.NONE.equals(error))
+                assertNull(removeRaftVoterResponseData.errorMessage());
+            else
+                assertEquals(error.message(), removeRaftVoterResponseData.errorMessage());
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13})
     public void testExponentialBoundOfExponentialElectionBackoffMs(int retries) {
