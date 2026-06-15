@@ -1,3 +1,22 @@
+# Release Kafka 3.9.24-uber build (06/15/2026)
+- use latest streaming-tools that fixes the port binding error in scripts
+- KAFKA-19294: Fix BrokerLifecycleManager RPC timeouts (#19745) (#153)
+- KAFKA-14619; KRaft validate snapshot id are at batch boundaries (#17500) (#158)
+- KAFKA-18837: Ensure controller quorum timeouts and backoffs are non-negative (#161)
+- KAFKA-18859 honor the error message of UnregisterBrokerResponse (#19027) (#162
+- KAFKA-15371 MetadataShell is stuck when bootstrapping (#19419) (#164)
+- KAFKA-19350 Don't propagate the error caused by CreateTopicPolicy to FatalFaultHandler #19857 (#165)
+- KAFKA-19497; Topic replay code does not handle creation and deletion in the same delta #20242 (#166)
+- KAFKA-19690 Add epoch check before verification guard check to prevent unexpected fatal error (#20577) (#154)
+- KAFKA-19719 --no-initial-controllers should not assume kraft.version=1 (#20624) (#155)
+- Open JMX connection lazily per scrape in DefaultKafkaJmxCollector (#126)
+- KAFKA-20380; backwards compatible advertised.listeners when it is not defined (#22219) (#156)
+- KAFKA-17431: Support invalid static configs for KRaft so long as dynamic configs are valid #18949 (#174)
+- KAFKA-19130: Do not add fenced brokers to BrokerRegistrationTracker on startup #19454 (#175)
+- KAFKA-19354: KRaft observer should send fetch to best node (#19854) (#170)
+- KAFKA-19605; Fix the busy loop occurring in kraft client observers #20354 (#176)
+- KAFKA-18061 AddRaftVoter responds with error message "NONE" instead of null #17930 (#167)
+
 # Release Kafka 3.9.23-uber build (06/07/2026)
 -  Fix ISR expansion rate limit not applied at startup in ZK mode (#160)
 -  KAFKA-17803: LogSegment#read should return the base offset of the batch that contains startOffset rather than startOffset (#17528) (#157)
