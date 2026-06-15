@@ -89,14 +89,14 @@ public class KafkaRaftMetrics implements AutoCloseable {
         metrics.addMetric(this.currentStateMetricName, null, stateProvider);
 
         this.currentLeaderIdMetricName = metrics.metricName("current-leader", metricGroupName, "The current quorum leader's id; -1 indicates unknown");
-        metrics.addMetric(this.currentLeaderIdMetricName, (mConfig, currentTimeMs) -> state.leaderId().orElse(-1));
+        metrics.addMetric(this.currentLeaderIdMetricName, (Gauge<Integer>) (mConfig, currentTimeMs) -> state.leaderId().orElse(-1));
 
         this.currentVotedIdMetricName = metrics.metricName("current-vote", metricGroupName, "The current voted id; -1 indicates not voted for anyone");
-        metrics.addMetric(this.currentVotedIdMetricName, (mConfig, currentTimeMs) -> {
+        metrics.addMetric(this.currentVotedIdMetricName, (Gauge<Integer>) (mConfig, currentTimeMs) -> {
             if (state.isLeader() || state.isCandidate()) {
                 return state.localIdOrThrow();
             } else {
-                return (double) state.maybeUnattachedState()
+                return state.maybeUnattachedState()
                     .flatMap(votedState -> votedState.votedKey().map(ReplicaKey::id))
                     .orElse(-1);
             }
@@ -120,23 +120,23 @@ public class KafkaRaftMetrics implements AutoCloseable {
         metrics.addMetric(this.currentVotedDirectoryIdMetricName, null, votedDirectoryIdProvider);
 
         this.currentEpochMetricName = metrics.metricName("current-epoch", metricGroupName, "The current quorum epoch.");
-        metrics.addMetric(this.currentEpochMetricName, (mConfig, currentTimeMs) -> state.epoch());
+        metrics.addMetric(this.currentEpochMetricName, (Gauge<Integer>) (mConfig, currentTimeMs) -> state.epoch());
 
         this.highWatermarkMetricName = metrics.metricName("high-watermark", metricGroupName, "The high watermark maintained on this member; -1 if it is unknown");
         metrics.addMetric(
             this.highWatermarkMetricName,
-            (mConfig, currentTimeMs) -> state.highWatermark().map(LogOffsetMetadata::offset).orElse(-1L)
+                (Gauge<Long>) (mConfig, currentTimeMs) -> state.highWatermark().map(LogOffsetMetadata::offset).orElse(-1L)
         );
 
         this.logEndOffsetMetricName = metrics.metricName("log-end-offset", metricGroupName, "The current raft log end offset.");
-        metrics.addMetric(this.logEndOffsetMetricName, (mConfig, currentTimeMs) -> logEndOffset.offset());
+        metrics.addMetric(this.logEndOffsetMetricName, (Gauge<Long>) (mConfig, currentTimeMs) -> logEndOffset.offset());
 
         this.logEndEpochMetricName = metrics.metricName("log-end-epoch", metricGroupName, "The current raft log end epoch.");
-        metrics.addMetric(this.logEndEpochMetricName, (mConfig, currentTimeMs) -> logEndOffset.epoch());
+        metrics.addMetric(this.logEndEpochMetricName, (Gauge<Integer>) (mConfig, currentTimeMs) -> logEndOffset.epoch());
 
         this.numUnknownVoterConnectionsMetricName = metrics.metricName("number-unknown-voter-connections", metricGroupName,
                 "Number of unknown voters whose connection information is not cached; would never be larger than quorum-size.");
-        metrics.addMetric(this.numUnknownVoterConnectionsMetricName, (mConfig, currentTimeMs) -> numUnknownVoterConnections);
+        metrics.addMetric(this.numUnknownVoterConnectionsMetricName, (Gauge<Integer>) (mConfig, currentTimeMs) -> numUnknownVoterConnections);
 
         this.commitTimeSensor = metrics.sensor("commit-latency");
         this.commitTimeSensor.add(metrics.metricName("commit-latency-avg", metricGroupName,
