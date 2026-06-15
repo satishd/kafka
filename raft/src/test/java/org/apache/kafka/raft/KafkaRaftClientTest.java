@@ -612,7 +612,7 @@ public class KafkaRaftClientTest {
         int epoch = context.currentEpoch();
         assertEquals(OptionalInt.of(localId), context.currentLeader());
 
-        // begin epoch requests should be sent out every beginQuorumEpochTimeoutMs
+        // begin epoch requests sent out every beginQuorumEpochTimeoutMs if replicas have not fetched
         context.time.sleep(context.beginQuorumEpochTimeoutMs);
         context.client.poll();
         context.assertSentBeginQuorumEpochRequest(epoch, Utils.mkSet(remoteId1, remoteId2));
@@ -626,6 +626,50 @@ public class KafkaRaftClientTest {
         context.client.poll();
         context.assertSentBeginQuorumEpochRequest(epoch, Utils.mkSet(remoteId1, remoteId2));
     }
+
+    @ParameterizedTest
+    @ValueSource(booleans = { true, false })
+    public void testBeginQuorumShouldNotSendAfterFetchRequest(boolean withKip853Rpc) throws Exception {
+        ReplicaKey localKey = replicaKey(randomReplicaId(), true);
+        int remoteId1 = localKey.id() + 1;
+        int remoteId2 = localKey.id() + 2;
+        ReplicaKey replicaKey1 = replicaKey(remoteId1, withKip853Rpc);
+        ReplicaKey replicaKey2 = replicaKey(remoteId2, withKip853Rpc);
+
+        RaftClientTestContext context = new RaftClientTestContext.Builder(localKey.id(), localKey.directoryId().get())
+            .withKip853Rpc(withKip853Rpc)
+            .withBootstrapSnapshot(Optional.of(VoterSetTest.voterSet(Stream.of(localKey, replicaKey1, replicaKey2))))
+            .build();
+
+        context.becomeLeader();
+        int epoch = context.currentEpoch();
+        assertEquals(OptionalInt.of(localKey.id()), context.currentLeader());
+
+        // begin epoch requests sent out every beginQuorumEpochTimeoutMs if replicas have not fetched
+        context.time.sleep(context.beginQuorumEpochTimeoutMs);
+        context.client.poll();
+        context.assertSentBeginQuorumEpochRequest(epoch, Utils.mkSet(remoteId1, remoteId2));
+
+        long partialDelay = context.beginQuorumEpochTimeoutMs / 3;
+        context.time.sleep(context.beginQuorumEpochTimeoutMs / 3);
+        context.deliverRequest(context.fetchRequest(epoch, replicaKey1, 0, 0, 0));
+        context.pollUntilResponse();
+
+        context.time.sleep(context.beginQuorumEpochTimeoutMs - partialDelay);
+        context.client.poll();
+        // leader will not send BeginQuorumEpochRequest again for replica 1 since fetchRequest was received
+        // before beginQuorumEpochTimeoutMs time has elapsed
+        context.assertSentBeginQuorumEpochRequest(epoch, Utils.mkSet(remoteId2));
+
+        context.deliverRequest(context.fetchRequest(epoch, replicaKey1, 0, 0, 0));
+        context.pollUntilResponse();
+        context.time.sleep(context.beginQuorumEpochTimeoutMs);
+        context.client.poll();
+        // leader should send BeginQuorumEpochRequest to a node if beginQuorumEpochTimeoutMs time has elapsed
+        // without receiving a fetch request from that node
+        context.assertSentBeginQuorumEpochRequest(epoch, Utils.mkSet(remoteId1, remoteId2));
+    }
+
 
     @ParameterizedTest
     @ValueSource(booleans = { true, false })
