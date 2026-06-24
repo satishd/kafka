@@ -1177,16 +1177,11 @@ public class RemoteLogManager implements Closeable {
                 customMetadata = remoteWriteTimer.time(() -> remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData));
             } catch (RetriableRemoteStorageException e) {
                 // deletion is not required since the copy didn't happen
-                deleteRemoteLogSegment(copySegmentStartedRlsm, ignored -> !isCancelled(), true);
+                cleanupSegment(copySegmentStartedRlsm, true);
                 throw e;
             } catch (Exception e) {
                 logger.info("Copy failed, cleaning segment {}", copySegmentStartedRlsm.remoteLogSegmentId());
-                try {
-                    deleteRemoteLogSegment(copySegmentStartedRlsm, ignored -> !isCancelled());
-                    LOGGER.info("Cleanup completed for segment {}", copySegmentStartedRlsm.remoteLogSegmentId());
-                } catch (RemoteStorageException e1) {
-                    LOGGER.info("Cleanup failed, will retry later with segment {}: {}", copySegmentStartedRlsm.remoteLogSegmentId(), e1.getMessage());
-                }
+                cleanupSegment(copySegmentStartedRlsm);
                 throw new RemoteStorageException(e);
             }
 
@@ -1204,12 +1199,7 @@ public class RemoteLogManager implements Closeable {
                     // For deletion, we provide back the custom metadata by creating a new metadata object from the update.
                     // However, the update itself will not be stored in this case.
                     RemoteLogSegmentMetadata newMetadata = copySegmentStartedRlsm.createWithUpdates(copySegmentFinishedRlsm);
-                    try {
-                        deleteRemoteLogSegment(newMetadata, ignored -> !isCancelled());
-                        LOGGER.info("Cleanup completed for segment {}", newMetadata.remoteLogSegmentId());
-                    } catch (RemoteStorageException e1) {
-                        LOGGER.info("Cleanup failed, will retry later with segment {}: {}", newMetadata.remoteLogSegmentId(), e1.getMessage());
-                    }
+                    cleanupSegment(newMetadata);
                     throw e;
                 }
             }
@@ -1229,6 +1219,20 @@ public class RemoteLogManager implements Closeable {
             logger.info("Copied {} to remote storage with segment-id: {}",
                     logFileName, copySegmentFinishedRlsm.remoteLogSegmentId());
             recordLagStats(log);
+        }
+
+        private void cleanupSegment(RemoteLogSegmentMetadata segmentMetadata) throws ExecutionException, InterruptedException {
+            cleanupSegment(segmentMetadata, false);
+        }
+
+        private void cleanupSegment(RemoteLogSegmentMetadata segmentMetadata,
+                                    boolean skipDeletionFromRemote) throws ExecutionException, InterruptedException {
+            try {
+                deleteRemoteLogSegment(segmentMetadata, ignored -> !isCancelled(), skipDeletionFromRemote);
+                LOGGER.info("Cleanup completed for segment {}", segmentMetadata.remoteLogSegmentId());
+            } catch (RemoteStorageException e1) {
+                LOGGER.info("Cleanup failed, will retry later with segment {}: {}", segmentMetadata.remoteLogSegmentId(), e1.getMessage());
+            }
         }
 
         private void recordLagStats(UnifiedLog log) {
