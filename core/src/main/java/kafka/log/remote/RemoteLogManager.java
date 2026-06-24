@@ -1177,6 +1177,7 @@ public class RemoteLogManager implements Closeable {
                 customMetadata = remoteWriteTimer.time(() -> remoteLogStorageManager.copyLogSegmentData(copySegmentStartedRlsm, segmentData));
             } catch (RetriableRemoteStorageException e) {
                 // deletion is not required since the copy didn't happen
+                deleteRemoteLogSegment(copySegmentStartedRlsm, ignored -> !isCancelled(), true);
                 throw e;
             } catch (Exception e) {
                 logger.info("Copy failed, cleaning segment {}", copySegmentStartedRlsm.remoteLogSegmentId());
@@ -1743,8 +1744,15 @@ public class RemoteLogManager implements Closeable {
     }
 
     private boolean deleteRemoteLogSegment(
+            RemoteLogSegmentMetadata segmentMetadata,
+            Predicate<RemoteLogSegmentMetadata> predicate) throws RemoteStorageException, ExecutionException, InterruptedException {
+        return deleteRemoteLogSegment(segmentMetadata, predicate, false);
+    }
+
+    private boolean deleteRemoteLogSegment(
         RemoteLogSegmentMetadata segmentMetadata,
-        Predicate<RemoteLogSegmentMetadata> predicate
+        Predicate<RemoteLogSegmentMetadata> predicate,
+        boolean skipDeletionFromRemote
     ) throws RemoteStorageException, ExecutionException, InterruptedException {
         if (predicate.test(segmentMetadata)) {
             LOGGER.debug("Deleting remote log segment {}", segmentMetadata.remoteLogSegmentId());
@@ -1759,14 +1767,16 @@ public class RemoteLogManager implements Closeable {
             brokerTopicStats.allTopicsStats().remoteDeleteRequestRate().mark();
 
             // Delete the segment in remote storage.
-            try {
-                remoteLogStorageManager.deleteLogSegmentData(segmentMetadata);
-            } catch (RemoteStorageException e) {
-                if (!(e instanceof RetriableRemoteStorageException)) {
-                    brokerTopicStats.topicStats(topic).failedRemoteDeleteRequestRate().mark();
-                    brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().mark();
+            if (!skipDeletionFromRemote) {
+                try {
+                    remoteLogStorageManager.deleteLogSegmentData(segmentMetadata);
+                } catch (RemoteStorageException e) {
+                    if (!(e instanceof RetriableRemoteStorageException)) {
+                        brokerTopicStats.topicStats(topic).failedRemoteDeleteRequestRate().mark();
+                        brokerTopicStats.allTopicsStats().failedRemoteDeleteRequestRate().mark();
+                    }
+                    throw e;
                 }
-                throw e;
             }
 
             // Publish delete segment finished event.

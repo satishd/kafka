@@ -807,9 +807,12 @@ public class RemoteLogManagerTest {
         assertEquals(10, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagBytes());
         assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyLagSegments());
 
-        // deletion should not be called on RetriableRemoteStorageException and the failedRemoteCopyRequest value
+        // deletion on remote storage should not be called on RetriableRemoteStorageException and the failedRemoteCopyRequest value
         // should remain same
         verify(remoteStorageManager, times(0)).deleteLogSegmentData(any());
+        // verify deletion state update
+        verify(remoteLogMetadataManager, times(4)).updateRemoteLogSegmentMetadata(any(RemoteLogSegmentMetadataUpdate.class));
+
         assertEquals(2, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).remoteCopyRequestRate().count());
         assertEquals(1, brokerTopicStats.topicStats(leaderTopicIdPartition.topic()).failedRemoteCopyRequestRate().count());
         assertEquals(2, brokerTopicStats.allTopicsStats().remoteCopyRequestRate().count());

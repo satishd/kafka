@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -426,6 +427,21 @@ public class ConsumerTaskTest {
 
         assertEquals(Optional.of(1L), consumerTask.readOffsetForMetadataPartition(metadataPartition));
         assertEquals(2, handler.metadataCounter);
+    }
+
+    @Test
+    public void testSkipTombstoneRecords() {
+        final TopicIdPartition tpId = getIdPartitions("tombstone", 1).get(0);
+        final int metadataPartition = partitioner.metadataPartition(tpId);
+        consumer.updateEndOffsets(Collections.singletonMap(toRemoteLogPartition(metadataPartition), 1L));
+        consumerTask.addAssignmentsForPartitions(Collections.singleton(tpId));
+        consumerTask.ingestRecords();
+
+        byte[] key = "tombstone".getBytes(StandardCharsets.UTF_8);
+        final ConsumerRecord<byte[], byte[]> record = new ConsumerRecord<>(
+                TopicBasedRemoteLogMetadataManagerConfig.REMOTE_LOG_METADATA_TOPIC_NAME, metadataPartition, 0, key, null);
+        consumer.addRecord(record);
+        consumerTask.ingestRecords();
     }
 
     private void addRecord(final MockConsumer<byte[], byte[]> consumer,

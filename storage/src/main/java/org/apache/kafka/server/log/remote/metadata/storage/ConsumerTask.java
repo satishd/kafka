@@ -171,13 +171,16 @@ public class ConsumerTask implements IConsumerTask {
     }
 
     private void processConsumerRecord(ConsumerRecord<byte[], byte[]> record) {
-        final RemoteLogMetadata remoteLogMetadata = serde.deserialize(record.value());
-        if (shouldProcess(remoteLogMetadata, record.offset())) {
-            remotePartitionMetadataEventHandler.handleRemoteLogMetadata(remoteLogMetadata);
-            readOffsetsByUserTopicPartition.put(remoteLogMetadata.topicIdPartition(), record.offset());
-        } else {
-            log.trace("The event {} is skipped because it is either already processed or not assigned to this consumer",
-                    remoteLogMetadata);
+        // skip the tombstone records
+        if (record.value() != null) {
+            final RemoteLogMetadata remoteLogMetadata = serde.deserialize(record.value());
+            if (shouldProcess(remoteLogMetadata, record.offset())) {
+                remotePartitionMetadataEventHandler.handleRemoteLogMetadata(remoteLogMetadata);
+                readOffsetsByUserTopicPartition.put(remoteLogMetadata.topicIdPartition(), record.offset());
+            } else {
+                log.trace("The event {} is skipped because it is either already processed or not assigned to this consumer",
+                        remoteLogMetadata);
+            }
         }
         log.trace("Updating consumed offset: {} for partition {}", record.offset(), record.partition());
         readOffsetsByMetadataPartition.put(record.partition(), record.offset());
