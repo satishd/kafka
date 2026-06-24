@@ -1,3 +1,9 @@
+# Release Kafka 3.9.25-uber build (06/24/2026)
+- KAFKA-18679: KafkaRaftMetrics metrics are exposing doubles instead of integers
+- KAFKA-16926: Optimize BeginQuorumEpoch heartbeat (#20318) (#168)
+- DKAFC-6105: Handle tombstone records in the remote log metadata topic
+- DKAFC-6105: Consolidate cleanup logic in RLM for error handling (#189)
+
 # Release Kafka 3.9.24-uber build (06/15/2026)
 - use latest streaming-tools that fixes the port binding error in scripts
 - KAFKA-19294: Fix BrokerLifecycleManager RPC timeouts (#19745) (#153)
