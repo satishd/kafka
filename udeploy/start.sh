@@ -85,10 +85,10 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export KAFKA_HEAP_OPTS="${KAFKA_HEAP_OPTS} ${HEAP_OPTS_JDK17}"
 export EXTRA_ARGS="${EXTRA_ARGS} --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED --add-exports java.security.jgss/sun.security.krb5=ALL-UNNAMED"
 # Check if cluster is currently setup with secure settings. If true, add secure to Kafka lib folder
-if cat /etc/kafka/server.properties | grep -e "^listeners=" | grep -q "SSL://"; then
-  # EXTRA_ARGS is picked up by kafka-server-start.sh
-  export EXTRA_ARGS="${EXTRA_ARGS} -Dupki.properties=/etc/kafka/broker-security.properties \
-                                   -Dcom.uber.engsec.auth.bouncycastle-enabled=false"
+if cat /etc/kafka/server.properties | grep -e "^listeners=" | grep -q "SSL://" || \
+    cat /etc/kafka/server.properties | grep -e "^listener.security.protocol.map=" | grep -q "CONTROLLER:SSL"; then
+    export EXTRA_ARGS="${EXTRA_ARGS} -Dupki.properties=/etc/kafka/broker-security.properties \
+                                     -Dcom.uber.engsec.auth.bouncycastle-enabled=false"
 fi
 
 if [ ! -f "$(echo ${KAFKA_LOG4J_OPTS} | cut -d: -f2)" ]; then
