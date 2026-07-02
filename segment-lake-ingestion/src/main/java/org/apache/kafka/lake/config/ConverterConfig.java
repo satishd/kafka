@@ -61,6 +61,18 @@ public class ConverterConfig extends AbstractConfig {
     private static final String TOPICS_ALLOWLIST_DOC =
             "Comma separated list of topics to ingest. Empty means all topics are considered.";
 
+    public static final String RSM_CLASS_NAME_CONFIG = "remote.storage.manager.class.name";
+    private static final String RSM_CLASS_NAME_DOC =
+            "Fully qualified class name of the RemoteStorageManager implementation used to fetch segments. "
+                    + "Leave empty to run discovery only.";
+
+    public static final String RSM_CLASS_PATH_CONFIG = "remote.storage.manager.class.path";
+    private static final String RSM_CLASS_PATH_DOC =
+            "Optional classpath from which to load the RemoteStorageManager in a child-first class loader.";
+
+    /** Prefix for keys forwarded (with the prefix stripped) to {@code RemoteStorageManager.configure}. */
+    public static final String RSM_CONFIG_PREFIX = "rsm.config.";
+
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
             .define(METADATA_TOPIC_CONFIG, ConfigDef.Type.STRING, METADATA_TOPIC_DEFAULT,
@@ -72,7 +84,11 @@ public class ConverterConfig extends AbstractConfig {
             .define(MAX_POLL_RECORDS_CONFIG, ConfigDef.Type.INT, MAX_POLL_RECORDS_DEFAULT,
                     ConfigDef.Importance.LOW, MAX_POLL_RECORDS_DOC)
             .define(TOPICS_ALLOWLIST_CONFIG, ConfigDef.Type.LIST, Collections.emptyList(),
-                    ConfigDef.Importance.MEDIUM, TOPICS_ALLOWLIST_DOC);
+                    ConfigDef.Importance.MEDIUM, TOPICS_ALLOWLIST_DOC)
+            .define(RSM_CLASS_NAME_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.HIGH, RSM_CLASS_NAME_DOC)
+            .define(RSM_CLASS_PATH_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.LOW, RSM_CLASS_PATH_DOC);
 
     public ConverterConfig(Map<?, ?> props) {
         super(CONFIG_DEF, props);
@@ -88,6 +104,22 @@ public class ConverterConfig extends AbstractConfig {
 
     public List<String> topicsAllowlist() {
         return getList(TOPICS_ALLOWLIST_CONFIG);
+    }
+
+    public String rsmClassName() {
+        return getString(RSM_CLASS_NAME_CONFIG);
+    }
+
+    public String rsmClassPath() {
+        return getString(RSM_CLASS_PATH_CONFIG);
+    }
+
+    /**
+     * @return RSM-specific settings (keys under {@link #RSM_CONFIG_PREFIX}, prefix stripped) to hand to
+     *         {@code RemoteStorageManager.configure}.
+     */
+    public Map<String, Object> rsmConfigs() {
+        return originalsWithPrefix(RSM_CONFIG_PREFIX);
     }
 
     /**

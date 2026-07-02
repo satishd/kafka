@@ -19,6 +19,8 @@ package org.apache.kafka.lake;
 import org.apache.kafka.lake.config.ConverterConfig;
 import org.apache.kafka.lake.discovery.MetadataSource;
 import org.apache.kafka.lake.discovery.TopicMetadataSource;
+import org.apache.kafka.lake.locate.RsmProvider;
+import org.apache.kafka.lake.read.SegmentReader;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
 import net.sourceforge.argparse4j.ArgumentParsers;
@@ -38,9 +40,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Entry point for the segment-lake converter worker.
  *
- * <p>This first stage implements only the discovery loop: it tails the remote log metadata topic
- * and logs each segment that reaches {@code COPY_SEGMENT_FINISHED}. Fetch, decode and Hudi write
- * are added by later commits.
+ * <p>This stage tails the remote log metadata topic and, for each segment that reaches
+ * {@code COPY_SEGMENT_FINISHED}, fetches it through the configured {@link RsmProvider} and counts
+ * its data records to validate the read path. When no RemoteStorageManager is configured it logs
+ * discovery only. Decode and Hudi write are added by later commits.
  */
 public final class ConverterWorker {
 
@@ -57,26 +60,49 @@ public final class ConverterWorker {
         AtomicBoolean running = new AtomicBoolean(true);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> running.set(false), "converter-shutdown"));
 
-        LOG.info("Starting segment-lake converter; discovering finished segments from topic {}",
-                config.metadataTopic());
-        try (MetadataSource source = new TopicMetadataSource(config)) {
-            while (running.get()) {
-                List<RemoteLogSegmentMetadata> segments = source.poll();
-                for (RemoteLogSegmentMetadata segment : segments) {
-                    LOG.info("Discovered finished segment {} offsets=[{}, {}] size={}B location={}",
-                            segment.remoteLogSegmentId(),
-                            segment.startOffset(),
-                            segment.endOffset(),
-                            segment.segmentSizeInBytes(),
-                            segment.customMetadata().map(Object::toString).orElse("<none>"));
+        boolean readEnabled = !config.rsmClassName().trim().isEmpty();
+        LOG.info("Starting segment-lake converter; discovering finished segments from topic {} (read={})",
+                config.metadataTopic(), readEnabled);
+
+        RsmProvider rsmProvider = readEnabled ? new RsmProvider(config) : null;
+        try {
+            SegmentReader reader = readEnabled ? new SegmentReader(rsmProvider.storageManager()) : null;
+            try (MetadataSource source = new TopicMetadataSource(config)) {
+                while (running.get()) {
+                    List<RemoteLogSegmentMetadata> segments = source.poll();
+                    for (RemoteLogSegmentMetadata segment : segments) {
+                        process(segment, reader);
+                    }
                 }
+            }
+        } finally {
+            if (rsmProvider != null) {
+                rsmProvider.close();
             }
         }
         LOG.info("Segment-lake converter stopped");
     }
 
+    private static void process(RemoteLogSegmentMetadata segment, SegmentReader reader) {
+        LOG.info("Discovered finished segment {} offsets=[{}, {}] size={}B location={}",
+                segment.remoteLogSegmentId(),
+                segment.startOffset(),
+                segment.endOffset(),
+                segment.segmentSizeInBytes(),
+                segment.customMetadata().map(Object::toString).orElse("<none>"));
+        if (reader == null) {
+            return;
+        }
+        try {
+            long records = reader.countDataRecords(segment);
+            LOG.info("Fetched segment {}: {} data records", segment.remoteLogSegmentId(), records);
+        } catch (Exception e) {
+            LOG.error("Failed to fetch segment {}", segment.remoteLogSegmentId(), e);
+        }
+    }
+
     private static Namespace parseArgs(String[] args) {
-        ArgumentParser parser = ArgumentParsers.newFor("segment-lake-converter").build()
+        ArgumentParser parser = ArgumentParsers.newArgumentParser("segment-lake-converter")
                 .defaultHelp(true)
                 .description("Convert tiered Kafka segments into a Hudi table (discovery stage).");
         parser.addArgument("--config")
