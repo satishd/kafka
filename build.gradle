@@ -2251,6 +2251,34 @@ project(':remote-storage-managers:hdfs') {
   srcJar.dependsOn 'processMessages'
 }
 
+project(':segment-lake-ingestion') {
+  base {
+    archivesName = "kafka-segment-lake-ingestion"
+  }
+
+  dependencies {
+    implementation project(':clients')
+    implementation project(':storage:storage-api')
+    implementation project(':storage')
+    implementation project(':server-common')
+
+    implementation libs.slf4jApi
+    implementation libs.argparse4j
+
+    testImplementation libs.junitJupiter
+    testImplementation libs.mockitoCore
+    testRuntimeOnly libs.junitPlatformLanucher
+  }
+
+  checkstyle {
+    configProperties = checkstyleConfigProperties("import-control-segment-lake-ingestion.xml")
+  }
+
+  javadoc {
+    enabled = false
+  }
+}
+
 project(':tools:tools-api') {
   base {
     archivesName = "kafka-tools-api"

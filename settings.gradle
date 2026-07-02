@@ -105,7 +105,8 @@ include 'clients',
     'tools:tools-api',
     'transaction-coordinator',
     'trogdor',
-    'remote-storage-managers:hdfs'
+    'remote-storage-managers:hdfs',
+    'segment-lake-ingestion'
 
 project(":storage:api").name = "storage-api"
 rootProject.name = 'kafka'
