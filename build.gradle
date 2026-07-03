@@ -21,11 +21,11 @@ import java.nio.charset.StandardCharsets
 buildscript {
   repositories {
     maven {
-      url "http://artifactory.uber.internal:4587/artifactory/java-repo/"
+      url "https://artifacts.uberinternal.com/artifactory/java-repo/"
       allowInsecureProtocol = true
     }
     maven {
-      url "http://artifactory.uber.internal:4587/artifactory/repo/"
+      url "https://artifacts.uberinternal.com/artifactory/artifactory/repo/"
       allowInsecureProtocol = true
     }
     mavenCentral()
@@ -138,15 +138,15 @@ allprojects {
 
   repositories {
     maven {
-      url "http://artifactory.uber.internal:4587/artifactory/java-repo/"
+      url "https://artifacts.uberinternal.com/artifactory/java-repo/"
       allowInsecureProtocol = true
     }
     maven {
-      url "http://artifactory.uber.internal:4587/artifactory/repo/"
+      url "https://artifacts.uberinternal.com/artifactory/repo/"
       allowInsecureProtocol = true
     }
     maven {
-      url 'http://artifactory.uber.internal:4587/artifactory/libs-release-local/'
+      url 'https://artifacts.uberinternal.com/artifactory/libs-release-local/'
       allowInsecureProtocol = true
       metadataSources {
         mavenPom()
