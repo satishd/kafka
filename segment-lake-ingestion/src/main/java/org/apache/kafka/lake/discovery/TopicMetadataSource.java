@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.lake.discovery;
 
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -45,7 +46,7 @@ public class TopicMetadataSource implements MetadataSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(TopicMetadataSource.class);
 
-    private final KafkaConsumer<byte[], byte[]> consumer;
+    private final Consumer<byte[], byte[]> consumer;
     private final RemoteLogMetadataSerde serde;
     private final SegmentAssembler assembler;
     private final Duration pollTimeout;
@@ -56,7 +57,7 @@ public class TopicMetadataSource implements MetadataSource {
     }
 
     // Visible for testing.
-    TopicMetadataSource(KafkaConsumer<byte[], byte[]> consumer, ConverterConfig config) {
+    TopicMetadataSource(Consumer<byte[], byte[]> consumer, ConverterConfig config) {
         this.consumer = consumer;
         this.serde = new RemoteLogMetadataSerde();
         this.assembler = new SegmentAssembler();

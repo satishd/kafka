@@ -14,10 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kafka.lake.locate;
+package org.apache.kafka.lake.read;
 
 import org.apache.kafka.common.utils.ChildFirstClassLoader;
 import org.apache.kafka.lake.config.ConverterConfig;
+import org.apache.kafka.lake.internal.Plugins;
 import org.apache.kafka.server.log.remote.storage.ClassLoaderAwareRemoteStorageManager;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
 
@@ -57,22 +58,13 @@ public class RsmProvider implements AutoCloseable {
         final RemoteStorageManager rsm;
         if (classPath != null && !classPath.trim().isEmpty()) {
             ChildFirstClassLoader classLoader = new ChildFirstClassLoader(classPath, RsmProvider.class.getClassLoader());
-            RemoteStorageManager delegate = instantiate(classLoader, className);
+            RemoteStorageManager delegate = Plugins.newInstance(classLoader, className, RemoteStorageManager.class);
             rsm = new ClassLoaderAwareRemoteStorageManager(delegate, classLoader);
         } else {
-            rsm = instantiate(RsmProvider.class.getClassLoader(), className);
+            rsm = Plugins.newInstance(RsmProvider.class.getClassLoader(), className, RemoteStorageManager.class);
         }
         rsm.configure(configs);
         return rsm;
-    }
-
-    private static RemoteStorageManager instantiate(ClassLoader classLoader, String className) {
-        try {
-            return (RemoteStorageManager) classLoader.loadClass(className)
-                    .getDeclaredConstructor().newInstance();
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Failed to instantiate RemoteStorageManager: " + className, e);
-        }
     }
 
     @Override

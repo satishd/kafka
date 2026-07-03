@@ -18,6 +18,7 @@ package org.apache.kafka.lake.decode;
 
 import org.apache.kafka.common.Configurable;
 import org.apache.kafka.lake.config.ConverterConfig;
+import org.apache.kafka.lake.internal.Plugins;
 
 import java.util.Collections;
 
@@ -38,13 +39,8 @@ public final class SchemaClientProvider {
             throw new IllegalArgumentException(
                     ConverterConfig.SCHEMA_CLIENT_CLASS_NAME_CONFIG + " must be set to instantiate a SchemaClient");
         }
-        SchemaClient client;
-        try {
-            client = (SchemaClient) Class.forName(className)
-                    .getDeclaredConstructor().newInstance();
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Failed to instantiate SchemaClient: " + className, e);
-        }
+        SchemaClient client = Plugins.newInstance(
+                SchemaClientProvider.class.getClassLoader(), className, SchemaClient.class);
         if (client instanceof Configurable) {
             ((Configurable) client).configure(Collections.unmodifiableMap(config.schemaClientConfigs()));
         }
