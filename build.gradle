@@ -2264,6 +2264,7 @@ project(':segment-lake-ingestion') {
 
     implementation libs.slf4jApi
     implementation libs.argparse4j
+    implementation libs.avro
 
     testImplementation libs.junitJupiter
     testImplementation libs.mockitoCore

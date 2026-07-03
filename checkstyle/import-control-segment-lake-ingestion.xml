@@ -27,6 +27,7 @@
     <allow pkg="org.apache.kafka.server.log.remote.metadata.storage.serialization"/>
     <allow pkg="net.sourceforge.argparse4j"/>
     <allow pkg="org.slf4j"/>
+    <allow pkg="org.apache.avro"/>
 
     <!-- tests -->
     <allow pkg="org.junit"/>
