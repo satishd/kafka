@@ -5,6 +5,12 @@ grouped by theme and ordered by value; the phased plan at the end sequences them
 independently-committable changes. Severity: **P0** = correctness bug, **P1** = reliability gap,
 **P2** = quality/efficiency.
 
+> **Status (Phase 1 + Phase 3 + Phase 2 landed).** Phase 1: A1, A3, D1 done. Phase 3: C1–C4, D4,
+> B3-ish testability done. Phase 2 (this change): A2, B1, E1 done; B2 partially (single-schema
+> segments are atomic; multi-schema is at-least-once on mid-segment crash); E2 deferred. Remaining:
+> B2 full multi-schema atomicity, E2 chunked decode→write, D2, D3, and finer-grained offset commit
+> (see the Phase 2 note below).
+
 ---
 
 ## A. Correctness & concurrency (do first)
@@ -151,3 +157,37 @@ and E2 (chunked decode→single commit) fold in here since they all touch the wr
 Suggested order: **Phase 1 → 2 → 3 → 4.** Phase 1 is safe to land immediately; Phase 2 is the
 largest and should be reviewed on its own; Phase 3 is mechanical refactoring backed by new tests;
 Phase 4 is cosmetic/observability.
+
+---
+
+## Phase 2 — as implemented
+
+**Single-writer commit stage (A2, E1).** `Pipeline` now runs a concurrent decode stage (a fixed pool
+of `max.concurrent.segments` threads that fetch + Avro-decode into an in-memory `DecodedSegment`) that
+hands decoded segments over a bounded `write.queue.capacity` queue to **one** writer thread. Only that
+thread touches Hudi, so table init and commits never race. The writer reuses a `HoodieJavaWriteClient`
+per Avro schema across segments (E1) instead of constructing one per write. A semaphore bounds total
+in-flight segments (decoding + queued + committing) so discovery applies backpressure.
+
+**Manual, quiescent-checkpoint offset commit (B1).** `enable.auto.commit` is forced off. The worker
+commits the consumer read position only at a *quiescent checkpoint* — when nothing is in flight, none
+has failed, and the assembler has nothing half-assembled (`pendingCount()==0`). At such a point the
+read position is safe to resume from. A failed write (after `write.max.retries` retries with backoff)
+marks the segment failed and leaves the offset uncommitted, so a restart re-processes it idempotently
+(via the Hudi commit timeline) rather than silently dropping it.
+
+**Atomicity (B2, partial).** A single-schema segment (the Heatpipe norm) is one Hudi commit → exactly
+once. A segment presenting multiple distinct Avro schemas is still committed group-by-group (the Java
+client binds one schema per write config), and `markProcessed` runs only after all groups commit; a
+retry after a partial multi-schema failure may re-write already-committed groups (at-least-once for
+that rare case). Full multi-schema atomicity remains open.
+
+**Known limitation — commit granularity.** The quiescent checkpoint is coarse: under sustained
+upstream copying the assembler may rarely be empty, so offsets advance infrequently and a restart
+re-reads more (still correct — `OffsetTracker` skips already-committed segments). A finer-grained,
+always-progressing commit needs per-segment *anchor* tracking (commit up to just before the oldest
+`COPY_SEGMENT_STARTED` record still needed by an unwritten segment). Deferred as a follow-up.
+
+**Deferred to a later phase.** E2 (stream decoded records into the write client in bounded chunks
+rather than accumulating the whole segment) — peak heap is now bounded across segments by the
+in-flight semaphore, but a single segment is still fully materialised before writing.

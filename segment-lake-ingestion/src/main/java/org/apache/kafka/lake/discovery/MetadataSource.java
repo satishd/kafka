@@ -35,4 +35,21 @@ public interface MetadataSource extends Closeable {
      * @return finished segments discovered during this poll.
      */
     List<RemoteLogSegmentMetadata> poll();
+
+    /**
+     * @return number of segments seen started but not yet finished. While this is non-zero the
+     *         current read position is <b>not</b> safe to commit, because reconstructing those
+     *         segments on restart depends on records at or before the read position.
+     */
+    default int pendingCount() {
+        return 0;
+    }
+
+    /**
+     * Commit the current consumer read position. Callers must only invoke this at a quiescent
+     * checkpoint (nothing in flight, none failed, {@link #pendingCount()} zero) so the committed
+     * position is safe to resume from. No-op for sources without a committable offset.
+     */
+    default void commit() {
+    }
 }

@@ -36,14 +36,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Writes one segment's decoded records as a single Hudi commit on an object-store-backed table
- * (OCS via {@code cfs://} or {@code oci://}, config-driven — see {@link HudiWriterConfig}).
+ * Writes a segment's decoded records as Hudi commits on an object-store-backed table (OCS via
+ * {@code cfs://} or {@code oci://}, config-driven — see {@link HudiWriterConfig}).
  *
  * <p>Append-only: every record is a new row (no precombine/dedup), so writes always use
  * {@code insert}. {@code bulkInsert} is not supported by {@code HoodieJavaWriteClient} (the
@@ -52,9 +53,12 @@ import java.util.stream.Collectors;
  * {@code topic-partition-offset} and a date partition, per the design doc), keeping this class
  * independent of any particular topic's schema.
  *
- * <p>The Hudi table is initialized on first use if it does not already exist. Table creation is
- * <b>not</b> safe for concurrent writers against the same base path; a single worker instance is
- * expected to own a given table.
+ * <p>The Hudi table is initialized on first use if it does not already exist. A
+ * {@link HoodieJavaWriteClient} is cached and reused per Avro schema across segments: constructing a
+ * client reads the timeline and initialises engine state, which is wasteful to repeat per small
+ * segment. {@code HoodieJavaWriteClient} is a <b>single-writer</b> engine and this class is
+ * <b>not</b> thread-safe — it is designed to be owned and driven by a single commit thread (see the
+ * pipeline's single-writer commit stage). One worker instance owns a given table.
  */
 public class HudiSegmentWriter implements AutoCloseable {
 
@@ -64,6 +68,9 @@ public class HudiSegmentWriter implements AutoCloseable {
     private final Configuration hadoopConf;
     private final Function<GenericRecord, String> recordKey;
     private final Function<GenericRecord, String> partitionPath;
+    private final HoodieJavaEngineContext engineContext;
+    private final Map<String, HoodieJavaWriteClient<HoodieAvroPayload>> clientsBySchema = new HashMap<>();
+    private boolean tableInitialized;
 
     public HudiSegmentWriter(HudiWriterConfig config, Configuration hadoopConf,
                               Function<GenericRecord, String> recordKey,
@@ -72,11 +79,13 @@ public class HudiSegmentWriter implements AutoCloseable {
         this.hadoopConf = hadoopConf;
         this.recordKey = recordKey;
         this.partitionPath = partitionPath;
+        this.engineContext = new HoodieJavaEngineContext(hadoopConf);
     }
 
     /**
-     * Write {@code records} as one Hudi commit, tagged with {@code commitExtraMetadata} (e.g. the
-     * ingested offset range — see {@code OffsetTracker}, added in a later commit).
+     * Write {@code records} as one Hudi commit, tagged with {@code commitExtraMetadata} (the ingested
+     * offset range — see {@code OffsetTracker}). The write client for {@code schema} is created on
+     * first use and reused for subsequent calls.
      *
      * @param records             decoded inner records for one segment; must share {@code schema}.
      * @param schema              the records' Avro schema.
@@ -90,33 +99,38 @@ public class HudiSegmentWriter implements AutoCloseable {
         }
         ensureTableInitialized(schema);
 
-        HoodieWriteConfig writeConfig = buildWriteConfig(schema);
-        try (HoodieJavaWriteClient<HoodieAvroPayload> client =
-                     new HoodieJavaWriteClient<>(new HoodieJavaEngineContext(hadoopConf), writeConfig)) {
-            String instant = client.startCommit();
-            List<HoodieRecord<HoodieAvroPayload>> hoodieRecords = records.stream()
-                    .map(record -> new HoodieAvroRecord<HoodieAvroPayload>(
-                            new HoodieKey(recordKey.apply(record), partitionPath.apply(record)),
-                            new HoodieAvroPayload(Option.of(record))))
-                    .collect(Collectors.toList());
-            List<WriteStatus> writeStatuses = client.insert(hoodieRecords, instant);
-            for (WriteStatus status : writeStatuses) {
-                if (status.hasErrors()) {
-                    throw new HudiWriteException("Hudi write reported errors for instant " + instant
-                            + ", partition " + status.getPartitionPath()
-                            + ": " + status.getErrors().size() + " record error(s)"
-                            + (status.getGlobalError() != null ? ", global error" : ""),
-                            status.getGlobalError());
-                }
+        HoodieJavaWriteClient<HoodieAvroPayload> client = clientFor(schema);
+        String instant = client.startCommit();
+        List<HoodieRecord<HoodieAvroPayload>> hoodieRecords = records.stream()
+                .map(record -> new HoodieAvroRecord<HoodieAvroPayload>(
+                        new HoodieKey(recordKey.apply(record), partitionPath.apply(record)),
+                        new HoodieAvroPayload(Option.of(record))))
+                .collect(Collectors.toList());
+        List<WriteStatus> writeStatuses = client.insert(hoodieRecords, instant);
+        for (WriteStatus status : writeStatuses) {
+            if (status.hasErrors()) {
+                throw new HudiWriteException("Hudi write reported errors for instant " + instant
+                        + ", partition " + status.getPartitionPath()
+                        + ": " + status.getErrors().size() + " record error(s)"
+                        + (status.getGlobalError() != null ? ", global error" : ""),
+                        status.getGlobalError());
             }
-            client.commit(instant, writeStatuses, Option.of(commitExtraMetadata));
-            LOG.info("Committed {} record(s) to Hudi table {} as instant {}",
-                    records.size(), config.tableBasePath(), instant);
-            return Option.of(instant);
         }
+        client.commit(instant, writeStatuses, Option.of(commitExtraMetadata));
+        LOG.info("Committed {} record(s) to Hudi table {} as instant {}",
+                records.size(), config.tableBasePath(), instant);
+        return Option.of(instant);
+    }
+
+    private HoodieJavaWriteClient<HoodieAvroPayload> clientFor(Schema schema) {
+        return clientsBySchema.computeIfAbsent(schema.toString(),
+            s -> new HoodieJavaWriteClient<>(engineContext, buildWriteConfig(schema)));
     }
 
     private void ensureTableInitialized(Schema schema) {
+        if (tableInitialized) {
+            return;
+        }
         try {
             HoodieTableMetaClient.builder()
                     .setConf(hadoopConf)
@@ -138,6 +152,7 @@ public class HudiSegmentWriter implements AutoCloseable {
                         + config.tableBasePath(), initFailure);
             }
         }
+        tableInitialized = true;
     }
 
     private HoodieWriteConfig buildWriteConfig(Schema schema) {
@@ -154,7 +169,13 @@ public class HudiSegmentWriter implements AutoCloseable {
 
     @Override
     public void close() {
-        // No pooled resources are held between writes; each write() opens and closes its own client
-        // so that per-commit Hudi client state cannot leak across segments.
+        for (HoodieJavaWriteClient<HoodieAvroPayload> client : clientsBySchema.values()) {
+            try {
+                client.close();
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to close Hudi write client for table {}", config.tableBasePath(), e);
+            }
+        }
+        clientsBySchema.clear();
     }
 }

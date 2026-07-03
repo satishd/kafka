@@ -108,7 +108,37 @@ public class ConverterConfig extends AbstractConfig {
     public static final String MAX_CONCURRENT_SEGMENTS_CONFIG = "max.concurrent.segments";
     private static final int MAX_CONCURRENT_SEGMENTS_DEFAULT = 4;
     private static final String MAX_CONCURRENT_SEGMENTS_DOC =
-            "Maximum number of segments fetched, decoded, and written to Hudi concurrently.";
+            "Maximum number of segments fetched and decoded concurrently. Writing to Hudi is always "
+                    + "performed by a single commit thread regardless of this value (see the design doc): "
+                    + "HoodieJavaWriteClient is a single-writer engine, so decoded segments are funnelled "
+                    + "through one writer that commits sequentially.";
+
+    public static final String WRITE_QUEUE_CAPACITY_CONFIG = "write.queue.capacity";
+    private static final int WRITE_QUEUE_CAPACITY_DEFAULT = 8;
+    private static final String WRITE_QUEUE_CAPACITY_DOC =
+            "Capacity of the bounded hand-off queue between the concurrent decode stage and the single "
+                    + "Hudi commit thread. Together with max.concurrent.segments this bounds how many "
+                    + "decoded segments are held in memory at once (backpressure blocks discovery when full).";
+
+    public static final String WRITE_MAX_RETRIES_CONFIG = "write.max.retries";
+    private static final int WRITE_MAX_RETRIES_DEFAULT = 3;
+    private static final String WRITE_MAX_RETRIES_DOC =
+            "Number of times the commit thread retries a failed Hudi write for a segment before giving up "
+                    + "and marking it failed. A failed segment is never silently dropped: its metadata-topic "
+                    + "offset is left uncommitted so a later restart re-processes it (idempotently, via the "
+                    + "Hudi commit timeline).";
+
+    public static final String WRITE_RETRY_BACKOFF_MS_CONFIG = "write.retry.backoff.ms";
+    private static final long WRITE_RETRY_BACKOFF_MS_DEFAULT = 1000L;
+    private static final String WRITE_RETRY_BACKOFF_MS_DOC =
+            "Base backoff in milliseconds between Hudi write retries for a segment.";
+
+    public static final String OFFSET_COMMIT_INTERVAL_MS_CONFIG = "offset.commit.interval.ms";
+    private static final long OFFSET_COMMIT_INTERVAL_MS_DEFAULT = 5000L;
+    private static final String OFFSET_COMMIT_INTERVAL_MS_DOC =
+            "How often the worker attempts to commit the metadata-topic consumer offset. A commit only "
+                    + "happens at a quiescent checkpoint (no segments in flight, none failed, and none "
+                    + "half-assembled), so the committed position is always safe to resume from.";
 
     public static final String READ_BLOCK_BYTES_CONFIG = "read.block.bytes";
     public static final int READ_BLOCK_BYTES_DEFAULT = 4 * 1024 * 1024;
@@ -164,6 +194,14 @@ public class ConverterConfig extends AbstractConfig {
                     ConfigDef.Importance.MEDIUM, DEADLETTER_PATH_DOC)
             .define(MAX_CONCURRENT_SEGMENTS_CONFIG, ConfigDef.Type.INT, MAX_CONCURRENT_SEGMENTS_DEFAULT,
                     ConfigDef.Importance.LOW, MAX_CONCURRENT_SEGMENTS_DOC)
+            .define(WRITE_QUEUE_CAPACITY_CONFIG, ConfigDef.Type.INT, WRITE_QUEUE_CAPACITY_DEFAULT,
+                    ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, WRITE_QUEUE_CAPACITY_DOC)
+            .define(WRITE_MAX_RETRIES_CONFIG, ConfigDef.Type.INT, WRITE_MAX_RETRIES_DEFAULT,
+                    ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, WRITE_MAX_RETRIES_DOC)
+            .define(WRITE_RETRY_BACKOFF_MS_CONFIG, ConfigDef.Type.LONG, WRITE_RETRY_BACKOFF_MS_DEFAULT,
+                    ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, WRITE_RETRY_BACKOFF_MS_DOC)
+            .define(OFFSET_COMMIT_INTERVAL_MS_CONFIG, ConfigDef.Type.LONG, OFFSET_COMMIT_INTERVAL_MS_DEFAULT,
+                    ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, OFFSET_COMMIT_INTERVAL_MS_DOC)
             .define(READ_BLOCK_BYTES_CONFIG, ConfigDef.Type.INT, READ_BLOCK_BYTES_DEFAULT,
                     ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, READ_BLOCK_BYTES_DOC)
             .define(READ_MODE_CONFIG, ConfigDef.Type.STRING, READ_MODE_DEFAULT,
@@ -240,6 +278,22 @@ public class ConverterConfig extends AbstractConfig {
         return getInt(MAX_CONCURRENT_SEGMENTS_CONFIG);
     }
 
+    public int writeQueueCapacity() {
+        return getInt(WRITE_QUEUE_CAPACITY_CONFIG);
+    }
+
+    public int writeMaxRetries() {
+        return getInt(WRITE_MAX_RETRIES_CONFIG);
+    }
+
+    public long writeRetryBackoffMs() {
+        return getLong(WRITE_RETRY_BACKOFF_MS_CONFIG);
+    }
+
+    public long offsetCommitIntervalMs() {
+        return getLong(OFFSET_COMMIT_INTERVAL_MS_CONFIG);
+    }
+
     public int readBlockBytes() {
         return getInt(READ_BLOCK_BYTES_CONFIG);
     }
@@ -273,6 +327,9 @@ public class ConverterConfig extends AbstractConfig {
     /**
      * @return consumer properties for reading the remote log metadata topic. Values are raw bytes;
      *         deserialization into metadata records is done by the caller via {@code RemoteLogMetadataSerde}.
+     *         Auto-commit is disabled: the worker commits offsets manually only at a quiescent
+     *         checkpoint (see {@link #OFFSET_COMMIT_INTERVAL_MS_CONFIG}) so a segment whose write fails
+     *         is re-processed on restart rather than silently skipped.
      */
     public Properties consumerProperties() {
         Properties props = new Properties();
@@ -281,7 +338,7 @@ public class ConverterConfig extends AbstractConfig {
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, getInt(MAX_POLL_RECORDS_CONFIG));
         return props;
     }

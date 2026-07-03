@@ -34,10 +34,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -45,16 +41,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>Tails the remote log metadata topic and hands each segment that reaches
  * {@code COPY_SEGMENT_FINISHED} to a {@link Pipeline} (built by {@link PipelineFactory}), which
- * skips, fetches, decodes and writes it. Up to {@link ConverterConfig#maxConcurrentSegments()}
- * segments are processed concurrently.
+ * concurrently fetches and decodes it and commits it through a single writer thread.
  *
  * <p>This class only owns the process lifecycle: argument parsing, config loading, the discovery
- * loop, and the worker thread pool. All per-segment logic lives in {@link Pipeline}.
+ * loop, and manual offset commits. Concurrency and per-segment logic live in {@link Pipeline}.
+ *
+ * <p>Offsets are committed manually and only at a <b>quiescent checkpoint</b> — when no segment is in
+ * flight, none has failed, and none is half-assembled. At such a point the consumer's read position
+ * is safe to resume from, so a segment whose write failed is re-processed on restart (idempotently,
+ * via the Hudi commit timeline) rather than being silently skipped. A persistently failing segment
+ * therefore holds offset progress until it is resolved, surfaced via the {@code segmentsFailed}
+ * metric and error logs.
  */
 public final class ConverterWorker {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConverterWorker.class);
     private static final long METRICS_LOG_INTERVAL_MS = 60_000L;
+    private static final long DRAIN_TIMEOUT_MS = 120_000L;
 
     private ConverterWorker() {
     }
@@ -67,6 +70,7 @@ public final class ConverterWorker {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> running.set(false), "converter-shutdown"));
 
         try (Pipeline pipeline = PipelineFactory.build(config)) {
+            pipeline.start();
             LOG.info("Starting segment-lake converter; discovering finished segments from topic {} "
                             + "(read={}, decodeAndWrite={})",
                     config.metadataTopic(), pipeline.readEnabled(), pipeline.decodeEnabled());
@@ -76,31 +80,42 @@ public final class ConverterWorker {
     }
 
     private static void runLoop(ConverterConfig config, Pipeline pipeline, AtomicBoolean running) throws Exception {
-        int parallelism = Math.max(1, config.maxConcurrentSegments());
-        ExecutorService executor = Executors.newFixedThreadPool(parallelism);
-        Semaphore inFlight = new Semaphore(parallelism);
+        long commitIntervalMs = config.offsetCommitIntervalMs();
         try (MetadataSource source = new TopicMetadataSource(config)) {
+            long lastCommitMs = System.currentTimeMillis();
             long lastSummaryLogMs = System.currentTimeMillis();
             while (running.get()) {
                 for (RemoteLogSegmentMetadata segment : source.poll()) {
-                    inFlight.acquire();
-                    executor.submit(() -> {
-                        try {
-                            pipeline.process(segment);
-                        } finally {
-                            inFlight.release();
-                        }
-                    });
+                    pipeline.process(segment);
+                }
+                long now = System.currentTimeMillis();
+                if (now - lastCommitMs >= commitIntervalMs) {
+                    maybeCommit(source, pipeline);
+                    lastCommitMs = now;
                 }
                 lastSummaryLogMs = maybeLogSummary(pipeline, lastSummaryLogMs);
             }
-            // Drain in-flight work before shutting down so no segment is left half-processed.
-            inFlight.acquire(parallelism);
-        } finally {
-            executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.MINUTES);
+            // Drain in-flight work, then commit whatever is now safe before shutting down.
+            if (!pipeline.drain(DRAIN_TIMEOUT_MS)) {
+                LOG.warn("Timed out draining in-flight segments during shutdown");
+            }
+            maybeCommit(source, pipeline);
         }
         pipeline.metrics().logSummary();
+    }
+
+    /**
+     * Commit the consumer read position only if it is safe: nothing in flight or failed in the
+     * pipeline, and nothing half-assembled in discovery. Otherwise the read position covers records
+     * still needed on restart, so we hold the offset and try again at the next checkpoint.
+     */
+    private static void maybeCommit(MetadataSource source, Pipeline pipeline) {
+        if (pipeline.isQuiescent() && source.pendingCount() == 0) {
+            source.commit();
+        } else if (pipeline.failedCount() > 0) {
+            LOG.warn("Holding offset: {} segment(s) failed to write and will be retried on restart",
+                    pipeline.failedCount());
+        }
     }
 
     private static long maybeLogSummary(Pipeline pipeline, long lastSummaryLogMs) {

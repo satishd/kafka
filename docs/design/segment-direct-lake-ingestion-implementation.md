@@ -329,8 +329,12 @@ rows; unit tests pass.
 > `<TICKET>: continuous converter loop, metrics, and pilot harness`
 
 **New files / changes**
-- Flesh out `ConverterWorker` into a continuous loop: `poll → for each segment { skip? → fetch
-  → decode → write+commit }` with bounded concurrency, backoff, and metrics.
+- Flesh out `ConverterWorker` into a continuous loop: `poll → for each segment { process }` where a
+  concurrent decode stage (`max.concurrent.segments`) feeds a **single writer thread** that commits
+  to Hudi sequentially (HoodieJavaWriteClient is single-writer). Failed writes are retried with
+  backoff; offsets are committed manually only at a quiescent checkpoint so a failed segment is
+  retried on restart rather than dropped. (See `docs/design/segment-lake-ingestion-improvements.md`,
+  "Phase 2 — as implemented".)
 - `.../lake/metrics/*` — counters: segments processed/skipped/dead-lettered, records written,
   commit latency, lag (metadata offset vs processed).
 - Ops: `README.md` (run command, config), a sample config file, a `--backfill` mode
@@ -374,7 +378,10 @@ green, rather than appending a "fixup" commit.
 | `hudi.table.name`, `hudi.record.key.fields`, `hudi.partition.path.field`, `hudi.write.operation` | Hudi table. |
 | `deadletter.path` (or `.topic`) | undecodable records sink. |
 | `topics.allowlist` | pilot scoping (1–2 append-only topics). |
-| `max.concurrent.segments` | worker parallelism. |
+| `max.concurrent.segments` | fetch+decode parallelism (writes always go through one commit thread). |
+| `write.queue.capacity` | bounded decode→writer hand-off queue. |
+| `write.max.retries`, `write.retry.backoff.ms` | bounded retry of a failed Hudi write before a segment is marked failed. |
+| `offset.commit.interval.ms` | how often the worker attempts a quiescent-checkpoint offset commit (auto-commit is forced off). |
 | `read.block.bytes` | block/download buffer for reading a segment; default 4 MiB. |
 | `read.mode` | `stream` (direct, no disk) or `cache` (prefetch to a local file, read via `FileRecords`); default `stream`. |
 | `read.cache.dir` | dir for prefetched files when `read.mode=cache`; default JVM temp dir. |

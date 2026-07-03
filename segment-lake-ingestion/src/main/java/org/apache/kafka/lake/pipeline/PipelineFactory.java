@@ -17,12 +17,12 @@
 package org.apache.kafka.lake.pipeline;
 
 import org.apache.kafka.lake.config.ConverterConfig;
+import org.apache.kafka.lake.decode.DeadLetterSink;
 import org.apache.kafka.lake.decode.FileDeadLetterSink;
 import org.apache.kafka.lake.decode.HeatpipeAvroDecoder;
 import org.apache.kafka.lake.decode.RecordDecoder;
 import org.apache.kafka.lake.decode.SchemaClient;
 import org.apache.kafka.lake.decode.SchemaClientProvider;
-import org.apache.kafka.lake.decode.DeadLetterSink;
 import org.apache.kafka.lake.offset.OffsetTracker;
 import org.apache.kafka.lake.read.RsmProvider;
 import org.apache.kafka.lake.read.SegmentReader;
@@ -57,7 +57,9 @@ public final class PipelineFactory {
                 rsmProvider.storageManager(), config.readMode(), config.readBlockBytes(),
                 config.readCacheDir()) : null;
         if (!decodeEnabled) {
-            return new Pipeline(rsmProvider, null, reader, null, null, null);
+            return new Pipeline(rsmProvider, null, reader, null, null, null,
+                    config.maxConcurrentSegments(), config.writeQueueCapacity(),
+                    config.writeMaxRetries(), config.writeRetryBackoffMs());
         }
 
         SchemaClient schemaClient = SchemaClientProvider.create(config);
@@ -65,7 +67,9 @@ public final class PipelineFactory {
         RecordDecoder decoder = new HeatpipeAvroDecoder(schemaClient, deadLetterSink);
         HudiSegmentWriter writer = buildWriter(config);
         OffsetTracker offsetTracker = OffsetTracker.load(new Configuration(), config.hudiTableBasePath());
-        return new Pipeline(rsmProvider, deadLetterSink, reader, decoder, writer, offsetTracker);
+        return new Pipeline(rsmProvider, deadLetterSink, reader, decoder, writer, offsetTracker,
+                config.maxConcurrentSegments(), config.writeQueueCapacity(),
+                config.writeMaxRetries(), config.writeRetryBackoffMs());
     }
 
     private static HudiSegmentWriter buildWriter(ConverterConfig config) {

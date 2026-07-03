@@ -35,6 +35,7 @@ public class ConverterMetrics {
     private final AtomicLong segmentsProcessed = new AtomicLong();
     private final AtomicLong segmentsSkipped = new AtomicLong();
     private final AtomicLong segmentsFailed = new AtomicLong();
+    private final AtomicLong writeRetries = new AtomicLong();
     private final AtomicLong recordsWritten = new AtomicLong();
     private final AtomicLong recordsDeadLettered = new AtomicLong();
     private final AtomicLong commitLatencyMsTotal = new AtomicLong();
@@ -51,6 +52,11 @@ public class ConverterMetrics {
         segmentsFailed.incrementAndGet();
     }
 
+    /** A single failed Hudi write attempt for a segment that will be retried. */
+    public void writeRetry() {
+        writeRetries.incrementAndGet();
+    }
+
     public void recordsWritten(long count) {
         recordsWritten.addAndGet(count);
     }
@@ -65,8 +71,8 @@ public class ConverterMetrics {
 
     public void logSummary() {
         LOG.info("Converter metrics: segmentsProcessed={} segmentsSkipped={} segmentsFailed={} "
-                        + "recordsWritten={} recordsDeadLettered={} commitLatencyMsTotal={}",
-                segmentsProcessed.get(), segmentsSkipped.get(), segmentsFailed.get(),
+                        + "writeRetries={} recordsWritten={} recordsDeadLettered={} commitLatencyMsTotal={}",
+                segmentsProcessed.get(), segmentsSkipped.get(), segmentsFailed.get(), writeRetries.get(),
                 recordsWritten.get(), recordsDeadLettered.get(), commitLatencyMsTotal.get());
     }
 }

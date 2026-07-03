@@ -26,6 +26,7 @@ import org.apache.kafka.lake.config.ConverterConfig;
 import org.apache.kafka.server.log.remote.metadata.storage.serialization.RemoteLogMetadataSerde;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentId;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
+import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadataUpdate;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentState;
 
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -86,6 +88,42 @@ public class TopicMetadataSourceTest {
         assertTrue(source.poll().isEmpty());
     }
 
+    @Test
+    public void pendingCountTracksStartedButNotFinishedSegments() {
+        MockConsumer<byte[], byte[]> consumer = mockConsumer();
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        consumer.rebalance(Collections.singleton(PARTITION));
+
+        RemoteLogSegmentMetadata started = startedSegment("orders");
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(started)));
+        assertTrue(source.poll().isEmpty());
+        assertEquals(1, source.pendingCount());
+
+        RemoteLogSegmentMetadataUpdate finished = new RemoteLogSegmentMetadataUpdate(
+                started.remoteLogSegmentId(), 2000L, Optional.empty(),
+                RemoteLogSegmentState.COPY_SEGMENT_FINISHED, 1);
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 1L, null, serde.serialize(finished)));
+
+        List<RemoteLogSegmentMetadata> out = source.poll();
+        assertEquals(1, out.size());
+        assertEquals(0, source.pendingCount());
+    }
+
+    @Test
+    public void commitAdvancesConsumerPosition() {
+        MockConsumer<byte[], byte[]> consumer = mockConsumer();
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        consumer.rebalance(Collections.singleton(PARTITION));
+
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(finishedSegment("orders"))));
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 1L, null, serde.serialize(finishedSegment("orders"))));
+        source.poll();
+
+        assertTrue(consumer.committed(Collections.singleton(PARTITION)).isEmpty());
+        source.commit();
+        assertEquals(2L, consumer.committed(Collections.singleton(PARTITION)).get(PARTITION).offset());
+    }
+
     private static MockConsumer<byte[], byte[]> mockConsumer() {
         MockConsumer<byte[], byte[]> consumer = new MockConsumer<>(OffsetResetStrategy.EARLIEST);
         consumer.updateBeginningOffsets(Collections.singletonMap(PARTITION, 0L));
@@ -102,10 +140,18 @@ public class TopicMetadataSourceTest {
     }
 
     private static RemoteLogSegmentMetadata finishedSegment(String topic) {
+        return segment(topic, RemoteLogSegmentState.COPY_SEGMENT_FINISHED);
+    }
+
+    private static RemoteLogSegmentMetadata startedSegment(String topic) {
+        return segment(topic, RemoteLogSegmentState.COPY_SEGMENT_STARTED);
+    }
+
+    private static RemoteLogSegmentMetadata segment(String topic, RemoteLogSegmentState state) {
         TopicIdPartition tp = new TopicIdPartition(Uuid.randomUuid(), 0, topic);
         return new RemoteLogSegmentMetadata(
                 RemoteLogSegmentId.generateNew(tp), 0L, 99L, -1L, 1, 1000L, 1024,
-                java.util.Optional.empty(), RemoteLogSegmentState.COPY_SEGMENT_FINISHED,
+                Optional.empty(), state,
                 Collections.singletonMap(0, 0L));
     }
 }

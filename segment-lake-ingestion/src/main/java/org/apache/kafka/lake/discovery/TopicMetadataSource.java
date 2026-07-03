@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.lake.discovery;
 
+import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -95,6 +96,22 @@ public class TopicMetadataSource implements MetadataSource {
     private boolean allowed(RemoteLogSegmentMetadata segment) {
         return topicsAllowlist.isEmpty()
                 || topicsAllowlist.contains(segment.topicIdPartition().topic());
+    }
+
+    @Override
+    public int pendingCount() {
+        return assembler.pendingCount();
+    }
+
+    @Override
+    public void commit() {
+        try {
+            consumer.commitSync();
+        } catch (CommitFailedException e) {
+            // Lost partition ownership (rebalance) before committing; the new owner will re-process
+            // from the last durable checkpoint. Safe to skip and retry on the next quiescent point.
+            LOG.warn("Offset commit failed; will retry at the next checkpoint", e);
+        }
     }
 
     @Override
