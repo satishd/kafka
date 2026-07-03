@@ -108,6 +108,15 @@ public class HeatpipeAvroDecoderTest {
     }
 
     @Test
+    public void deadLettersNullValue() {
+        Optional<GenericRecord> result = decoder.decode(TOPIC, 105L, null);
+
+        assertFalse(result.isPresent());
+        assertEquals(1, deadLettered.size());
+        assertTrue(deadLettered.get(0).contains("null record value"));
+    }
+
+    @Test
     public void deadLettersSchemaFetchFailure() {
         schemaClient.failWith = new SchemaFetchException("schema service unreachable");
         ByteBuffer value = withV1Header(SCHEMA_VERSION, new byte[]{1, 2, 3});

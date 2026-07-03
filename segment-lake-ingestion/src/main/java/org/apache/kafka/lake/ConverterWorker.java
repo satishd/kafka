@@ -160,10 +160,8 @@ public final class ConverterWorker {
      * Owns every per-run component (RSM, schema client, dead-letter sink, Hudi writer, offset
      * tracker) and drives a single segment through skip &rarr; fetch &rarr; decode &rarr; write.
      * Safe to share across the worker's segment-processing threads: each {@link #process} call
-     * only touches per-segment local state, plus the thread-safe {@link ConverterMetrics} counters
-     * and {@link OffsetTracker} (whose mutation is confined to the single-writer discovery loop
-     * that calls {@code markProcessed} - see {@code OffsetTracker}'s own not-thread-safe caveat,
-     * which holds here because segments for a given partition are only ever discovered once).
+     * only touches per-segment local state plus the thread-safe {@link ConverterMetrics} counters
+     * and {@link OffsetTracker} (both of which support concurrent access).
      */
     private static final class Pipeline implements AutoCloseable {
 

@@ -29,10 +29,10 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Makes ingestion idempotent by reconstructing, from the Hudi table's own commit timeline, which
@@ -45,8 +45,9 @@ import java.util.Set;
  *       (covers segments that were re-created upstream but cover already-ingested offsets).</li>
  * </ul>
  *
- * <p>Not thread-safe; one instance per worker process, {@link #markProcessed} called from the same
- * thread that drives ingestion after each successful {@code HudiSegmentWriter.write}.
+ * <p>Thread-safe: {@link #isProcessed} and {@link #markProcessed} may be called concurrently from
+ * the worker's segment-processing threads. State is held in concurrent collections and
+ * {@code markProcessed}'s high-water update uses an atomic {@code merge}.
  */
 public class OffsetTracker {
 
@@ -71,8 +72,8 @@ public class OffsetTracker {
      * Returns an empty tracker (nothing is skipped) if the table does not exist yet.
      */
     public static OffsetTracker load(Configuration hadoopConf, String tableBasePath) {
-        Set<String> processedSegmentIds = new HashSet<>();
-        Map<String, Long> highWaterOffsets = new HashMap<>();
+        Set<String> processedSegmentIds = ConcurrentHashMap.newKeySet();
+        Map<String, Long> highWaterOffsets = new ConcurrentHashMap<>();
 
         HoodieTableMetaClient metaClient;
         try {

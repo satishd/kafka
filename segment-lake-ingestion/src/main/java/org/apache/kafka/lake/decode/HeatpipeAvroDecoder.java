@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.lake.decode;
 
+import org.apache.kafka.common.utils.Utils;
+
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
@@ -40,6 +42,7 @@ public class HeatpipeAvroDecoder implements RecordDecoder {
 
     private static final Logger LOG = LoggerFactory.getLogger(HeatpipeAvroDecoder.class);
     private static final String MSG_FIELD = "msg";
+    private static final ByteBuffer EMPTY_VALUE = ByteBuffer.allocate(0);
 
     private final SchemaClient schemaClient;
     private final DeadLetterSink deadLetterSink;
@@ -52,6 +55,12 @@ public class HeatpipeAvroDecoder implements RecordDecoder {
 
     @Override
     public Optional<GenericRecord> decode(String topic, long offset, ByteBuffer value) {
+        if (value == null) {
+            // Null-valued record (e.g. a tombstone); nothing to Avro-decode.
+            deadLetter(topic, offset, EMPTY_VALUE, "null record value");
+            return Optional.empty();
+        }
+
         HeatpipeHeader header;
         try {
             header = HeatpipeHeader.parse(value);
@@ -77,6 +86,11 @@ public class HeatpipeAvroDecoder implements RecordDecoder {
             return Optional.empty();
         }
 
+        return unwrapMsg(topic, offset, value, wrapper);
+    }
+
+    /** Unwrap the {@code msg} field (a {@code ["null", inner]} union) to the inner record. */
+    private Optional<GenericRecord> unwrapMsg(String topic, long offset, ByteBuffer value, GenericRecord wrapper) {
         Schema.Field msgField = wrapper.getSchema().getField(MSG_FIELD);
         if (msgField == null) {
             deadLetter(topic, offset, value, "wrapper schema has no '" + MSG_FIELD + "' field");
@@ -97,23 +111,12 @@ public class HeatpipeAvroDecoder implements RecordDecoder {
 
     private GenericRecord decodeAvro(Schema schema, ByteBuffer payload) throws IOException {
         GenericDatumReader<GenericRecord> reader = new GenericDatumReader<>(schema);
-        BinaryDecoder decoder = decoderFactory.binaryDecoder(toArray(payload), null);
+        BinaryDecoder decoder = decoderFactory.binaryDecoder(Utils.toArray(payload), null);
         return reader.read(null, decoder);
     }
 
     private void deadLetter(String topic, long offset, ByteBuffer value, String reason) {
         LOG.debug("Dead-lettering record from topic {}: {}", topic, reason);
         deadLetterSink.record(topic, offset, value, reason);
-    }
-
-    private static byte[] toArray(ByteBuffer buffer) {
-        if (buffer.hasArray() && buffer.arrayOffset() == 0 && buffer.position() == 0
-                && buffer.remaining() == buffer.array().length) {
-            return buffer.array();
-        }
-        ByteBuffer dup = buffer.duplicate();
-        byte[] out = new byte[dup.remaining()];
-        dup.get(out);
-        return out;
     }
 }

@@ -16,6 +16,8 @@
  */
 package org.apache.kafka.lake.decode;
 
+import org.apache.kafka.common.utils.Utils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +59,7 @@ public class FileDeadLetterSink implements DeadLetterSink {
 
     @Override
     public synchronized void record(String topic, long offset, ByteBuffer value, String reason) {
-        String encoded = Base64.getEncoder().encodeToString(bytes(value));
+        String encoded = Base64.getEncoder().encodeToString(Utils.toArray(value));
         String line = System.currentTimeMillis() + "\t" + topic + "\t" + offset + "\t"
                 + reason.replace("\t", " ").replace("\n", " ") + "\t" + encoded;
         try {
@@ -67,13 +69,6 @@ public class FileDeadLetterSink implements DeadLetterSink {
         } catch (IOException e) {
             LOG.error("Failed to write dead-letter record for {}-{}", topic, offset, e);
         }
-    }
-
-    private static byte[] bytes(ByteBuffer value) {
-        ByteBuffer dup = value.duplicate();
-        byte[] out = new byte[dup.remaining()];
-        dup.get(out);
-        return out;
     }
 
     @Override

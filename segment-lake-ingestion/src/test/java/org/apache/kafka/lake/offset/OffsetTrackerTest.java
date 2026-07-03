@@ -32,8 +32,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -95,6 +101,56 @@ public class OffsetTrackerTest {
         assertFalse(tracker.isProcessed(segment));
         tracker.markProcessed(segment);
         assertTrue(tracker.isProcessed(segment));
+    }
+
+    @Test
+    public void concurrentMarkProcessedDoesNotLoseUpdates(@TempDir Path tempDir) throws Exception {
+        OffsetTracker tracker = OffsetTracker.load(new Configuration(),
+                tempDir.resolve("orders_table").toString());
+
+        int segmentCount = 2000;
+        List<RemoteLogSegmentMetadata> segments = new ArrayList<>(segmentCount);
+        for (int i = 0; i < segmentCount; i++) {
+            segments.add(segment(i, i));
+        }
+
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+        for (int t = 0; t < threads; t++) {
+            final int worker = t;
+            futures.add(pool.submit(() -> {
+                await(start);
+                for (int i = worker; i < segmentCount; i += threads) {
+                    RemoteLogSegmentMetadata segment = segments.get(i);
+                    tracker.isProcessed(segment); // concurrent read alongside writes
+                    tracker.markProcessed(segment);
+                }
+            }));
+        }
+        start.countDown();
+        for (java.util.concurrent.Future<?> future : futures) {
+            future.get(30, TimeUnit.SECONDS);
+        }
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS));
+
+        // Every mark must have survived (a non-thread-safe set would drop some), and the high-water
+        // offset must equal the maximum end offset seen.
+        for (RemoteLogSegmentMetadata segment : segments) {
+            assertTrue(tracker.isProcessed(segment), "lost update for " + segment.remoteLogSegmentId());
+        }
+        assertTrue(tracker.isProcessed(segment(segmentCount - 1, segmentCount - 1)));
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
     }
 
     private void commit(Configuration hadoopConf, String tableBasePath, RemoteLogSegmentMetadata segment) {
