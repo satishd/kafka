@@ -18,6 +18,7 @@ package org.apache.kafka.lake;
 
 import org.apache.kafka.common.record.Record;
 import org.apache.kafka.common.record.RecordBatch;
+import org.apache.kafka.common.utils.CloseableIterator;
 import org.apache.kafka.lake.config.ConverterConfig;
 import org.apache.kafka.lake.decode.DeadLetterSink;
 import org.apache.kafka.lake.decode.FileDeadLetterSink;
@@ -189,7 +190,8 @@ public final class ConverterWorker {
             boolean decodeEnabled = config.decodeAndWriteEnabled();
 
             RsmProvider rsmProvider = readEnabled ? new RsmProvider(config) : null;
-            SegmentReader reader = readEnabled ? new SegmentReader(rsmProvider.storageManager()) : null;
+            SegmentReader reader = readEnabled
+                    ? new SegmentReader(rsmProvider.storageManager(), config.readBlockBytes()) : null;
             if (!decodeEnabled) {
                 return new Pipeline(rsmProvider, null, reader, null, null, null);
             }
@@ -241,12 +243,15 @@ public final class ConverterWorker {
             String topic = segment.topicIdPartition().topic();
             Map<Schema, List<GenericRecord>> decodedBySchema = new LinkedHashMap<>();
             long deadLettered = 0;
-            for (RecordBatch batch : reader.fetch(segment).batches()) {
-                if (batch.isControlBatch()) {
-                    continue;
-                }
-                for (Record record : batch) {
-                    deadLettered += decodeInto(decodedBySchema, topic, record) ? 0 : 1;
+            try (CloseableIterator<RecordBatch> batches = reader.batches(segment)) {
+                while (batches.hasNext()) {
+                    RecordBatch batch = batches.next();
+                    if (batch.isControlBatch()) {
+                        continue;
+                    }
+                    for (Record record : batch) {
+                        deadLettered += decodeInto(decodedBySchema, topic, record) ? 0 : 1;
+                    }
                 }
             }
             metrics.recordsDeadLettered(deadLettered);

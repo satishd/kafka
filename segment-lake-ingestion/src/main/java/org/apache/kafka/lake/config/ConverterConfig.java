@@ -107,6 +107,15 @@ public class ConverterConfig extends AbstractConfig {
     private static final String MAX_CONCURRENT_SEGMENTS_DOC =
             "Maximum number of segments fetched, decoded, and written to Hudi concurrently.";
 
+    public static final String READ_BLOCK_BYTES_CONFIG = "read.block.bytes";
+    public static final int READ_BLOCK_BYTES_DEFAULT = 4 * 1024 * 1024;
+    private static final String READ_BLOCK_BYTES_DOC =
+            "Size in bytes of the block read buffer used when streaming a segment from remote storage. "
+                    + "Segments are read and parsed one record batch at a time rather than loaded whole, so "
+                    + "peak memory per in-flight segment is bounded by this block size plus the largest record "
+                    + "batch. Larger blocks reduce the number of reads against the object store at the cost of "
+                    + "more memory per concurrent segment.";
+
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
             .define(METADATA_TOPIC_CONFIG, ConfigDef.Type.STRING, METADATA_TOPIC_DEFAULT,
@@ -136,7 +145,9 @@ public class ConverterConfig extends AbstractConfig {
             .define(DEADLETTER_PATH_CONFIG, ConfigDef.Type.STRING, "segment-lake-ingestion-dead-letters.tsv",
                     ConfigDef.Importance.MEDIUM, DEADLETTER_PATH_DOC)
             .define(MAX_CONCURRENT_SEGMENTS_CONFIG, ConfigDef.Type.INT, MAX_CONCURRENT_SEGMENTS_DEFAULT,
-                    ConfigDef.Importance.LOW, MAX_CONCURRENT_SEGMENTS_DOC);
+                    ConfigDef.Importance.LOW, MAX_CONCURRENT_SEGMENTS_DOC)
+            .define(READ_BLOCK_BYTES_CONFIG, ConfigDef.Type.INT, READ_BLOCK_BYTES_DEFAULT,
+                    ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, READ_BLOCK_BYTES_DOC);
 
     public ConverterConfig(Map<?, ?> props) {
         super(CONFIG_DEF, props);
@@ -204,6 +215,10 @@ public class ConverterConfig extends AbstractConfig {
 
     public int maxConcurrentSegments() {
         return getInt(MAX_CONCURRENT_SEGMENTS_CONFIG);
+    }
+
+    public int readBlockBytes() {
+        return getInt(READ_BLOCK_BYTES_CONFIG);
     }
 
     /**
