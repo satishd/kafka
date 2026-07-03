@@ -1239,6 +1239,14 @@ project(':core') {
       into("external/hdfs/libs/")
       duplicatesStrategy 'exclude'
     }
+
+    // segment-lake-ingestion is a standalone worker with heavy/conflicting dependencies
+    // (Hadoop, Parquet, Hudi), so ship its self-contained shadow jar in its own directory
+    // rather than merging it into the shared "libs/" classpath. Its shadow jar task is
+    // registered by that project's own config block, which is evaluated later in this
+    // file, so look it up lazily (at task-execution time) rather than eagerly here.
+    from({ project(':segment-lake-ingestion').tasks.getByName('shadowJar') }) { into("libs/segment-lake-ingestion/") }
+    from(project(':segment-lake-ingestion').file('config')) { into("config/segment-lake-ingestion/") }
     duplicatesStrategy 'exclude'
   }
 
