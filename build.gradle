@@ -2256,6 +2256,14 @@ project(':segment-lake-ingestion') {
     archivesName = "kafka-segment-lake-ingestion"
   }
 
+  apply plugin: 'com.github.johnrengelman.shadow'
+
+  shadowJar {
+    archiveClassifier = 'all'
+    mergeServiceFiles()
+    zip64 = true
+  }
+
   dependencies {
     implementation project(':clients')
     implementation project(':storage:storage-api')
@@ -2265,6 +2273,11 @@ project(':segment-lake-ingestion') {
     implementation libs.slf4jApi
     implementation libs.argparse4j
     implementation libs.avro
+
+    implementation libs.hudiJavaClient
+    implementation libs.parquetAvro
+    implementation libs.hadoopCommon
+    implementation libs.ociHdfsFull
 
     testImplementation libs.junitJupiter
     testImplementation libs.mockitoCore

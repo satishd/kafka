@@ -28,6 +28,9 @@
     <allow pkg="net.sourceforge.argparse4j"/>
     <allow pkg="org.slf4j"/>
     <allow pkg="org.apache.avro"/>
+    <allow pkg="org.apache.hadoop.conf"/>
+    <allow pkg="org.apache.hadoop.fs"/>
+    <allow pkg="org.apache.hudi"/>
 
     <!-- tests -->
     <allow pkg="org.junit"/>
