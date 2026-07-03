@@ -190,8 +190,9 @@ public final class ConverterWorker {
             boolean decodeEnabled = config.decodeAndWriteEnabled();
 
             RsmProvider rsmProvider = readEnabled ? new RsmProvider(config) : null;
-            SegmentReader reader = readEnabled
-                    ? new SegmentReader(rsmProvider.storageManager(), config.readBlockBytes()) : null;
+            SegmentReader reader = readEnabled ? SegmentReader.create(
+                    rsmProvider.storageManager(), config.readMode(), config.readBlockBytes(),
+                    config.readCacheDir()) : null;
             if (!decodeEnabled) {
                 return new Pipeline(rsmProvider, null, reader, null, null, null);
             }
@@ -315,6 +316,9 @@ public final class ConverterWorker {
         public void close() throws IOException {
             if (deadLetterSink != null) {
                 deadLetterSink.close();
+            }
+            if (reader != null) {
+                reader.close();
             }
             if (rsmProvider != null) {
                 rsmProvider.close();

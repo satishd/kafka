@@ -20,7 +20,10 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.apache.kafka.lake.read.ReadMode;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -116,6 +119,21 @@ public class ConverterConfig extends AbstractConfig {
                     + "batch. Larger blocks reduce the number of reads against the object store at the cost of "
                     + "more memory per concurrent segment.";
 
+    public static final String READ_MODE_CONFIG = "read.mode";
+    public static final String READ_MODE_STREAM = "stream";
+    public static final String READ_MODE_CACHE = "cache";
+    public static final String READ_MODE_DEFAULT = READ_MODE_STREAM;
+    private static final String READ_MODE_DOC =
+            "How segments are read from remote storage. '" + READ_MODE_STREAM + "' reads the remote object "
+                    + "directly, one record batch at a time, with no local disk. '" + READ_MODE_CACHE + "' "
+                    + "prefetches the whole segment to a local file (under '" + "read.cache.dir" + "') and reads "
+                    + "batches from it, which frees the network stream sooner at the cost of local disk.";
+
+    public static final String READ_CACHE_DIR_CONFIG = "read.cache.dir";
+    private static final String READ_CACHE_DIR_DOC =
+            "Directory for prefetched segment files when read.mode=" + READ_MODE_CACHE + ". Defaults to the "
+                    + "JVM temp directory. Must have room for the largest segment times max.concurrent.segments.";
+
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
             .define(METADATA_TOPIC_CONFIG, ConfigDef.Type.STRING, METADATA_TOPIC_DEFAULT,
@@ -147,7 +165,12 @@ public class ConverterConfig extends AbstractConfig {
             .define(MAX_CONCURRENT_SEGMENTS_CONFIG, ConfigDef.Type.INT, MAX_CONCURRENT_SEGMENTS_DEFAULT,
                     ConfigDef.Importance.LOW, MAX_CONCURRENT_SEGMENTS_DOC)
             .define(READ_BLOCK_BYTES_CONFIG, ConfigDef.Type.INT, READ_BLOCK_BYTES_DEFAULT,
-                    ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, READ_BLOCK_BYTES_DOC);
+                    ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, READ_BLOCK_BYTES_DOC)
+            .define(READ_MODE_CONFIG, ConfigDef.Type.STRING, READ_MODE_DEFAULT,
+                    ConfigDef.ValidString.in(READ_MODE_STREAM, READ_MODE_CACHE),
+                    ConfigDef.Importance.LOW, READ_MODE_DOC)
+            .define(READ_CACHE_DIR_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.LOW, READ_CACHE_DIR_DOC);
 
     public ConverterConfig(Map<?, ?> props) {
         super(CONFIG_DEF, props);
@@ -219,6 +242,19 @@ public class ConverterConfig extends AbstractConfig {
 
     public int readBlockBytes() {
         return getInt(READ_BLOCK_BYTES_CONFIG);
+    }
+
+    public ReadMode readMode() {
+        return ReadMode.fromString(getString(READ_MODE_CONFIG));
+    }
+
+    /**
+     * @return directory for prefetched segment files in {@link ReadMode#CACHE}; the JVM temp
+     *         directory when {@code read.cache.dir} is unset.
+     */
+    public Path readCacheDir() {
+        String dir = getString(READ_CACHE_DIR_CONFIG).trim();
+        return dir.isEmpty() ? Paths.get(System.getProperty("java.io.tmpdir")) : Paths.get(dir);
     }
 
     /**

@@ -17,9 +17,11 @@
 package org.apache.kafka.lake.config;
 
 import org.apache.kafka.common.config.ConfigException;
+import org.apache.kafka.lake.read.ReadMode;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -52,5 +54,37 @@ public class ConverterConfigTest {
         Map<String, Object> props = baseProps();
         props.put(ConverterConfig.READ_BLOCK_BYTES_CONFIG, 0);
         assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
+
+    @Test
+    public void readModeDefaultsToStream() {
+        assertEquals(ReadMode.STREAM, new ConverterConfig(baseProps()).readMode());
+    }
+
+    @Test
+    public void readModeHonorsCacheOverride() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.READ_MODE_CONFIG, ConverterConfig.READ_MODE_CACHE);
+        assertEquals(ReadMode.CACHE, new ConverterConfig(props).readMode());
+    }
+
+    @Test
+    public void readModeRejectsUnknownValue() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.READ_MODE_CONFIG, "mmap");
+        assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
+
+    @Test
+    public void readCacheDirDefaultsToTmpDir() {
+        assertEquals(Paths.get(System.getProperty("java.io.tmpdir")),
+                new ConverterConfig(baseProps()).readCacheDir());
+    }
+
+    @Test
+    public void readCacheDirHonorsOverride() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.READ_CACHE_DIR_CONFIG, "/var/cache/segments");
+        assertEquals(Paths.get("/var/cache/segments"), new ConverterConfig(props).readCacheDir());
     }
 }

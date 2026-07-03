@@ -158,19 +158,31 @@ builds clean; unit tests pass; running the worker against dev prints discovered
   (`className` + `classpath`) and calls `configure(configMap)`. Mirror the broker's approach in
   `RemoteLogManager` (config-driven class name + classpath loader). Keep a single configured
   instance.
-- `.../lake/read/SegmentReader.java` — `Iterable<Record> read(RemoteLogSegmentMetadata)`.
+- `.../lake/read/SegmentReader.java` — `CloseableIterator<RecordBatch> batches(RemoteLogSegmentMetadata)`,
+  streaming one batch at a time so a segment is never loaded whole onto the heap. The byte source is
+  pluggable via `read.mode` (a `SegmentBatchSource`): `stream` reads the remote object directly
+  through a `BufferedInputStream(read.block.bytes)` + `RemoteLogInputStream`; `cache` prefetches the
+  whole segment to a file under `read.cache.dir` and reads it back with `FileRecords` (frees the
+  network stream sooner, at the cost of local disk). Both bound heap to block-size + largest-batch.
 
 **Key API usage**
 ```java
-// SegmentReader
-try (InputStream in = rsm.fetchLogSegment(metadata, 0)) {
-    ByteBuffer buf = ByteBuffer.wrap(in.readAllBytes());     // segment .log bytes
-    MemoryRecords records = MemoryRecords.readableRecords(buf);
-    for (Record record : records.records()) {                // records() decompresses batches
-        // record.value() -> ByteBuffer (Heatpipe-wrapped Avro); record.offset(); record.timestamp()
+// SegmentReader (stream mode) — bounded memory, one batch at a time
+try (CloseableIterator<RecordBatch> batches =
+        new RemoteLogInputStreamIterator(new BufferedInputStream(
+                rsm.fetchLogSegment(metadata, 0), blockSize))) {
+    while (batches.hasNext()) {
+        RecordBatch batch = batches.next();
+        if (batch.isControlBatch()) continue;
+        for (Record record : batch) {
+            // record.value() -> ByteBuffer (Heatpipe-wrapped Avro); record.offset(); record.timestamp()
+        }
     }
 }
+// cache mode instead downloads to a temp file and iterates FileRecords.open(file, false).batches().
 ```
+> Do **not** use `in.readAllBytes()` + `MemoryRecords.readableRecords(buf)`: that allocates a
+> segment-sized heap buffer per fetch (multiplied by `max.concurrent.segments`). Stream batches.
 - Location is resolved *inside* `fetchLogSegment` from `metadata.customMetadata()` — the worker
   does **not** build paths. `RemoteStorageManager.fetchLogSegment(metadata, startPosition)` is
   in `storage/api/.../RemoteStorageManager.java`.
@@ -363,6 +375,9 @@ green, rather than appending a "fixup" commit.
 | `deadletter.path` (or `.topic`) | undecodable records sink. |
 | `topics.allowlist` | pilot scoping (1–2 append-only topics). |
 | `max.concurrent.segments` | worker parallelism. |
+| `read.block.bytes` | block/download buffer for reading a segment; default 4 MiB. |
+| `read.mode` | `stream` (direct, no disk) or `cache` (prefetch to a local file, read via `FileRecords`); default `stream`. |
+| `read.cache.dir` | dir for prefetched files when `read.mode=cache`; default JVM temp dir. |
 
 ---
 
