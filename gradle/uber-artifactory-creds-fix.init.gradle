@@ -1,0 +1,53 @@
+// Workaround for intermittent 401s when downloading dependencies from
+// artifacts.uberinternal.com (e.g. zstd-jni, lz4-java, snappy-java, protobuf-java,
+// opentelemetry-proto).
+//
+// build.gradle declares several unauthenticated `maven` repos pointing at
+// artifacts.uberinternal.com, in addition to the authenticated one injected globally by
+// ~/.gradle/init.gradle. When a repo URL is declared more than once, Gradle can resolve a
+// module's POM metadata via one repo and its jar via a different (unauthenticated) one,
+// which fails hard on 401 since that repo has no credentials to retry with.
+//
+// This script fixes it by injecting credentials into every maven repo (existing or added
+// later) that points at artifacts.uberinternal.com, so it no longer matters which
+// declaration Gradle picks.
+//
+// Usage: ./gradlew <task> -I gradle/uber-artifactory-creds-fix.init.gradle
+
+def getNetRCCredentials(host) {
+    def netRCFile = new File("${System.getProperty('user.home')}/.netrc")
+    if (!netRCFile.exists()) {
+        return null
+    }
+    def netRCText = netRCFile.text
+    def pattern = /machine\s+($host)\s+login.*\s+password\s+(\S+)/
+    def password = (netRCText =~ pattern).find { it }
+    return (password && password.size() >= 2) ? password[2] : null
+}
+
+def artifactoryHost = "artifacts.uberinternal.com"
+def artifactoryPassword = getNetRCCredentials(artifactoryHost)
+
+def secureArtifactoryRepos = { RepositoryHandler repositories ->
+    repositories.all { repo ->
+        if (repo instanceof MavenArtifactRepository && repo.url?.host == artifactoryHost) {
+            repo.credentials {
+                username = "ignored"
+                password = artifactoryPassword
+            }
+        }
+    }
+}
+
+allprojects { project ->
+    buildscript {
+        secureArtifactoryRepos(repositories)
+    }
+    secureArtifactoryRepos(repositories)
+}
+
+gradle.settingsEvaluated { settings ->
+    settings.pluginManagement {
+        secureArtifactoryRepos(repositories)
+    }
+}
