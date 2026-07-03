@@ -21,7 +21,6 @@ import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DecoderFactory;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

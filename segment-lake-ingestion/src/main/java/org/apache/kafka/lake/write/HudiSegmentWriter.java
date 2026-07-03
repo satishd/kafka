@@ -32,7 +32,6 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.TableNotFoundException;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

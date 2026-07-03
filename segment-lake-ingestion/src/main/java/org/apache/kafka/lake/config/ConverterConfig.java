@@ -73,6 +73,40 @@ public class ConverterConfig extends AbstractConfig {
     /** Prefix for keys forwarded (with the prefix stripped) to {@code RemoteStorageManager.configure}. */
     public static final String RSM_CONFIG_PREFIX = "rsm.config.";
 
+    public static final String SCHEMA_CLIENT_CLASS_NAME_CONFIG = "schema.client.class.name";
+    private static final String SCHEMA_CLIENT_CLASS_NAME_DOC =
+            "Fully qualified class name of the SchemaClient implementation used to resolve Heatpipe "
+                    + "writer schemas (expected to be backed by Uber's Schema Service). Leave empty to run "
+                    + "discovery and fetch only, without decoding or writing to Hudi.";
+
+    /** Prefix for keys forwarded (with the prefix stripped) to {@code SchemaClient.configure}. */
+    public static final String SCHEMA_CLIENT_CONFIG_PREFIX = "schema.client.config.";
+
+    public static final String HUDI_TABLE_BASE_PATH_CONFIG = "hudi.table.base.path";
+    private static final String HUDI_TABLE_BASE_PATH_DOC =
+            "Base path of the Hudi table, e.g. cfs://ns-cloudlake/... or oci://bucket@namespace/prefix. "
+                    + "The URI scheme is opaque to this module.";
+
+    public static final String HUDI_TABLE_NAME_CONFIG = "hudi.table.name";
+    private static final String HUDI_TABLE_NAME_DOC = "Hudi table name.";
+
+    public static final String HUDI_RECORD_KEY_FIELD_CONFIG = "hudi.record.key.field";
+    private static final String HUDI_RECORD_KEY_FIELD_DOC =
+            "Name of the decoded record field used to derive the Hudi record key.";
+
+    public static final String HUDI_PARTITION_PATH_FIELD_CONFIG = "hudi.partition.path.field";
+    private static final String HUDI_PARTITION_PATH_FIELD_DOC =
+            "Name of the decoded record field used to derive the Hudi partition path.";
+
+    public static final String DEADLETTER_PATH_CONFIG = "deadletter.path";
+    private static final String DEADLETTER_PATH_DOC =
+            "Local (or mounted) path that undecodable records are appended to.";
+
+    public static final String MAX_CONCURRENT_SEGMENTS_CONFIG = "max.concurrent.segments";
+    private static final int MAX_CONCURRENT_SEGMENTS_DEFAULT = 4;
+    private static final String MAX_CONCURRENT_SEGMENTS_DOC =
+            "Maximum number of segments fetched, decoded, and written to Hudi concurrently.";
+
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
             .define(METADATA_TOPIC_CONFIG, ConfigDef.Type.STRING, METADATA_TOPIC_DEFAULT,
@@ -88,7 +122,21 @@ public class ConverterConfig extends AbstractConfig {
             .define(RSM_CLASS_NAME_CONFIG, ConfigDef.Type.STRING, "",
                     ConfigDef.Importance.HIGH, RSM_CLASS_NAME_DOC)
             .define(RSM_CLASS_PATH_CONFIG, ConfigDef.Type.STRING, "",
-                    ConfigDef.Importance.LOW, RSM_CLASS_PATH_DOC);
+                    ConfigDef.Importance.LOW, RSM_CLASS_PATH_DOC)
+            .define(SCHEMA_CLIENT_CLASS_NAME_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.HIGH, SCHEMA_CLIENT_CLASS_NAME_DOC)
+            .define(HUDI_TABLE_BASE_PATH_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.HIGH, HUDI_TABLE_BASE_PATH_DOC)
+            .define(HUDI_TABLE_NAME_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.HIGH, HUDI_TABLE_NAME_DOC)
+            .define(HUDI_RECORD_KEY_FIELD_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.MEDIUM, HUDI_RECORD_KEY_FIELD_DOC)
+            .define(HUDI_PARTITION_PATH_FIELD_CONFIG, ConfigDef.Type.STRING, "",
+                    ConfigDef.Importance.MEDIUM, HUDI_PARTITION_PATH_FIELD_DOC)
+            .define(DEADLETTER_PATH_CONFIG, ConfigDef.Type.STRING, "segment-lake-ingestion-dead-letters.tsv",
+                    ConfigDef.Importance.MEDIUM, DEADLETTER_PATH_DOC)
+            .define(MAX_CONCURRENT_SEGMENTS_CONFIG, ConfigDef.Type.INT, MAX_CONCURRENT_SEGMENTS_DEFAULT,
+                    ConfigDef.Importance.LOW, MAX_CONCURRENT_SEGMENTS_DOC);
 
     public ConverterConfig(Map<?, ?> props) {
         super(CONFIG_DEF, props);
@@ -120,6 +168,55 @@ public class ConverterConfig extends AbstractConfig {
      */
     public Map<String, Object> rsmConfigs() {
         return originalsWithPrefix(RSM_CONFIG_PREFIX);
+    }
+
+    public String schemaClientClassName() {
+        return getString(SCHEMA_CLIENT_CLASS_NAME_CONFIG);
+    }
+
+    /**
+     * @return SchemaClient-specific settings (keys under {@link #SCHEMA_CLIENT_CONFIG_PREFIX}, prefix
+     *         stripped) to hand to {@code SchemaClient.configure}, if it implements {@code Configurable}.
+     */
+    public Map<String, Object> schemaClientConfigs() {
+        return originalsWithPrefix(SCHEMA_CLIENT_CONFIG_PREFIX);
+    }
+
+    public String hudiTableBasePath() {
+        return getString(HUDI_TABLE_BASE_PATH_CONFIG);
+    }
+
+    public String hudiTableName() {
+        return getString(HUDI_TABLE_NAME_CONFIG);
+    }
+
+    public String hudiRecordKeyField() {
+        return getString(HUDI_RECORD_KEY_FIELD_CONFIG);
+    }
+
+    public String hudiPartitionPathField() {
+        return getString(HUDI_PARTITION_PATH_FIELD_CONFIG);
+    }
+
+    public String deadLetterPath() {
+        return getString(DEADLETTER_PATH_CONFIG);
+    }
+
+    public int maxConcurrentSegments() {
+        return getInt(MAX_CONCURRENT_SEGMENTS_CONFIG);
+    }
+
+    /**
+     * @return true once every setting required to run the full decode-and-write pipeline is present;
+     *         otherwise the worker falls back to discovery (and, if an RSM is set, fetch) only.
+     */
+    public boolean decodeAndWriteEnabled() {
+        return !rsmClassName().trim().isEmpty()
+                && !schemaClientClassName().trim().isEmpty()
+                && !hudiTableBasePath().trim().isEmpty()
+                && !hudiTableName().trim().isEmpty()
+                && !hudiRecordKeyField().trim().isEmpty()
+                && !hudiPartitionPathField().trim().isEmpty();
     }
 
     /**
