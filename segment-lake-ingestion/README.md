@@ -21,6 +21,14 @@ For each partition, `ConverterWorker` tails `__remote_log_metadata` (via a plain
 
 Up to `max.concurrent.segments` segments are processed concurrently.
 
+### Topic selection
+
+`topics.allowlist` is **required and must be non-empty**: it is the comma-separated set of topics to
+ingest. Metadata records for any other topic on `__remote_log_metadata` are dropped as soon as they
+are deserialized — before the `SegmentAssembler` sees them — so unrelated topics never occupy memory
+in the pending map and never contribute to the pending count that gates offset commits. The worker
+fails fast at startup if the allowlist is missing or empty.
+
 ### Fallback modes
 
 The full decode-and-write pipeline only turns on once every setting `ConverterConfig.decodeAndWriteEnabled()`

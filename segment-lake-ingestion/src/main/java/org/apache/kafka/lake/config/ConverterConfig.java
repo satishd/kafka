@@ -19,13 +19,13 @@ package org.apache.kafka.lake.config;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.lake.read.ReadMode;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -62,7 +62,10 @@ public class ConverterConfig extends AbstractConfig {
 
     public static final String TOPICS_ALLOWLIST_CONFIG = "topics.allowlist";
     private static final String TOPICS_ALLOWLIST_DOC =
-            "Comma separated list of topics to ingest. Empty means all topics are considered.";
+            "Comma separated list of topics to ingest. Required and must be non-empty: only segments "
+                    + "belonging to these topics are processed. Metadata records for every other topic on "
+                    + "the remote log metadata topic are skipped before assembly, so they never occupy "
+                    + "memory or hold back offset commits.";
 
     public static final String RSM_CLASS_NAME_CONFIG = "remote.storage.manager.class.name";
     private static final String RSM_CLASS_NAME_DOC =
@@ -164,6 +167,28 @@ public class ConverterConfig extends AbstractConfig {
             "Directory for prefetched segment files when read.mode=" + READ_MODE_CACHE + ". Defaults to the "
                     + "JVM temp directory. Must have room for the largest segment times max.concurrent.segments.";
 
+    /** Rejects a missing or empty {@code topics.allowlist}, and any blank topic name within it. */
+    private static final ConfigDef.Validator NON_EMPTY_TOPICS = new ConfigDef.Validator() {
+        @Override
+        @SuppressWarnings("unchecked")
+        public void ensureValid(String name, Object value) {
+            List<String> topics = (List<String>) value;
+            if (topics == null || topics.isEmpty()) {
+                throw new ConfigException(name, value, "At least one topic must be configured.");
+            }
+            for (String topic : topics) {
+                if (topic == null || topic.trim().isEmpty()) {
+                    throw new ConfigException(name, value, "Topic names must be non-empty.");
+                }
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "non-empty list of topic names";
+        }
+    };
+
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(BOOTSTRAP_SERVERS_CONFIG, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, BOOTSTRAP_SERVERS_DOC)
             .define(METADATA_TOPIC_CONFIG, ConfigDef.Type.STRING, METADATA_TOPIC_DEFAULT,
@@ -174,7 +199,7 @@ public class ConverterConfig extends AbstractConfig {
                     ConfigDef.Importance.LOW, POLL_TIMEOUT_MS_DOC)
             .define(MAX_POLL_RECORDS_CONFIG, ConfigDef.Type.INT, MAX_POLL_RECORDS_DEFAULT,
                     ConfigDef.Importance.LOW, MAX_POLL_RECORDS_DOC)
-            .define(TOPICS_ALLOWLIST_CONFIG, ConfigDef.Type.LIST, Collections.emptyList(),
+            .define(TOPICS_ALLOWLIST_CONFIG, ConfigDef.Type.LIST, ConfigDef.NO_DEFAULT_VALUE, NON_EMPTY_TOPICS,
                     ConfigDef.Importance.MEDIUM, TOPICS_ALLOWLIST_DOC)
             .define(RSM_CLASS_NAME_CONFIG, ConfigDef.Type.STRING, "",
                     ConfigDef.Importance.HIGH, RSM_CLASS_NAME_DOC)

@@ -50,7 +50,7 @@ public class TopicMetadataSourceTest {
     public void emitsFinishedSegmentsSkippingTombstonesAndUndeserializable() {
         MockConsumer<byte[], byte[]> consumer = mockConsumer();
         RemoteLogSegmentMetadata finished = finishedSegment("orders");
-        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
         consumer.rebalance(Collections.singleton(PARTITION));
 
         long offset = 0;
@@ -80,9 +80,23 @@ public class TopicMetadataSourceTest {
     }
 
     @Test
+    public void nonAllowlistedTopicNeverEntersAssembler() {
+        MockConsumer<byte[], byte[]> consumer = mockConsumer();
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
+        consumer.rebalance(Collections.singleton(PARTITION));
+
+        // A started (but never finished) segment for a non-configured topic must not be tracked:
+        // otherwise it would inflate pendingCount() and hold offset commits back forever.
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(startedSegment("payments"))));
+
+        assertTrue(source.poll().isEmpty());
+        assertEquals(0, source.pendingCount());
+    }
+
+    @Test
     public void emptyPollReturnsNothing() {
         MockConsumer<byte[], byte[]> consumer = mockConsumer();
-        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
         consumer.rebalance(Collections.singleton(PARTITION));
 
         assertTrue(source.poll().isEmpty());
@@ -91,7 +105,7 @@ public class TopicMetadataSourceTest {
     @Test
     public void pendingCountTracksStartedButNotFinishedSegments() {
         MockConsumer<byte[], byte[]> consumer = mockConsumer();
-        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
         consumer.rebalance(Collections.singleton(PARTITION));
 
         RemoteLogSegmentMetadata started = startedSegment("orders");
@@ -112,7 +126,7 @@ public class TopicMetadataSourceTest {
     @Test
     public void commitAdvancesConsumerPosition() {
         MockConsumer<byte[], byte[]> consumer = mockConsumer();
-        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.emptyList()));
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
         consumer.rebalance(Collections.singleton(PARTITION));
 
         consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(finishedSegment("orders"))));
@@ -133,9 +147,7 @@ public class TopicMetadataSourceTest {
     private static ConverterConfig config(List<String> allowlist) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConverterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        if (!allowlist.isEmpty()) {
-            props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, String.join(",", allowlist));
-        }
+        props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, String.join(",", allowlist));
         return new ConverterConfig(props);
     }
 

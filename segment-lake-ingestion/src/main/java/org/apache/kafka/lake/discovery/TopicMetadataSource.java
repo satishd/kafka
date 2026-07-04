@@ -39,9 +39,11 @@ import java.util.Set;
 /**
  * A {@link MetadataSource} backed by a {@link KafkaConsumer} on the remote log metadata topic.
  *
- * <p>Each poll deserializes records with {@link RemoteLogMetadataSerde}, feeds them through a
- * {@link SegmentAssembler} to merge started/finished events, and returns the finalized segments
- * (optionally filtered by a topics allowlist).
+ * <p>Each poll deserializes records with {@link RemoteLogMetadataSerde}, discards any whose topic is
+ * not in the configured allowlist <em>before</em> assembly, feeds the rest through a
+ * {@link SegmentAssembler} to merge started/finished events, and returns the finalized segments.
+ * Filtering ahead of the assembler keeps un-ingested topics out of its pending map and out of
+ * {@link #pendingCount()}, so they can never hold back offset commits.
  */
 public class TopicMetadataSource implements MetadataSource {
 
@@ -84,18 +86,16 @@ public class TopicMetadataSource implements MetadataSource {
                         record.topic(), record.partition(), record.offset(), e);
                 continue;
             }
-            for (RemoteLogSegmentMetadata segment : assembler.accept(metadata)) {
-                if (allowed(segment)) {
-                    finished.add(segment);
-                }
+            if (!topicsAllowlist.contains(metadata.topicIdPartition().topic())) {
+                // Not a configured topic: drop it before the assembler sees it, so it never enters
+                // the pending map or counts toward pendingCount() (which would block offset commits).
+                LOG.debug("Skipping metadata record for topic {} at {}-{}@{} because it is not in the allowlist",
+                        metadata.topicIdPartition().topic(), record.topic(), record.partition(), record.offset());
+                continue;
             }
+            finished.addAll(assembler.accept(metadata));
         }
         return finished;
-    }
-
-    private boolean allowed(RemoteLogSegmentMetadata segment) {
-        return topicsAllowlist.isEmpty()
-                || topicsAllowlist.contains(segment.topicIdPartition().topic());
     }
 
     @Override

@@ -22,6 +22,7 @@ import org.apache.kafka.lake.read.ReadMode;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -33,7 +34,37 @@ public class ConverterConfigTest {
     private static Map<String, Object> baseProps() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConverterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, "orders");
         return props;
+    }
+
+    @Test
+    public void topicsAllowlistIsRequired() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConverterConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
+
+    @Test
+    public void topicsAllowlistRejectsEmptyValue() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, "");
+        assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
+
+    @Test
+    public void topicsAllowlistRejectsBlankTopic() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, "orders, ,payments");
+        assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
+
+    @Test
+    public void topicsAllowlistIsParsed() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.TOPICS_ALLOWLIST_CONFIG, "orders,payments");
+        assertEquals(Arrays.asList("orders", "payments"),
+                new ConverterConfig(props).topicsAllowlist());
     }
 
     @Test
