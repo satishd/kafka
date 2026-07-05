@@ -39,4 +39,18 @@ public interface DeadLetterSink extends Closeable {
      * @param reason human-readable reason the record was rejected.
      */
     void record(String topic, long offset, ByteBuffer value, String reason);
+
+    /**
+     * Record one abandoned segment (never ingested) for audit &mdash; e.g. a segment stuck in
+     * COPY_SEGMENT_STARTED that was evicted after a timeout, or one deleted before it finished. This
+     * is a segment-level audit trail, distinct from the per-record {@link #record} entries above.
+     *
+     * @param topicPartition the segment's topic-partition.
+     * @param segmentId      the remote log segment id.
+     * @param startOffset    the segment's start offset.
+     * @param endOffset      the segment's end offset.
+     * @param reason         human-readable reason the segment was abandoned.
+     */
+    void recordAbandonedSegment(String topicPartition, String segmentId, long startOffset, long endOffset,
+                                String reason);
 }

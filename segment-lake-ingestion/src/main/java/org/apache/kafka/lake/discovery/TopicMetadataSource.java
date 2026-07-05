@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.LongSupplier;
 
 /**
  * A {@link MetadataSource} backed by a {@link KafkaConsumer} on the remote log metadata topic.
@@ -56,14 +57,19 @@ public class TopicMetadataSource implements MetadataSource {
     private final Set<String> topicsAllowlist;
 
     public TopicMetadataSource(ConverterConfig config) {
-        this(new KafkaConsumer<>(config.consumerProperties()), config);
+        this(new KafkaConsumer<>(config.consumerProperties()), config, System::currentTimeMillis);
     }
 
     // Visible for testing.
     TopicMetadataSource(Consumer<byte[], byte[]> consumer, ConverterConfig config) {
+        this(consumer, config, System::currentTimeMillis);
+    }
+
+    // Visible for testing: allows a controllable clock to drive the assembler's eviction ageing.
+    TopicMetadataSource(Consumer<byte[], byte[]> consumer, ConverterConfig config, LongSupplier clockMs) {
         this.consumer = consumer;
         this.serde = new RemoteLogMetadataSerde();
-        this.assembler = new SegmentAssembler();
+        this.assembler = new SegmentAssembler(clockMs);
         this.pollTimeout = config.pollTimeout();
         this.topicsAllowlist = new HashSet<>(config.topicsAllowlist());
         this.consumer.subscribe(Collections.singletonList(config.metadataTopic()));
@@ -101,6 +107,16 @@ public class TopicMetadataSource implements MetadataSource {
     @Override
     public int pendingCount() {
         return assembler.pendingCount();
+    }
+
+    @Override
+    public List<RemoteLogSegmentMetadata> evictStale(long maxAgeMs) {
+        return assembler.evictStale(maxAgeMs);
+    }
+
+    @Override
+    public List<RemoteLogSegmentMetadata> drainAbandoned() {
+        return assembler.drainAbandoned();
     }
 
     @Override

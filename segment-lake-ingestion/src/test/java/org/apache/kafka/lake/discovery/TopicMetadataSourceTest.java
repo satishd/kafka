@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -136,6 +137,46 @@ public class TopicMetadataSourceTest {
         assertTrue(consumer.committed(Collections.singleton(PARTITION)).isEmpty());
         source.commit();
         assertEquals(2L, consumer.committed(Collections.singleton(PARTITION)).get(PARTITION).offset());
+    }
+
+    @Test
+    public void drainAbandonedReturnsSegmentsDeletedBeforeIngest() {
+        MockConsumer<byte[], byte[]> consumer = mockConsumer();
+        TopicMetadataSource source = new TopicMetadataSource(consumer, config(Collections.singletonList("orders")));
+        consumer.rebalance(Collections.singleton(PARTITION));
+
+        RemoteLogSegmentMetadata started = startedSegment("orders");
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(started)));
+        RemoteLogSegmentMetadataUpdate deleted = new RemoteLogSegmentMetadataUpdate(
+                started.remoteLogSegmentId(), 3000L, Optional.empty(),
+                RemoteLogSegmentState.DELETE_SEGMENT_STARTED, 1);
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 1L, null, serde.serialize(deleted)));
+        source.poll();
+
+        List<RemoteLogSegmentMetadata> abandoned = source.drainAbandoned();
+        assertEquals(1, abandoned.size());
+        assertEquals(started.remoteLogSegmentId(), abandoned.get(0).remoteLogSegmentId());
+        assertEquals(0, source.pendingCount());
+    }
+
+    @Test
+    public void evictStaleDelegatesToAssembler() {
+        AtomicLong now = new AtomicLong(0);
+        MockConsumer<byte[], byte[]> consumer = mockConsumer();
+        TopicMetadataSource source =
+                new TopicMetadataSource(consumer, config(Collections.singletonList("orders")), now::get);
+        consumer.rebalance(Collections.singleton(PARTITION));
+
+        consumer.addRecord(new ConsumerRecord<>(TOPIC, 0, 0L, null, serde.serialize(startedSegment("orders"))));
+        source.poll();
+        assertEquals(1, source.pendingCount());
+
+        assertTrue(source.evictStale(0L).isEmpty(), "Eviction disabled for non-positive timeout");
+        assertEquals(1, source.pendingCount());
+
+        now.addAndGet(5_000L);
+        assertEquals(1, source.evictStale(1_000L).size());
+        assertEquals(0, source.pendingCount());
     }
 
     private static MockConsumer<byte[], byte[]> mockConsumer() {

@@ -56,4 +56,25 @@ public class FileDeadLetterSinkTest {
 
         assertTrue(lines.get(1).contains("reason with tabs"));
     }
+
+    @Test
+    public void writesDistinguishableSegmentAuditLine() throws IOException {
+        Path path = tempDir.resolve("dead-letters.tsv");
+
+        try (FileDeadLetterSink sink = new FileDeadLetterSink(path)) {
+            sink.record("orders", 5L, ByteBuffer.wrap("payload".getBytes(StandardCharsets.UTF_8)), "bad header");
+            sink.recordAbandonedSegment("orders-0", "seg-uuid", 10L, 42L, "evicted after pending timeout");
+        }
+
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        assertEquals(2, lines.size());
+
+        String[] fields = lines.get(1).split("\t");
+        assertEquals("SEGMENT", fields[0]);
+        assertEquals("orders-0", fields[2]);
+        assertEquals("seg-uuid", fields[3]);
+        assertEquals("10", fields[4]);
+        assertEquals("42", fields[5]);
+        assertEquals("evicted after pending timeout", fields[6]);
+    }
 }

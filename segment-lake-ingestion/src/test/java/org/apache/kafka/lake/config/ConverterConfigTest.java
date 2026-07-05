@@ -158,4 +158,23 @@ public class ConverterConfigTest {
         assertEquals("false",
                 new ConverterConfig(baseProps()).consumerProperties().getProperty("enable.auto.commit"));
     }
+
+    @Test
+    public void pendingSegmentTimeoutDefaultsToSixHours() {
+        assertEquals(21600000L, new ConverterConfig(baseProps()).pendingSegmentTimeoutMs());
+    }
+
+    @Test
+    public void pendingSegmentTimeoutHonorsOverride() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.PENDING_SEGMENT_TIMEOUT_MS_CONFIG, 0);
+        assertEquals(0L, new ConverterConfig(props).pendingSegmentTimeoutMs());
+    }
+
+    @Test
+    public void pendingSegmentTimeoutRejectsNegative() {
+        Map<String, Object> props = baseProps();
+        props.put(ConverterConfig.PENDING_SEGMENT_TIMEOUT_MS_CONFIG, -1);
+        assertThrows(ConfigException.class, () -> new ConverterConfig(props));
+    }
 }

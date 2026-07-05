@@ -66,10 +66,18 @@ permanently losing the other schema groups.
 **Fix:** make a segment atomic — one commit per segment (write all schema groups under a single
 `startCommit`/`commit`), or only record the id once every group has committed.
 
-### B3 (P2) — `SegmentAssembler.pending` grows unbounded
+### B3 (P2) — `SegmentAssembler.pending` grows unbounded — **DONE**
 `COPY_SEGMENT_STARTED` entries that never receive a `FINISHED` (aborted copies, deleted segments)
-stay in the `pending` map forever — a slow leak in a long-running tail.
-**Fix:** evict on terminal states (delete/abort) and/or bound by size or age with a warning.
+stay in the `pending` map forever — a slow leak in a long-running tail, and (because offset commits
+are gated on `pendingCount()`) a permanent, silent offset-commit stall.
+**Fix (shipped):** `SegmentAssembler` now reclaims such entries two ways, orchestrated by
+`ConverterWorker.reclaimAbandoned` on the commit tick: a `DELETE_*` that clears a still-pending entry
+drops it and surfaces it for audit (`segmentsAbortedByDelete`), and any entry pending longer than
+`pending.segment.timeout.ms` (default 6h, keyed on local first-seen time so historical replay is not
+wrongly evicted; `0` disables) is evicted (`segmentsEvicted`). Both emit a metric, a WARN log, and a
+segment-level dead-letter audit row. Eviction stays exactly-once safe because an abandoned copy is
+re-copied under a new segment id and `OffsetTracker`'s `endOffset <= highWater` dedup blocks any
+double-write.
 
 ---
 
@@ -150,7 +158,8 @@ and E2 (chunked decode→single commit) fold in here since they all touch the wr
 
 **Phase 3 — modularity + tests:** C1 (extract `SegmentProcessor` + `PipelineFactory`), C2 (drop
 `locate`), C3 (`RecordKeyExtractor`), C4 (`Plugins` helper), then D4 (orchestration +
-`TopicMetadataSource` tests now that they're testable). B3 (`SegmentAssembler` eviction) fits here.
+`TopicMetadataSource` tests now that they're testable). B3 (`SegmentAssembler` eviction) fits here,
+and is now done (timeout eviction + delete-before-ingest reclaim, both audited).
 
 **Phase 4 — polish:** D2 (exception base), D3 (Kafka `Metrics` + latency count/max).
 
@@ -186,7 +195,10 @@ that rare case). Full multi-schema atomicity remains open.
 upstream copying the assembler may rarely be empty, so offsets advance infrequently and a restart
 re-reads more (still correct — `OffsetTracker` skips already-committed segments). A finer-grained,
 always-progressing commit needs per-segment *anchor* tracking (commit up to just before the oldest
-`COPY_SEGMENT_STARTED` record still needed by an unwritten segment). Deferred as a follow-up.
+`COPY_SEGMENT_STARTED` record still needed by an unwritten segment). Deferred as a follow-up. Note
+this is now purely a throughput/granularity concern: a *permanently* pending `COPY_SEGMENT_STARTED`
+no longer freezes commits forever — it is evicted after `pending.segment.timeout.ms` and audited
+(B3), so the pending set is bounded and commits always resume.
 
 **Deferred to a later phase.** E2 (stream decoded records into the write client in bounded chunks
 rather than accumulating the whole segment) — peak heap is now bounded across segments by the

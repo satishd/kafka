@@ -57,6 +57,11 @@ public class HeatpipeAvroDecoderTest {
         }
 
         @Override
+        public void recordAbandonedSegment(String topicPartition, String segmentId, long startOffset,
+                                           long endOffset, String reason) {
+        }
+
+        @Override
         public void close() {
         }
     };

@@ -143,6 +143,14 @@ public class ConverterConfig extends AbstractConfig {
                     + "happens at a quiescent checkpoint (no segments in flight, none failed, and none "
                     + "half-assembled), so the committed position is always safe to resume from.";
 
+    public static final String PENDING_SEGMENT_TIMEOUT_MS_CONFIG = "pending.segment.timeout.ms";
+    public static final long PENDING_SEGMENT_TIMEOUT_MS_DEFAULT = 21600000L; // 6 hours
+    private static final String PENDING_SEGMENT_TIMEOUT_MS_DOC =
+            "Maximum time a segment may remain in COPY_SEGMENT_STARTED (seen started but not yet "
+                    + "finished) before it is treated as abandoned and evicted, so it stops leaking memory "
+                    + "and holding back offset commits. Must exceed the broker's maximum segment copy time. "
+                    + "0 disables eviction.";
+
     public static final String READ_BLOCK_BYTES_CONFIG = "read.block.bytes";
     public static final int READ_BLOCK_BYTES_DEFAULT = 4 * 1024 * 1024;
     private static final String READ_BLOCK_BYTES_DOC =
@@ -227,6 +235,8 @@ public class ConverterConfig extends AbstractConfig {
                     ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, WRITE_RETRY_BACKOFF_MS_DOC)
             .define(OFFSET_COMMIT_INTERVAL_MS_CONFIG, ConfigDef.Type.LONG, OFFSET_COMMIT_INTERVAL_MS_DEFAULT,
                     ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, OFFSET_COMMIT_INTERVAL_MS_DOC)
+            .define(PENDING_SEGMENT_TIMEOUT_MS_CONFIG, ConfigDef.Type.LONG, PENDING_SEGMENT_TIMEOUT_MS_DEFAULT,
+                    ConfigDef.Range.atLeast(0), ConfigDef.Importance.LOW, PENDING_SEGMENT_TIMEOUT_MS_DOC)
             .define(READ_BLOCK_BYTES_CONFIG, ConfigDef.Type.INT, READ_BLOCK_BYTES_DEFAULT,
                     ConfigDef.Range.atLeast(1), ConfigDef.Importance.LOW, READ_BLOCK_BYTES_DOC)
             .define(READ_MODE_CONFIG, ConfigDef.Type.STRING, READ_MODE_DEFAULT,
@@ -317,6 +327,10 @@ public class ConverterConfig extends AbstractConfig {
 
     public long offsetCommitIntervalMs() {
         return getLong(OFFSET_COMMIT_INTERVAL_MS_CONFIG);
+    }
+
+    public long pendingSegmentTimeoutMs() {
+        return getLong(PENDING_SEGMENT_TIMEOUT_MS_CONFIG);
     }
 
     public int readBlockBytes() {

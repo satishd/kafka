@@ -97,8 +97,9 @@ public final class Pipeline implements AutoCloseable {
     private volatile boolean writerRunning;
 
     // Test-convenience constructor: exercises decode()/writeSegment() directly without tuning the
-    // async stage. parallelism/queue of 1, no retries.
-    Pipeline(RsmProvider rsmProvider, DeadLetterSink deadLetterSink, SegmentReader reader,
+    // async stage. parallelism/queue of 1, no retries. Public so worker-level tests in a sibling
+    // package can build a discovery/audit-only pipeline; production wiring goes through PipelineFactory.
+    public Pipeline(RsmProvider rsmProvider, DeadLetterSink deadLetterSink, SegmentReader reader,
              RecordDecoder decoder, HudiSegmentWriter writer, OffsetTracker offsetTracker) {
         this(rsmProvider, deadLetterSink, reader, decoder, writer, offsetTracker, 1, 1, 0, 0L);
     }
@@ -131,6 +132,25 @@ public final class Pipeline implements AutoCloseable {
 
     public ConverterMetrics metrics() {
         return metrics;
+    }
+
+    /**
+     * Write a segment-level audit row for an abandoned segment (evicted after the pending timeout, or
+     * deleted before it finished) to the dead-letter sink, when one is configured. In discovery- or
+     * fetch-only modes there is no sink, so this is a no-op and the caller's metric/log is the only
+     * trace. Metric counting and the WARN log are the caller's responsibility (the cause and its
+     * detail live there).
+     */
+    public void auditAbandonedSegment(RemoteLogSegmentMetadata segment, String reason) {
+        if (deadLetterSink == null) {
+            return;
+        }
+        deadLetterSink.recordAbandonedSegment(
+                segment.topicIdPartition().toString(),
+                segment.remoteLogSegmentId().id().toString(),
+                segment.startOffset(),
+                segment.endOffset(),
+                reason);
     }
 
     /** Start the decode pool and single writer thread. Call once before {@link #process}. */

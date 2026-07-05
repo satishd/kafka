@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -94,5 +95,98 @@ public class SegmentAssemblerTest {
 
         assertTrue(assembler.accept(deleteStarted).isEmpty());
         assertEquals(0, assembler.pendingCount());
+    }
+
+    @Test
+    public void deleteOfPendingSegmentIsDrainedForAudit() {
+        SegmentAssembler assembler = new SegmentAssembler();
+        RemoteLogSegmentId id = RemoteLogSegmentId.generateNew(tp);
+        assembler.accept(startedSegment(id));
+
+        RemoteLogSegmentMetadataUpdate deleteStarted = new RemoteLogSegmentMetadataUpdate(
+                id, 3000L, Optional.empty(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, 1);
+        assembler.accept(deleteStarted);
+
+        List<RemoteLogSegmentMetadata> abandoned = assembler.drainAbandoned();
+        assertEquals(1, abandoned.size());
+        assertEquals(id, abandoned.get(0).remoteLogSegmentId());
+        assertEquals(0, assembler.pendingCount());
+        assertTrue(assembler.drainAbandoned().isEmpty(), "Draining clears the buffer");
+    }
+
+    @Test
+    public void retentionDeleteOfUnknownSegmentIsNotAudited() {
+        SegmentAssembler assembler = new SegmentAssembler();
+        RemoteLogSegmentId id = RemoteLogSegmentId.generateNew(tp);
+
+        // No started record was ever tracked (already-finished-and-dropped, or joined mid-stream):
+        // a DELETE must not be mistaken for a deleted-before-ingest segment.
+        RemoteLogSegmentMetadataUpdate deleteStarted = new RemoteLogSegmentMetadataUpdate(
+                id, 3000L, Optional.empty(), RemoteLogSegmentState.DELETE_SEGMENT_STARTED, 1);
+
+        assertTrue(assembler.accept(deleteStarted).isEmpty());
+        assertTrue(assembler.drainAbandoned().isEmpty());
+    }
+
+    @Test
+    public void evictStaleRemovesEntriesOlderThanTimeout() {
+        AtomicLong now = new AtomicLong(0);
+        SegmentAssembler assembler = new SegmentAssembler(now::get);
+        RemoteLogSegmentId id = RemoteLogSegmentId.generateNew(tp);
+        assembler.accept(startedSegment(id));
+
+        now.addAndGet(5_000L);
+        List<RemoteLogSegmentMetadata> evicted = assembler.evictStale(1_000L);
+
+        assertEquals(1, evicted.size());
+        assertEquals(id, evicted.get(0).remoteLogSegmentId());
+        assertEquals(0, assembler.pendingCount());
+    }
+
+    @Test
+    public void evictStaleKeepsEntriesYoungerThanTimeout() {
+        AtomicLong now = new AtomicLong(0);
+        SegmentAssembler assembler = new SegmentAssembler(now::get);
+        assembler.accept(startedSegment(RemoteLogSegmentId.generateNew(tp)));
+
+        now.addAndGet(500L);
+        assertTrue(assembler.evictStale(1_000L).isEmpty());
+        assertEquals(1, assembler.pendingCount());
+    }
+
+    @Test
+    public void evictStaleIsDisabledForNonPositiveTimeout() {
+        AtomicLong now = new AtomicLong(0);
+        SegmentAssembler assembler = new SegmentAssembler(now::get);
+        assembler.accept(startedSegment(RemoteLogSegmentId.generateNew(tp)));
+
+        now.addAndGet(1_000_000L);
+        assertTrue(assembler.evictStale(0L).isEmpty());
+        assertTrue(assembler.evictStale(-1L).isEmpty());
+        assertEquals(1, assembler.pendingCount());
+    }
+
+    @Test
+    public void firstSeenPreservedAcrossReObservation() {
+        AtomicLong now = new AtomicLong(0);
+        SegmentAssembler assembler = new SegmentAssembler(now::get);
+        RemoteLogSegmentId id = RemoteLogSegmentId.generateNew(tp);
+
+        assembler.accept(startedSegment(id));   // first seen at t=0
+        now.addAndGet(5_000L);
+        assembler.accept(startedSegment(id));   // re-observed at t=5000; first-seen must stay t=0
+        now.addAndGet(1_000L);                  // now t=6000
+
+        // Age from the ORIGINAL first-seen (6000) exceeds the timeout; a reset to t=5000 (age 1000)
+        // would not. Eviction proves the first-seen time was preserved.
+        assertEquals(1, assembler.evictStale(4_000L).size());
+        assertEquals(0, assembler.pendingCount());
+    }
+
+    private RemoteLogSegmentMetadata startedSegment(RemoteLogSegmentId id) {
+        return new RemoteLogSegmentMetadata(
+                id, 0L, 99L, -1L, 1, 1000L, 1024,
+                Optional.empty(), RemoteLogSegmentState.COPY_SEGMENT_STARTED,
+                Collections.singletonMap(0, 0L));
     }
 }

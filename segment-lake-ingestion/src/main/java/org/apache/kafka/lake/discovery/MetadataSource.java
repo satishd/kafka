@@ -19,6 +19,7 @@ package org.apache.kafka.lake.discovery;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
 import java.io.Closeable;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -39,10 +40,33 @@ public interface MetadataSource extends Closeable {
     /**
      * @return number of segments seen started but not yet finished. While this is non-zero the
      *         current read position is <b>not</b> safe to commit, because reconstructing those
-     *         segments on restart depends on records at or before the read position.
+     *         segments on restart depends on records at or before the read position. This no longer
+     *         stays non-zero forever for an abandoned segment: {@link #evictStale(long)} reclaims
+     *         entries whose finalizing update never arrives, and {@link #drainAbandoned()} reclaims
+     *         entries cleared by a {@code DELETE_*}.
      */
     default int pendingCount() {
         return 0;
+    }
+
+    /**
+     * Evict segments that have been pending (started but neither finished nor deleted) longer than
+     * {@code maxAgeMs}, treating them as abandoned so they stop leaking memory and holding back
+     * offset commits.
+     *
+     * @param maxAgeMs maximum time a segment may stay pending; {@code <= 0} disables eviction.
+     * @return the evicted segments, for the caller to count and audit. Empty by default.
+     */
+    default List<RemoteLogSegmentMetadata> evictStale(long maxAgeMs) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * @return started segments cleared by a {@code DELETE_*} since the previous call (deleted before
+     *         they were ever finished/ingested), for the caller to audit. Empty by default.
+     */
+    default List<RemoteLogSegmentMetadata> drainAbandoned() {
+        return Collections.emptyList();
     }
 
     /**

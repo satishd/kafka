@@ -72,6 +72,22 @@ public class FileDeadLetterSink implements DeadLetterSink {
     }
 
     @Override
+    public synchronized void recordAbandonedSegment(String topicPartition, String segmentId,
+                                                    long startOffset, long endOffset, String reason) {
+        // Leading SEGMENT tag distinguishes these segment-level audit rows from per-record rows.
+        String line = "SEGMENT\t" + System.currentTimeMillis() + "\t" + topicPartition + "\t" + segmentId
+                + "\t" + startOffset + "\t" + endOffset + "\t"
+                + reason.replace("\t", " ").replace("\n", " ");
+        try {
+            writer.write(line);
+            writer.newLine();
+            writer.flush();
+        } catch (IOException e) {
+            LOG.error("Failed to write dead-letter segment audit for {} {}", topicPartition, segmentId, e);
+        }
+    }
+
+    @Override
     public synchronized void close() throws IOException {
         writer.close();
     }

@@ -35,6 +35,8 @@ public class ConverterMetrics {
     private final AtomicLong segmentsProcessed = new AtomicLong();
     private final AtomicLong segmentsSkipped = new AtomicLong();
     private final AtomicLong segmentsFailed = new AtomicLong();
+    private final AtomicLong segmentsEvicted = new AtomicLong();
+    private final AtomicLong segmentsAbortedByDelete = new AtomicLong();
     private final AtomicLong writeRetries = new AtomicLong();
     private final AtomicLong recordsWritten = new AtomicLong();
     private final AtomicLong recordsDeadLettered = new AtomicLong();
@@ -50,6 +52,26 @@ public class ConverterMetrics {
 
     public void segmentFailed() {
         segmentsFailed.incrementAndGet();
+    }
+
+    /** A segment stuck in COPY_SEGMENT_STARTED that was evicted after exceeding the pending timeout. */
+    public void segmentEvicted() {
+        segmentsEvicted.incrementAndGet();
+    }
+
+    /** A still-pending (never finished) segment that was deleted before it could be ingested. */
+    public void segmentAbortedByDelete() {
+        segmentsAbortedByDelete.incrementAndGet();
+    }
+
+    /** @return count of segments evicted after exceeding the pending timeout. */
+    public long segmentsEvicted() {
+        return segmentsEvicted.get();
+    }
+
+    /** @return count of still-pending segments deleted before they could be ingested. */
+    public long segmentsAbortedByDelete() {
+        return segmentsAbortedByDelete.get();
     }
 
     /** A single failed Hudi write attempt for a segment that will be retried. */
@@ -71,8 +93,10 @@ public class ConverterMetrics {
 
     public void logSummary() {
         LOG.info("Converter metrics: segmentsProcessed={} segmentsSkipped={} segmentsFailed={} "
-                        + "writeRetries={} recordsWritten={} recordsDeadLettered={} commitLatencyMsTotal={}",
-                segmentsProcessed.get(), segmentsSkipped.get(), segmentsFailed.get(), writeRetries.get(),
-                recordsWritten.get(), recordsDeadLettered.get(), commitLatencyMsTotal.get());
+                        + "segmentsEvicted={} segmentsAbortedByDelete={} writeRetries={} recordsWritten={} "
+                        + "recordsDeadLettered={} commitLatencyMsTotal={}",
+                segmentsProcessed.get(), segmentsSkipped.get(), segmentsFailed.get(), segmentsEvicted.get(),
+                segmentsAbortedByDelete.get(), writeRetries.get(), recordsWritten.get(),
+                recordsDeadLettered.get(), commitLatencyMsTotal.get());
     }
 }

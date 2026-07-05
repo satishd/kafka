@@ -21,6 +21,33 @@ For each partition, `ConverterWorker` tails `__remote_log_metadata` (via a plain
 
 Up to `max.concurrent.segments` segments are processed concurrently.
 
+### Reclaiming abandoned segments
+
+A segment is published first as `COPY_SEGMENT_STARTED` and only later finalized by a
+`COPY_SEGMENT_FINISHED` update that carries the remote location; the `SegmentAssembler` must retain
+the started record until the finish arrives (the finish update alone lacks the segment's
+offsets/size/leader epochs). Offset commits are gated on this pending set — the worker commits only
+at a quiescent checkpoint with nothing half-assembled — so a segment whose `FINISHED` never arrives
+(leader crash mid-copy, aborted copy, lost update record) would otherwise sit in the pending map
+forever: a slow memory leak **and** a permanent, silent offset-commit stall.
+
+Two mechanisms bound this so "indefinitely" becomes "bounded, then self-heals":
+
+- **Delete-before-ingest reclaim** — the common leader-crash path, where the new leader's cleanup
+  deletes the orphan. A `DELETE_*` clearing a still-pending entry drops it immediately and surfaces
+  it for audit (`segmentsAbortedByDelete`).
+- **Timeout eviction** — the backstop for orphans that never receive a `DELETE_*`. An entry pending
+  longer than `pending.segment.timeout.ms` (default 6h; `0` disables) is evicted so the pending
+  count returns to 0 and commits resume (`segmentsEvicted`).
+
+Both are surfaced via a metric, a WARN log, and a segment-level audit row in the dead-letter file
+(distinguishable from per-record rows by a leading `SEGMENT` tag). Eviction is safe for
+exactly-once: a genuinely abandoned copy is re-copied by the broker under a new segment id, and
+`OffsetTracker`'s `endOffset <= highWater` dedup prevents any double-write. The only residual risk
+is a segment that legitimately finishes *after* the timeout, so keep `pending.segment.timeout.ms`
+comfortably above the broker's maximum segment copy time (copies complete in minutes; the default is
+hours).
+
 ### Topic selection
 
 `topics.allowlist` is **required and must be non-empty**: it is the comma-separated set of topics to
@@ -60,9 +87,10 @@ the design doc's config reference table for the full list of keys.
 
 ## Metrics
 
-`ConverterMetrics` counts segments processed/skipped/failed, records written/dead-lettered, and
-cumulative commit latency, logged every 60s and once more at shutdown. No external metrics backend
-(JMX/M3) is wired up yet — that depends on how this worker is deployed and is left to the pilot.
+`ConverterMetrics` counts segments processed/skipped/failed, segments evicted after the pending
+timeout / aborted by a delete-before-ingest, records written/dead-lettered, and cumulative commit
+latency, logged every 60s and once more at shutdown. No external metrics backend (JMX/M3) is wired
+up yet — that depends on how this worker is deployed and is left to the pilot.
 
 ## Out of scope for this module
 
